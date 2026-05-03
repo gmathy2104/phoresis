@@ -104,8 +104,11 @@ indent-style = "space"
 DJANGO_SETTINGS_MODULE = "phoresis.settings.test"
 python_files = ["test_*.py", "*_test.py"]
 pythonpath = ["src"]
-addopts = ["--strict-markers", "-ra"]
-testpaths = ["src"]
+addopts = ["--strict-markers", "-ra", "-m", "not e2e"]
+testpaths = ["src", "tests/e2e"]
+markers = [
+    "e2e: end-to-end tests requiring a live server + browser (slow; opt in with -m e2e)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
