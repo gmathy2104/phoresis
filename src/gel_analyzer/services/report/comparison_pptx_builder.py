@@ -1,0 +1,791 @@
+"""
+PowerPoint builder for gel lane comparison reports.
+
+Generates 16:9 .pptx presentations with GSK orange branding using python-pptx.
+"""
+
+from io import BytesIO
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
+
+from phoresis_core.logging_config import get_logger
+
+from .comparison_data_collector import ComparisonReportData
+from .constants import (
+    GSK_LOGO_PATH,
+)
+
+logger = get_logger(__name__)
+
+# GSK branding
+_ORANGE = RGBColor(0xF4, 0x79, 0x20)
+_ORANGE_DARK = RGBColor(0xD0, 0x62, 0x10)
+_WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+_DARK = RGBColor(0x33, 0x33, 0x33)
+_GREY = RGBColor(0x6C, 0x75, 0x7D)
+_GREY_LIGHT = RGBColor(0xF8, 0xF9, 0xFA)
+_TABLE_HEADER_BG = RGBColor(0xF4, 0x79, 0x20)
+_TABLE_ALT_BG = RGBColor(0xFD, 0xF0, 0xE6)
+
+# Sections not applicable to PowerPoint
+_PPTX_SKIP_SECTIONS = set()  # All sections can produce slides
+
+
+class ComparisonPowerPointBuilder:
+    """
+    Generates a 16:9 PowerPoint presentation for Lane Comparison reports
+    with GSK orange branding.
+    """
+
+    def __init__(
+        self,
+        data: ComparisonReportData,
+        sections: list[str] | None = None,
+        band_overlay: bool = True,
+    ):
+        self.data = data
+        self.sections = sections
+        self.band_overlay = band_overlay
+        self.prs = Presentation()
+        self.prs.slide_width = Inches(13.33)
+        self.prs.slide_height = Inches(7.5)
+        self.blank_layout = self.prs.slide_layouts[6]
+        self.slide_number = 0
+
+    def _should_include(self, section_key: str) -> bool:
+        if section_key in _PPTX_SKIP_SECTIONS:
+            return False
+        if self.sections is None:
+            return True
+        return section_key in self.sections
+
+    # ── Shared helpers ────────────────────────────────────────────
+
+    def _new_slide(self):
+        slide = self.prs.slides.add_slide(self.blank_layout)
+        self.slide_number += 1
+        return slide
+
+    def _add_header_bar(self, slide, title: str, height: float = 1.0):
+        """Add orange header bar with title text."""
+        header = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0),
+            Inches(0),
+            Inches(13.33),
+            Inches(height),
+        )
+        header.fill.solid()
+        header.fill.fore_color.rgb = _ORANGE
+        header.line.fill.background()
+
+        # Accent line below
+        accent = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0),
+            Inches(height),
+            Inches(13.33),
+            Inches(0.08),
+        )
+        accent.fill.solid()
+        accent.fill.fore_color.rgb = _ORANGE_DARK
+        accent.line.fill.background()
+
+        # Title text in header
+        txbox = slide.shapes.add_textbox(
+            Inches(0.5),
+            Inches(0.15),
+            Inches(12),
+            Inches(height - 0.2),
+        )
+        tf = txbox.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = title
+        p.font.size = Pt(28)
+        p.font.bold = True
+        p.font.color.rgb = _WHITE
+        p.font.name = "GSKPrecision"
+        p.alignment = PP_ALIGN.LEFT
+
+    def _add_slide_number(self, slide):
+        txbox = slide.shapes.add_textbox(
+            Inches(12.5),
+            Inches(7.1),
+            Inches(0.7),
+            Inches(0.3),
+        )
+        p = txbox.text_frame.paragraphs[0]
+        p.text = str(self.slide_number)
+        p.font.size = Pt(10)
+        p.font.color.rgb = _GREY
+        p.alignment = PP_ALIGN.RIGHT
+
+    def _add_kv_table(self, slide, data: list[tuple], top: float = 1.5):
+        """Add key-value pairs as a two-column table."""
+        rows = len(data)
+        table_shape = slide.shapes.add_table(
+            rows,
+            2,
+            Inches(0.5),
+            Inches(top),
+            Inches(8),
+            Inches(rows * 0.45),
+        )
+        table = table_shape.table
+        table.columns[0].width = Inches(2.5)
+        table.columns[1].width = Inches(5.5)
+
+        for i, (label, value) in enumerate(data):
+            lc = table.cell(i, 0)
+            lc.text = str(label)
+            for p in lc.text_frame.paragraphs:
+                p.font.size = Pt(12)
+                p.font.bold = True
+                p.font.color.rgb = _GREY
+                p.font.name = "GSKPrecision"
+
+            vc = table.cell(i, 1)
+            vc.text = str(value) if value else ""
+            for p in vc.text_frame.paragraphs:
+                p.font.size = Pt(12)
+                p.font.color.rgb = _DARK
+                p.font.name = "GSKPrecision Thin"
+
+    def _add_data_table(self, slide, headers, rows, top=1.5, max_rows=15):
+        """Add a data table with orange headers. Returns number of rows written."""
+        display_rows = rows[:max_rows]
+        n_rows = len(display_rows) + 1
+        n_cols = len(headers)
+
+        col_width = min(2.0, 12.0 / max(n_cols, 1))
+        table_width = col_width * n_cols
+
+        table_shape = slide.shapes.add_table(
+            n_rows,
+            n_cols,
+            Inches(0.5),
+            Inches(top),
+            Inches(table_width),
+            Inches(n_rows * 0.38),
+        )
+        table = table_shape.table
+
+        # Headers
+        for j, h in enumerate(headers):
+            cell = table.cell(0, j)
+            cell.text = str(h)
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = _TABLE_HEADER_BG
+            for p in cell.text_frame.paragraphs:
+                p.font.size = Pt(10)
+                p.font.bold = True
+                p.font.color.rgb = _WHITE
+                p.font.name = "GSKPrecision"
+                p.alignment = PP_ALIGN.CENTER
+
+        # Data
+        for i, row_data in enumerate(display_rows):
+            for j, val in enumerate(row_data):
+                cell = table.cell(i + 1, j)
+                cell.text = str(val) if val is not None else ""
+                if i % 2 == 1:
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = _TABLE_ALT_BG
+                for p in cell.text_frame.paragraphs:
+                    p.font.size = Pt(9)
+                    p.font.color.rgb = _DARK
+                    p.font.name = "GSKPrecision Thin"
+
+        return len(display_rows)
+
+    def _add_image_to_slide(self, slide, image_buf, top=1.5, max_width=11.0, max_height=5.5):
+        """Add an image centered on the slide."""
+        if not image_buf:
+            return
+        from PIL import Image as PILImage
+
+        image_buf.seek(0)
+        img = PILImage.open(image_buf)
+        w, h = img.size
+        aspect = w / h
+
+        if aspect > max_width / max_height:
+            display_w = max_width
+            display_h = display_w / aspect
+        else:
+            display_h = max_height
+            display_w = display_h * aspect
+
+        left = (13.33 - display_w) / 2
+        image_buf.seek(0)
+        slide.shapes.add_picture(
+            image_buf,
+            Inches(left),
+            Inches(top),
+            Inches(display_w),
+            Inches(display_h),
+        )
+
+    # ── Slide builders ────────────────────────────────────────────
+
+    def _add_title_slide(self):
+        slide = self._new_slide()
+
+        # Large header bar
+        header = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0),
+            Inches(0),
+            Inches(13.33),
+            Inches(2.8),
+        )
+        header.fill.solid()
+        header.fill.fore_color.rgb = _ORANGE
+        header.line.fill.background()
+
+        accent = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0),
+            Inches(2.8),
+            Inches(13.33),
+            Inches(0.08),
+        )
+        accent.fill.solid()
+        accent.fill.fore_color.rgb = _ORANGE_DARK
+        accent.line.fill.background()
+
+        # Logo
+        try:
+            logo_path = Path(__file__).resolve().parents[3] / GSK_LOGO_PATH
+            if logo_path.exists():
+                slide.shapes.add_picture(
+                    str(logo_path),
+                    Inches(10.5),
+                    Inches(0.3),
+                    Inches(2.2),
+                )
+        except Exception as e:
+            logger.warning(f"Failed to add logo to PPTX: {e}")
+
+        # Title
+        txbox = slide.shapes.add_textbox(
+            Inches(0.8),
+            Inches(0.5),
+            Inches(9),
+            Inches(1.2),
+        )
+        tf = txbox.text_frame
+        p = tf.paragraphs[0]
+        p.text = "Lane Comparison Report"
+        p.font.size = Pt(44)
+        p.font.bold = True
+        p.font.color.rgb = _WHITE
+        p.font.name = "GSKPrecision"
+
+        # Subtitle (comparison name)
+        txbox2 = slide.shapes.add_textbox(
+            Inches(0.8),
+            Inches(1.8),
+            Inches(9),
+            Inches(0.8),
+        )
+        p2 = txbox2.text_frame.paragraphs[0]
+        p2.text = self.data.name
+        p2.font.size = Pt(22)
+        p2.font.color.rgb = RGBColor(0xFF, 0xE0, 0xC0)
+        p2.font.name = "GSKPrecision"
+
+        # Info below header
+        gel_types = ", ".join(self.data.gel_types) if self.data.gel_types else "Mixed"
+        info_lines = [
+            f"Lanes: {self.data.lane_count}  |  Gel Types: {gel_types}  |  "
+            f"Calibrated: {self.data.calibrated_count}/{self.data.lane_count}",
+            f"Created by: {self.data.created_by_name}  |  {self.data.created_at}",
+            f"Report generated: {self.data.report_generated_at}  |  By: {self.data.report_generated_by}",
+        ]
+
+        y = 3.3
+        for line in info_lines:
+            txbox = slide.shapes.add_textbox(
+                Inches(0.8),
+                Inches(y),
+                Inches(11),
+                Inches(0.35),
+            )
+            p = txbox.text_frame.paragraphs[0]
+            p.text = line
+            p.font.size = Pt(13)
+            p.font.color.rgb = _GREY
+            p.font.name = "GSKPrecision Thin"
+            y += 0.45
+
+    def _add_overview_slide(self):
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Comparison Overview")
+
+        gel_types_str = ", ".join(self.data.gel_types) if self.data.gel_types else "Mixed"
+        calibration_status = (
+            f"All lanes calibrated ({self.data.calibrated_count})"
+            if self.data.all_calibrated
+            else f"{self.data.calibrated_count} of {self.data.lane_count} lanes calibrated"
+        )
+
+        data = [
+            ("Name", self.data.name),
+            ("Description", self.data.description or "N/A"),
+            ("Lane Count", str(self.data.lane_count)),
+            ("Gel Types", gel_types_str),
+            ("Calibration", calibration_status),
+            ("Created By", self.data.created_by_name),
+            ("Created Date", self.data.created_at),
+            ("Public", "Yes" if self.data.is_public else "No"),
+        ]
+        self._add_kv_table(slide, data)
+        self._add_slide_number(slide)
+
+    def _add_sample_summary_slides(self):
+        headers = ["#", "Sample", "Gel Type", "Lane #", "Condition", "Load (µg)", "Purity (%)", "Notes"]
+        rows = []
+        for i, lane in enumerate(self.data.lanes, 1):
+            purity_str = f"{lane.poi_percentage:.1f}" if lane.poi_percentage is not None else "-"
+            load_str = ""
+            if lane.protein_load_ug is not None:
+                load_str = f"{lane.protein_load_ug:.1f}"
+            rows.append(
+                [
+                    str(i),
+                    lane.sample_name,
+                    lane.gel_type,
+                    str(lane.lane_number),
+                    lane.condition or "-",
+                    load_str,
+                    purity_str,
+                    (lane.notes[:25] + "...") if lane.notes and len(lane.notes) > 25 else (lane.notes or "-"),
+                ]
+            )
+
+        # Paginate at 12 rows per slide
+        page_size = 12
+        for offset in range(0, len(rows), page_size):
+            slide = self._new_slide()
+            page_rows = rows[offset : offset + page_size]
+            page_num = offset // page_size + 1
+            title = "Sample Summary"
+            if len(rows) > page_size:
+                title += f" (Page {page_num})"
+            self._add_header_bar(slide, title)
+            self._add_data_table(slide, headers, page_rows)
+            self._add_slide_number(slide)
+
+    def _add_digital_gel_slide(self):
+        """Add side-by-side digital gel image slide."""
+        from .comparison_builder import ComparisonReportBuilder
+
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Side-by-Side Digital Gel")
+
+        # Reuse the Word builder's render method
+        builder = ComparisonReportBuilder.__new__(ComparisonReportBuilder)
+        builder.data = self.data
+        digital_buf = builder._render_digital_gel(self.data.lanes)
+
+        if digital_buf:
+            self._add_image_to_slide(slide, digital_buf, top=1.5)
+        else:
+            txbox = slide.shapes.add_textbox(
+                Inches(4),
+                Inches(3.5),
+                Inches(5),
+                Inches(0.5),
+            )
+            txbox.text_frame.paragraphs[0].text = "No digital gel data available"
+            txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
+
+        self._add_slide_number(slide)
+
+    def _add_poi_purity_slide(self):
+        from .poi_purity_chart import render_poi_purity_chart
+
+        slide = self._new_slide()
+        self._add_header_bar(slide, "POI Purity")
+
+        purity_data = [
+            {
+                "label": lane.sample_name or f"Lane {lane.lane_number}",
+                "purity": lane.poi_percentage,
+            }
+            for lane in self.data.lanes
+        ]
+        chart_buf = render_poi_purity_chart(
+            purity_data,
+            figsize=(10, 4.5),
+            dpi=150,
+            dark_theme=False,
+        )
+        if chart_buf:
+            self._add_image_to_slide(slide, chart_buf, top=1.4, max_height=5.8)
+        else:
+            txbox = slide.shapes.add_textbox(
+                Inches(4),
+                Inches(3.5),
+                Inches(5),
+                Inches(0.5),
+            )
+            txbox.text_frame.paragraphs[0].text = "No purity data available"
+            txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
+
+        self._add_slide_number(slide)
+
+    def _add_band_comparison_slides(self):
+        """Add MW-clustered band comparison table slides."""
+        from .comparison_builder import ComparisonReportBuilder
+
+        builder = ComparisonReportBuilder.__new__(ComparisonReportBuilder)
+        builder.data = self.data
+        clusters = builder._cluster_bands_by_mw(self.data.mw_tolerance_pct)
+
+        if not clusters:
+            slide = self._new_slide()
+            self._add_header_bar(slide, "Band Comparison")
+            txbox = slide.shapes.add_textbox(
+                Inches(4),
+                Inches(3.5),
+                Inches(5),
+                Inches(0.5),
+            )
+            txbox.text_frame.paragraphs[0].text = "No calibrated bands for MW comparison"
+            txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
+            self._add_slide_number(slide)
+            return
+
+        headers = ["MW (kDa)"] + [lane.sample_name[:20] for lane in self.data.lanes]
+        rows = []
+        for cluster in clusters:
+            row = [f"{cluster['mw']:.1f}"]
+            for lane_idx in range(len(self.data.lanes)):
+                band = cluster["bands"].get(lane_idx)
+                if band and band["pct_lane"] is not None:
+                    row.append(f"{band['pct_lane']:.1f}%")
+                else:
+                    row.append("-")
+            rows.append(row)
+
+        page_size = 15
+        for offset in range(0, len(rows), page_size):
+            slide = self._new_slide()
+            page_rows = rows[offset : offset + page_size]
+            title = "Band Comparison"
+            if len(rows) > page_size:
+                title += f" (Page {offset // page_size + 1})"
+            self._add_header_bar(slide, title)
+            self._add_data_table(slide, headers, page_rows)
+            self._add_slide_number(slide)
+
+    def _add_lane_detail_slides(self):
+        """Add one slide per lane with summary and electropherogram."""
+        from .comparison_builder import ComparisonReportBuilder
+
+        for i, lane in enumerate(self.data.lanes):
+            slide = self._new_slide()
+            self._add_header_bar(
+                slide,
+                f"Lane {i + 1}: {lane.sample_name}",
+            )
+
+            # Summary info (left side)
+            purity_str = f"{lane.poi_percentage:.1f}%" if lane.poi_percentage is not None else "N/A"
+            info = [
+                ("Source", lane.analysis_name[:30]),
+                ("Gel Type", lane.gel_type),
+                ("Lane #", str(lane.lane_number)),
+                ("Condition", lane.condition or "N/A"),
+                ("Purity", purity_str),
+                ("Bands", f"{lane.band_count} ({lane.poi_band_count} POI)" if lane.band_count else "N/A"),
+            ]
+
+            y = 1.4
+            for label, value in info:
+                txbox = slide.shapes.add_textbox(
+                    Inches(0.5),
+                    Inches(y),
+                    Inches(4),
+                    Inches(0.3),
+                )
+                p = txbox.text_frame.paragraphs[0]
+                run = p.add_run()
+                run.text = f"{label}: "
+                run.font.bold = True
+                run.font.size = Pt(11)
+                run.font.color.rgb = _GREY
+                run.font.name = "GSKPrecision"
+                run2 = p.add_run()
+                run2.text = value
+                run2.font.size = Pt(11)
+                run2.font.color.rgb = _DARK
+                run2.font.name = "GSKPrecision Thin"
+                y += 0.35
+
+            # Electropherogram (right side)
+            try:
+                builder = ComparisonReportBuilder.__new__(ComparisonReportBuilder)
+                builder.data = self.data
+                chart_buf = builder._render_electropherogram(lane, index=i)
+                if chart_buf:
+                    chart_buf.seek(0)
+                    slide.shapes.add_picture(
+                        chart_buf,
+                        Inches(5.5),
+                        Inches(1.3),
+                        Inches(7.5),
+                        Inches(3.0),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to render lane {i + 1} electropherogram for PPTX: {e}")
+
+            # Band table below
+            if lane.bands:
+                band_headers = ["#", "Type", "MW (kDa)", "Area", "% Lane"]
+                band_rows = []
+                for band in lane.bands:
+                    band_rows.append(
+                        [
+                            str(band.band_number) if band.band_number else "-",
+                            band.band_type,
+                            f"{band.estimated_mw_kda:.1f}" if band.estimated_mw_kda else "-",
+                            f"{band.corrected_area:.0f}" if band.corrected_area else "-",
+                            f"{band.relative_percent_lane:.1f}" if band.relative_percent_lane is not None else "-",
+                        ]
+                    )
+                self._add_data_table(slide, band_headers, band_rows, top=4.8, max_rows=8)
+
+            self._add_slide_number(slide)
+
+    def _add_gel_images_slide(self):
+        """Add reconstructed gel images slide with optional band overlays."""
+        from .comparison_builder import ComparisonReportBuilder
+
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Gel Images")
+
+        # Reuse the Word builder's reconstructed gel renderer
+        builder = ComparisonReportBuilder.__new__(ComparisonReportBuilder)
+        builder.data = self.data
+        gel_buf = builder._render_reconstructed_gel(self.data.lanes, show_bands=self.band_overlay)
+
+        if gel_buf:
+            self._add_image_to_slide(slide, gel_buf, top=1.5)
+        else:
+            txbox = slide.shapes.add_textbox(
+                Inches(4),
+                Inches(3.5),
+                Inches(5),
+                Inches(0.5),
+            )
+            txbox.text_frame.paragraphs[0].text = "No gel images available"
+            txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
+
+        self._add_slide_number(slide)
+
+    def _add_gel_table_slide(self):
+        """Add combined slide with reconstructed gel image (left) and sample summary table (right)."""
+        from .comparison_builder import ComparisonReportBuilder
+
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Gel Overview & Sample Summary", height=0.8)
+
+        # --- Left side: Reconstructed gel image ---
+        builder = ComparisonReportBuilder.__new__(ComparisonReportBuilder)
+        builder.data = self.data
+        gel_buf = builder._render_reconstructed_gel(self.data.lanes, show_bands=self.band_overlay)
+
+        # Layout: gel takes left ~55%, table takes right ~45%
+        gel_left = 0.3
+        gel_max_width = 6.8
+        gel_max_height = 6.0
+        table_left = 7.4
+        table_width = 5.6
+
+        if gel_buf:
+            from PIL import Image as PILImage
+
+            gel_buf.seek(0)
+            img = PILImage.open(gel_buf)
+            w, h = img.size
+            aspect = w / h
+
+            if aspect > gel_max_width / gel_max_height:
+                display_w = gel_max_width
+                display_h = display_w / aspect
+            else:
+                display_h = gel_max_height
+                display_w = display_h * aspect
+
+            gel_buf.seek(0)
+            slide.shapes.add_picture(
+                gel_buf,
+                Inches(gel_left),
+                Inches(1.0),
+                Inches(display_w),
+                Inches(display_h),
+            )
+
+        # --- Right side: Compact sample summary table ---
+        headers = ["#", "Sample", "Type", "Ln", "Purity%"]
+        rows = []
+        for i, lane in enumerate(self.data.lanes, 1):
+            purity_str = f"{lane.poi_percentage:.1f}" if lane.poi_percentage is not None else "-"
+            rows.append(
+                [
+                    str(i),
+                    (lane.sample_name[:18] + "..")
+                    if lane.sample_name and len(lane.sample_name) > 20
+                    else (lane.sample_name or "-"),
+                    (lane.gel_type[:8] if lane.gel_type else "-"),
+                    str(lane.lane_number),
+                    purity_str,
+                ]
+            )
+
+        display_rows = rows[:15]
+        n_rows = len(display_rows) + 1
+        n_cols = len(headers)
+        row_height = 0.28
+        header_font_size = Pt(7)
+        body_font_size = Pt(7)
+
+        table_shape = slide.shapes.add_table(
+            n_rows,
+            n_cols,
+            Inches(table_left),
+            Inches(1.0),
+            Inches(table_width),
+            Inches(n_rows * row_height),
+        )
+        table = table_shape.table
+
+        # Set column widths (proportional)
+        col_widths = [0.3, 2.2, 0.8, 0.4, 0.7]  # total ~4.4 but table stretches to table_width
+        for j, cw in enumerate(col_widths):
+            table.columns[j].width = Inches(cw)
+
+        # Headers
+        for j, h in enumerate(headers):
+            cell = table.cell(0, j)
+            cell.text = str(h)
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = _TABLE_HEADER_BG
+            for p in cell.text_frame.paragraphs:
+                p.font.size = header_font_size
+                p.font.bold = True
+                p.font.color.rgb = _WHITE
+                p.font.name = "GSKPrecision"
+                p.alignment = PP_ALIGN.CENTER
+
+        # Data rows
+        for i, row_data in enumerate(display_rows):
+            for j, val in enumerate(row_data):
+                cell = table.cell(i + 1, j)
+                cell.text = str(val) if val is not None else ""
+                if i % 2 == 1:
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = _TABLE_ALT_BG
+                for p in cell.text_frame.paragraphs:
+                    p.font.size = body_font_size
+                    p.font.color.rgb = _DARK
+                    p.font.name = "GSKPrecision Thin"
+
+        self._add_slide_number(slide)
+
+    def _add_materials_methods_slide(self):
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Materials & Methods")
+
+        from .constants import (
+            METHODOLOGY_CALIBRATION,
+            METHODOLOGY_DENSITOMETRY,
+            METHODOLOGY_PURITY,
+        )
+
+        methods = [("Densitometry Analysis", METHODOLOGY_DENSITOMETRY)]
+        if self.data.calibrated_count > 0:
+            methods.append(("MW Calibration", METHODOLOGY_CALIBRATION))
+        if any(lane.poi_percentage is not None for lane in self.data.lanes):
+            methods.append(("Purity Calculation", METHODOLOGY_PURITY))
+
+        y = 1.5
+        for title, text in methods:
+            # Section title
+            txbox = slide.shapes.add_textbox(
+                Inches(0.5),
+                Inches(y),
+                Inches(12),
+                Inches(0.35),
+            )
+            p = txbox.text_frame.paragraphs[0]
+            p.text = title
+            p.font.size = Pt(13)
+            p.font.bold = True
+            p.font.color.rgb = _ORANGE
+            p.font.name = "GSKPrecision"
+            y += 0.4
+
+            # Body
+            txbox = slide.shapes.add_textbox(
+                Inches(0.5),
+                Inches(y),
+                Inches(12),
+                Inches(1.5),
+            )
+            tf = txbox.text_frame
+            tf.word_wrap = True
+            p = tf.paragraphs[0]
+            p.text = text.strip()
+            p.font.size = Pt(10)
+            p.font.color.rgb = _DARK
+            p.font.name = "GSKPrecision Thin"
+            y += 1.7
+
+        self._add_slide_number(slide)
+
+    # ── Build ─────────────────────────────────────────────────────
+
+    def build(self) -> BytesIO:
+        """Build the complete PowerPoint presentation and return as BytesIO."""
+        logger.info(f"Building Lane Comparison PPTX report for '{self.data.name}'")
+
+        # Title slide always included
+        try:
+            self._add_title_slide()
+        except Exception as e:
+            logger.error(f"Failed to add title slide: {e}")
+
+        slide_map = [
+            ("overview", self._add_overview_slide, "overview"),
+            ("sample_summary", self._add_sample_summary_slides, "sample summary"),
+            ("gel_images", self._add_gel_table_slide, "gel overview & table"),
+            ("digital_gel", self._add_digital_gel_slide, "digital gel"),
+            ("poi_purity", self._add_poi_purity_slide, "POI purity"),
+            ("band_comparison", self._add_band_comparison_slides, "band comparison"),
+            ("lane_details", self._add_lane_detail_slides, "lane details"),
+            ("materials_methods", self._add_materials_methods_slide, "materials & methods"),
+        ]
+
+        for key, method, desc in slide_map:
+            if self._should_include(key):
+                try:
+                    method()
+                except Exception as e:
+                    logger.error(f"Failed to add PPTX slide '{desc}': {e}")
+
+        buf = BytesIO()
+        self.prs.save(buf)
+        buf.seek(0)
+
+        logger.info(f"Lane Comparison PPTX report built for '{self.data.name}'")
+        return buf
