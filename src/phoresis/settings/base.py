@@ -31,7 +31,8 @@ INSTALLED_APPS = [
     # Phoresis apps
     "phoresis_core",
     "accounts",
-    # dashboard (Task 11), phoresis_ui (Task 12) appended later.
+    "dashboard",
+    # phoresis_ui (Task 12) appended later.
 ]
 
 MIDDLEWARE = [

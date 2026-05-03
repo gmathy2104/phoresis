@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Phoresis — Dashboard</title>
+</head>
+<body>
+    <header>
+        <h1>Phoresis</h1>
+        <nav>
+            Welcome, {{ user }}.
+            <a href="{% url 'accounts:profile' %}">Profile</a>
+            <form method="post" action="{% url 'accounts:logout' %}" style="display:inline">
+                {% csrf_token %}
+                <button type="submit">Sign out</button>
+            </form>
+        </nav>
+    </header>
+    <main>
+        <p>Welcome to Phoresis. Phase 1 bootstrap is live — the full dashboard arrives in Phase 3.</p>
+    </main>
+</body>
+</html>
