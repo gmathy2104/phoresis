@@ -1,19 +1,48 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="en" data-theme="auto">
+{% load static %}<!DOCTYPE html>
+<html lang="{{ request.user.profile.language|default:'en' }}"
+      data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.theme|default:'auto' }}{% else %}auto{% endif %}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Phoresis{% endblock %}</title>
+
+    <link rel="icon" type="image/x-icon" href="{% static 'phoresis_ui/icons/phoresis.ico' %}">
+    <link rel="icon" type="image/svg+xml" href="{% static 'phoresis_ui/icons/phoresis.svg' %}">
+    <link rel="apple-touch-icon" href="{% static 'phoresis_ui/icons/apple-touch-icon.png' %}">
+    <link rel="mask-icon" href="{% static 'phoresis_ui/icons/mask-icon.svg' %}" color="#3b82f6">
+
+    <link rel="stylesheet" href="{% static 'phoresis_ui/css/output.css' %}">
+
+    <script>
+      /* Inline theme application — runs before paint to avoid the dark/light flash. */
+      (function () {
+        const stored = localStorage.getItem("phoresis_theme");
+        const initial = stored || document.documentElement.getAttribute("data-theme") || "auto";
+        const resolved = initial === "auto"
+          ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : initial;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.dataset.userTheme = initial;
+      })();
+    </script>
+
     {% block head %}{% endblock %}
 </head>
-<body>
-    <header>
-        <h1>Phoresis</h1>
-    </header>
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+<body class="min-h-screen bg-bg text-text antialiased">
+    {% block body %}
+        <main class="mx-auto max-w-7xl px-6 md:px-8 py-8">
+            {% block content %}{% endblock %}
+        </main>
+    {% endblock %}
+
+    <!-- HTMX 2 + Alpine.js 3 from CDN in dev (vendored in Phase 5) -->
+    <script defer src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+
+    <script src="{% static 'phoresis_ui/js/htmx-config.js' %}" defer></script>
+    <script src="{% static 'phoresis_ui/js/alpine-init.js' %}" defer></script>
+    <script src="{% static 'phoresis_ui/js/animations.js' %}" defer></script>
+
     {% block scripts %}{% endblock %}
 </body>
 </html>

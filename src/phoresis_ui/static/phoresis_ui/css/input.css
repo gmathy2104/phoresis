@@ -1,0 +1,89 @@
+@config "../../../../../tailwind.config.js";
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-elevated: var(--color-surface-elevated);
+  --color-border: var(--color-border);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+
+  --color-accent-50: var(--color-accent-50);
+  --color-accent-500: var(--color-accent-500);
+  --color-accent-600: var(--color-accent-600);
+  --color-accent-700: var(--color-accent-700);
+
+  --color-band: var(--color-band);
+  --color-poi: var(--color-poi);
+  --color-mw-ref: var(--color-mw-ref);
+  --color-other: var(--color-other);
+
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+}
+
+@layer base {
+  html, body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    transition: background-color var(--duration) var(--ease-out),
+                color var(--duration) var(--ease-out);
+  }
+
+  /* Smooth focus rings using accent token */
+  *:focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+
+  /* Light text-balance for headings */
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  /* Shimmer for skeleton loaders */
+  .ui-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-border);
+  }
+  .ui-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,.4) 50%,
+      transparent 100%
+    );
+    animation: ui-shimmer-anim 2s infinite;
+  }
+  [data-theme="dark"] .ui-shimmer::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,.06) 50%,
+      transparent 100%
+    );
+  }
+  @keyframes ui-shimmer-anim {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+  }
+}
