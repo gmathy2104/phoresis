@@ -72,11 +72,7 @@ def build_scn_file(
 
     # ItemHeaderTag XML
     item_header_xml = (
-        b"<!DOCTYPE XML>\n"
-        b'<root version="2">\n'
-        b"  <name>Test Scan 001</name>\n"
-        b"  <user>testuser</user>\n"
-        b"</root>"
+        b'<!DOCTYPE XML>\n<root version="2">\n  <name>Test Scan 001</name>\n  <user>testuser</user>\n</root>'
     )
 
     # Protocol XML
