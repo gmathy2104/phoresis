@@ -16,6 +16,7 @@ from pathlib import Path
 
 from django import template
 from django.contrib.staticfiles.finders import find
+from django.templatetags.static import static
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
@@ -60,7 +61,7 @@ def icon(name: str, size: int = 24, class_: str = "") -> str:
         return mark_safe(svg)
 
     # Lucide: <svg><use href="/static/.../lucide.svg#lucide-NAME" /></svg>
-    sprite_url = f"/static/{LUCIDE_SPRITE_REL}#lucide-{name}"
+    sprite_url = f"{static(LUCIDE_SPRITE_REL)}#lucide-{name}"
     return format_html(
         '<svg class="{}" style="{}" aria-hidden="true" focusable="false"><use href="{}"></use></svg>',
         cls,
