@@ -87,7 +87,7 @@ indent-style = "space"
 DJANGO_SETTINGS_MODULE = "phoresis.settings.test"
 python_files = ["test_*.py", "*_test.py"]
 pythonpath = ["src"]
-addopts = ["--strict-markers", "-ra", "--reuse-db"]
+addopts = ["--strict-markers", "-ra"]
 testpaths = ["src"]
 filterwarnings = [
     "ignore::DeprecationWarning",
