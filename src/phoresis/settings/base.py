@@ -29,8 +29,9 @@ INSTALLED_APPS = [
     "rest_framework",
     "simple_history",
     # Phoresis apps
+    "phoresis_core",
     "accounts",
-    # phoresis_core (Task 7), dashboard (Task 11), phoresis_ui (Task 12) appended later.
+    # dashboard (Task 11), phoresis_ui (Task 12) appended later.
 ]
 
 MIDDLEWARE = [
