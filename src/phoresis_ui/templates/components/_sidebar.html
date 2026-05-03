@@ -28,6 +28,11 @@
             {% icon "layers" %}
             <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Analyses</span>
         </a>
+        <a href="{% url 'gel_analyzer:comparison_list' %}"
+           class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.url_name == 'comparison_list' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
+            {% icon "grid-2x2" %}
+            <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Comparisons</span>
+        </a>
     </nav>
 
     <button class="absolute bottom-4 right-3 rounded-md p-1 text-text-muted hover:bg-surface-elevated"

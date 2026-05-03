@@ -12,6 +12,7 @@ nav_registry.register_app(
     pages=[
         {"name": "Gel images", "url": "gel_analyzer:image_list", "icon": "image"},
         {"name": "Analyses", "url": "gel_analyzer:analysis_list", "icon": "layers"},
+        {"name": "Comparisons", "url": "gel_analyzer:comparison_list", "icon": "grid-2x2"},
     ],
     actions=[
         {"name": "Upload gel", "url": "gel_analyzer:image_upload", "icon": "upload"},
