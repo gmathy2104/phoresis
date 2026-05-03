@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     # Phoresis apps
     "phoresis_core",
     "accounts",
+    "gel_analyzer",
     "dashboard",
     "phoresis_ui",
 ]
