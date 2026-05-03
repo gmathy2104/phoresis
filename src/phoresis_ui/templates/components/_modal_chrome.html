@@ -1,0 +1,20 @@
+<div x-show="$store.modal.open === '{{ id_ }}'"
+     x-cloak
+     x-transition.opacity
+     class="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur"
+     @click.self="$store.modal.close()"
+     @keydown.escape.window="$store.modal.close()">
+    <div x-show="$store.modal.open === '{{ id_ }}'"
+         x-transition:enter="transition duration-200 ease-out"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         class="w-full {{ size_class }} rounded-xl bg-surface shadow-lg">
+        <header class="flex items-center justify-between border-b border-border p-6">
+            <h2 class="text-lg font-semibold">{{ title }}</h2>
+            <button class="text-text-muted hover:text-text" @click="$store.modal.close()" aria-label="Close">
+                {% load ui_icons %}{% icon "x" %}
+            </button>
+        </header>
+        <div class="p-6" data-modal-body></div>
+    </div>
+</div>
