@@ -6,9 +6,12 @@ Each Phoresis app appends itself to INSTALLED_APPS / MIDDLEWARE in its
 own task. This keeps every intermediate commit able to boot via
 `manage.py check` and `manage.py makemigrations`.
 """
+
 import os
 from pathlib import Path
 
+# settings/base.py lives at src/phoresis/settings/base.py.
+# parents[0]=settings/, parents[1]=phoresis/, parents[2]=src/, parents[3]=repo root.
 BASE_DIR = Path(__file__).resolve().parents[3]
 SRC_DIR = BASE_DIR / "src"
 

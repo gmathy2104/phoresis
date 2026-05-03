@@ -1,9 +1,10 @@
 """Production settings — strict, no DEBUG, env-driven secrets."""
-from .base import *  # noqa: F401, F403
+
+from .base import *
 
 DEBUG = False
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]  # noqa: F405 — must be set in prod
-ALLOWED_HOSTS = [h.strip() for h in os.environ["DJANGO_ALLOWED_HOSTS"].split(",") if h.strip()]  # noqa: F405
+SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+ALLOWED_HOSTS = [h.strip() for h in os.environ["DJANGO_ALLOWED_HOSTS"].split(",") if h.strip()]
 
 SECURE_HSTS_SECONDS = 31_536_000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True

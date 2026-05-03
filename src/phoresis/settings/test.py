@@ -1,5 +1,6 @@
 """Test settings — eager Celery, fast password hasher, in-memory cache."""
-from .base import *  # noqa: F401, F403
+
+from .base import *
 
 DEBUG = False
 SECRET_KEY = "test-secret-not-secret"
@@ -11,4 +12,7 @@ CELERY_TASK_EAGER_PROPAGATES = True
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
-STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"  # noqa: F405
+STORAGES = {
+    **STORAGES,
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
