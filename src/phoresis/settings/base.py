@@ -28,7 +28,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "simple_history",
-    # Phoresis apps are appended in their own tasks (4, 7, 11, 12).
+    # Phoresis apps
+    "accounts",
+    # phoresis_core (Task 7), dashboard (Task 11), phoresis_ui (Task 12) appended later.
 ]
 
 MIDDLEWARE = [
@@ -76,7 +78,11 @@ DATABASES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-# AUTH_USER_MODEL is set in Task 4 once accounts.User exists.
+AUTH_USER_MODEL = "accounts.User"
+
+LOGIN_URL = "accounts:login"
+LOGIN_REDIRECT_URL = "dashboard:home"
+LOGOUT_REDIRECT_URL = "accounts:login"
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Europe/Brussels"
