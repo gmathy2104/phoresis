@@ -83,3 +83,33 @@ def test_confirm_renders_buttons() -> None:
     assert "Delete?" in rendered
     assert "Are you sure?" in rendered
     assert "Cancel" in rendered  # default cancel_label
+
+
+# --- security regressions ---
+
+
+def test_btn_escapes_label_to_prevent_xss() -> None:
+    """Caller-supplied label must be HTML-escaped (no script injection)."""
+    rendered = Template("{% load ui_components %}{% btn payload %}").render(
+        Context({"payload": "<script>alert(1)</script>"})
+    )
+    assert "<script>" not in rendered
+    assert "&lt;script&gt;" in rendered
+
+
+def test_badge_escapes_label_to_prevent_xss() -> None:
+    rendered = Template("{% load ui_components %}{% badge payload %}").render(Context({"payload": "<img onerror=x>"}))
+    assert "<img" not in rendered
+    assert "&lt;img" in rendered
+
+
+# --- confirm modal cancel handler ---
+
+
+def test_confirm_renders_alpine_close_handler_on_cancel() -> None:
+    """The Cancel button must wire `@click="$store.modal.close()"` (regression for the
+    broken `class_=` injection in the original plan)."""
+    rendered = Template('{% load ui_components %}{% confirm id_="c1" title="Delete?" message="Sure?" %}').render(
+        Context({})
+    )
+    assert '@click="$store.modal.close()"' in rendered

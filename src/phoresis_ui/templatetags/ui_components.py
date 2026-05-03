@@ -14,6 +14,7 @@ Conventions:
 from __future__ import annotations
 
 from django import template
+from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 register = template.Library()
@@ -35,6 +36,12 @@ _BTN_SIZES = {
     "lg": "h-12 px-6 text-base",
 }
 
+_BTN_BASE = (
+    "inline-flex items-center justify-center gap-2 rounded-md font-medium "
+    "transition-colors duration-150 focus-visible:outline focus-visible:outline-2 "
+    "focus-visible:outline-offset-2 disabled:opacity-50 disabled:pointer-events-none"
+)
+
 
 @register.simple_tag
 def btn(
@@ -50,6 +57,7 @@ def btn(
     class_="",
     disabled=False,
     loading=False,
+    extra_attrs="",
 ):
     """Render a button or anchor styled as a button.
 
@@ -58,32 +66,55 @@ def btn(
         {% btn "Cancel" variant="ghost" %}
         {% btn "Delete" variant="danger" icon="trash-2" %}
         {% btn "Open" href="/something/" variant="secondary" %}
+
+    `extra_attrs` is a raw HTML attribute fragment passed through unescaped.
+    Use it sparingly — typically for Alpine handlers e.g.
+    ``extra_attrs='@click="$store.modal.close()"'``.
+    Caller is responsible for the safety of `extra_attrs`.
     """
-    base = "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 disabled:pointer-events-none"
-    cls = f"{base} {_BTN_VARIANTS[variant]} {_BTN_SIZES[size]} {class_}".strip()
-
-    icon_html = ""
-    if icon:
-        icon_html = f'<span data-ui-icon="{icon}"></span>'
-
-    spinner = ""
+    cls = f"{_BTN_BASE} {_BTN_VARIANTS[variant]} {_BTN_SIZES[size]} {class_}".strip()
     if loading:
-        spinner = '<span class="animate-spin" data-ui-icon="loader"></span>'
         cls += " pointer-events-none"
 
-    inner = f"{spinner}{icon_html}<span>{label}</span>"
+    icon_html = format_html('<span data-ui-icon="{}"></span>', icon) if icon else ""
+    spinner_html = mark_safe('<span class="animate-spin" data-ui-icon="loader"></span>') if loading else ""
+    inner = format_html(
+        "{}{}<span>{}</span>",
+        spinner_html,
+        icon_html,
+        label,
+    )
 
-    htmx_attrs = ""
+    htmx_html = ""
     if hx_post:
-        htmx_attrs += f' hx-post="{hx_post}"'
+        htmx_html = format_html(' hx-post="{}"', hx_post)
     if hx_target:
-        htmx_attrs += f' hx-target="{hx_target}"'
+        htmx_html = format_html('{} hx-target="{}"', htmx_html, hx_target)
+
+    # `extra_attrs` is intentionally raw — used for Alpine `@click="…"`-style attrs
+    # that contain quotes Django would otherwise escape. Caller-controlled.
+    raw_extra = mark_safe(f" {extra_attrs}") if extra_attrs else ""
 
     if href:
-        return mark_safe(f'<a href="{href}" class="{cls}"{htmx_attrs}>{inner}</a>')
+        return format_html(
+            '<a href="{}" class="{}"{}{}>{}</a>',
+            href,
+            cls,
+            htmx_html,
+            raw_extra,
+            inner,
+        )
 
-    disabled_attr = " disabled" if disabled else ""
-    return mark_safe(f'<button type="{type_}" class="{cls}"{htmx_attrs}{disabled_attr}>{inner}</button>')
+    disabled_attr = mark_safe(" disabled") if disabled else ""
+    return format_html(
+        '<button type="{}" class="{}"{}{}{}>{}</button>',
+        type_,
+        cls,
+        htmx_html,
+        raw_extra,
+        disabled_attr,
+        inner,
+    )
 
 
 # ============================================================================
@@ -93,18 +124,18 @@ def btn(
 
 @register.inclusion_tag("components/_card.html")
 def card(title=None, subtitle=None, hover=True, class_=""):
-    """Render a card wrapper (header-only — body content uses card_open/card_close)."""
+    """Render a card wrapper (header-only; body uses card_open/card_close)."""
     return {"title": title, "subtitle": subtitle, "hover": hover, "class_": class_}
-
-
-# Card body block — Django templates don't have block-form simple_tag, so we provide
-# raw fragments via two helpers:
 
 
 @register.simple_tag
 def card_open(class_="", hover=True):
     hover_cls = "transition-transform duration-150 hover:-translate-y-[2px] hover:shadow-lg" if hover else ""
-    return mark_safe(f'<div class="rounded-lg border border-border bg-surface p-6 shadow-sm {hover_cls} {class_}">')
+    return format_html(
+        '<div class="rounded-lg border border-border bg-surface p-6 shadow-sm {} {}">',
+        mark_safe(hover_cls),
+        class_,
+    )
 
 
 @register.simple_tag
@@ -136,9 +167,17 @@ def badge(label, *, variant="default", class_=""):
     {% badge "SAMPLE" variant="primary" %}
     {% badge "Band" variant="band" %}
     """
-    cls = f"inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {_BADGE_VARIANTS[variant]} {class_}".strip()
-    style = ' style="background-color: var(--color-band);"' if variant == "band" else ""
-    return mark_safe(f'<span class="{cls}"{style}>{label}</span>')
+    cls = (
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium "
+        f"{_BADGE_VARIANTS[variant]} {class_}"
+    ).strip()
+    if variant == "band":
+        return format_html(
+            '<span class="{}" style="background-color: var(--color-band);">{}</span>',
+            cls,
+            label,
+        )
+    return format_html('<span class="{}">{}</span>', cls, label)
 
 
 # ============================================================================
@@ -168,7 +207,12 @@ def empty_state(title, *, message="", icon="image", cta_label=None, cta_href=Non
 def skeleton(*, height="1rem", width="100%", class_=""):
     """Render a shimmer placeholder."""
     cls = f"ui-shimmer rounded-md {class_}".strip()
-    return mark_safe(f'<div class="{cls}" style="width:{width};height:{height};"></div>')
+    return format_html(
+        '<div class="{}" style="width:{};height:{};"></div>',
+        cls,
+        width,
+        height,
+    )
 
 
 # ============================================================================
@@ -190,14 +234,7 @@ def modal_chrome(*, id_, title, size="md"):
 
 @register.inclusion_tag("components/_confirm_modal.html")
 def confirm(
-    *,
-    id_,
-    title,
-    message,
-    confirm_label="Confirm",
-    confirm_variant="danger",
-    cancel_label="Cancel",
-    hx_post=None,
+    *, id_, title, message, confirm_label="Confirm", confirm_variant="danger", cancel_label="Cancel", hx_post=None
 ):
     return {
         "id_": id_,
