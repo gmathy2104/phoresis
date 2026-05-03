@@ -85,6 +85,16 @@ DATABASES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
+# DRF / drf-spectacular base configuration. Without DEFAULT_SCHEMA_CLASS
+# pointing at drf-spectacular's AutoSchema, GET /api/schema/ raises
+# AssertionError when introspecting other DRF views (e.g. SpectacularSwaggerView).
+# Test settings layer in higher throttle rates on top of this dict.
+REST_FRAMEWORK = {
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "dashboard:home"
 LOGOUT_REDIRECT_URL = "accounts:login"
