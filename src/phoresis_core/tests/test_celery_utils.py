@@ -1,5 +1,7 @@
 """Tests for phoresis_core.celery_utils."""
 
+import pytest
+
 from phoresis_core.celery_utils import RobustTask, robust_task
 
 
@@ -20,7 +22,10 @@ def test_robust_task_uses_robust_task_base() -> None:
     assert isinstance(my_task, RobustTask) or issubclass(my_task.__class__, RobustTask)
 
 
+@pytest.mark.django_db
 def test_robust_task_runs_eagerly_in_test_mode(settings) -> None:
+    # django_db marker required: RobustTask.after_return calls
+    # close_old_connections(), which pytest-django blocks without DB access.
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
 
