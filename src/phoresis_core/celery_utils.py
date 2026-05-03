@@ -44,7 +44,7 @@ class RobustTask(Task):
             and task_name not in _warned_no_time_limit
         ):
             _warned_no_time_limit.add(task_name)
-            logger.warning(f"Task {task_name} has no time limit configured — " f"add soft_time_limit/time_limit.")
+            logger.warning(f"Task {task_name} has no time limit configured — add soft_time_limit/time_limit.")
 
         bound = logger.bind(task_id=task_id, task_name=task_name, task_retries=retries)
         bound.info(f"=== TASK STARTED === {task_name} args={_safe_repr(args)} kwargs={_safe_repr(kwargs)}")
@@ -93,7 +93,7 @@ class RobustTask(Task):
             update_fields = [status_field] + ([error_field] if error_field else [])
             model.save(update_fields=update_fields)
         except Exception as save_exc:
-            logger.warning(f"handle_failure could not update model " f"{model.__class__.__name__}: {save_exc}")
+            logger.warning(f"handle_failure could not update model {model.__class__.__name__}: {save_exc}")
 
 
 def robust_task(_func=None, **kwargs):

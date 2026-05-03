@@ -55,7 +55,7 @@ class NavRegistry:
     ) -> None:
         if app_label in self._apps:
             raise ValueError(
-                f"NavRegistry: app_label '{app_label}' is already registered. " "Each app_label must be unique."
+                f"NavRegistry: app_label '{app_label}' is already registered. Each app_label must be unique."
             )
         self._apps[app_label] = {
             "app_label": app_label,
