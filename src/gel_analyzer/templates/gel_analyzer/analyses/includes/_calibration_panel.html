@@ -1,0 +1,177 @@
+<!-- MW Calibration Panel - Centered Modal for ladder calibration workflow -->
+<div class="gv-modal-backdrop" id="calibration-backdrop" style="display: none;"></div>
+<div class="gv-calibration-panel" id="calibration-panel" style="display: none;">
+    <!-- Header -->
+    <div class="gv-calibration-header">
+        <div class="gv-calibration-title">
+            <i class="bi bi-rulers"></i>
+            <span>MW Calibration</span>
+        </div>
+        <button class="gv-calibration-close" id="calibration-close" title="Close (Esc)">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    <!-- Body - 4-Step Workflow -->
+    <div class="gv-calibration-body">
+        <!-- Step 1: Select Template -->
+        <div class="gv-calibration-step" id="calibration-step-1">
+            <div class="gv-calibration-step-header">
+                <span class="gv-calibration-step-number">1</span>
+                <span class="gv-calibration-step-title">Select Ladder Template</span>
+            </div>
+            <div class="gv-calibration-step-content">
+                <select id="calibration-template" class="form-select form-select-sm">
+                    <option value="">Loading templates...</option>
+                </select>
+                <div class="gv-calibration-template-info" id="calibration-template-info" style="display: none;">
+                    <div class="gv-calibration-template-detail">
+                        <i class="bi bi-building"></i>
+                        <span id="calibration-template-manufacturer">-</span>
+                    </div>
+                    <div class="gv-calibration-template-detail">
+                        <i class="bi bi-list-ol"></i>
+                        <span id="calibration-template-bands">- bands</span>
+                    </div>
+                    <div class="gv-calibration-template-detail">
+                        <i class="bi bi-arrows-expand"></i>
+                        <span id="calibration-template-range">- kDa</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Ladder Lanes -->
+        <div class="gv-calibration-step" id="calibration-step-2">
+            <div class="gv-calibration-step-header">
+                <span class="gv-calibration-step-number">2</span>
+                <span class="gv-calibration-step-title">Ladder Lanes</span>
+            </div>
+            <div class="gv-calibration-step-content">
+                <div class="gv-calibration-ladder-list" id="calibration-ladder-list">
+                    <!-- Populated by JavaScript -->
+                    <div class="gv-calibration-empty">
+                        <i class="bi bi-exclamation-triangle text-warning"></i>
+                        <p>No ladder lanes found. Mark lanes as "Ladder" type first.</p>
+                    </div>
+                </div>
+                <!-- Warning for lanes with insufficient bands -->
+                <div class="gv-calibration-warning" id="calibration-band-warning" style="display: none;">
+                    <!-- Populated by JavaScript -->
+                </div>
+                <!-- Match button removed - calibration now does matching automatically -->
+            </div>
+        </div>
+
+        <!-- Step 3: Run Calibration (action buttons moved up for better UX) -->
+        <div class="gv-calibration-step" id="calibration-step-3">
+            <div class="gv-calibration-step-header">
+                <span class="gv-calibration-step-number">3</span>
+                <span class="gv-calibration-step-title">Run Calibration</span>
+            </div>
+            <div class="gv-calibration-step-content">
+                <!-- Calibration Method - always visible -->
+                <div class="gv-calibration-method" id="calibration-method-section">
+                    <label for="calibration-method">Fit Method:</label>
+                    <select id="calibration-method" class="form-select form-select-sm">
+                        <option value="LOG_LINEAR">Log-Linear (recommended)</option>
+                        <option value="POLYNOMIAL_2">Polynomial (degree 2)</option>
+                        <option value="POLYNOMIAL_3">Polynomial (degree 3)</option>
+                    </select>
+                </div>
+
+                <!-- Run Button - now visible without scrolling -->
+                <div class="gv-calibration-actions">
+                    <button class="gv-calibration-btn gv-calibration-btn-calibrate" id="calibration-run" disabled>
+                        <i class="bi bi-calculator"></i>
+                        <span id="calibration-run-text">Run Calibration</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Results (shown after calibration is run) -->
+        <div class="gv-calibration-step" id="calibration-step-4" style="display: none;">
+            <div class="gv-calibration-step-header">
+                <span class="gv-calibration-step-number">4</span>
+                <span class="gv-calibration-step-title">Results</span>
+            </div>
+            <div class="gv-calibration-step-content">
+                <!-- Plotly Chart Container -->
+                <div class="gv-calibration-chart" id="calibration-chart">
+                    <!-- Plotly chart inserted here -->
+                </div>
+
+                <!-- R-squared Indicator -->
+                <div class="gv-calibration-r2" id="calibration-r2" style="display: none;">
+                    <div class="gv-calibration-r2-label">R<sup>2</sup></div>
+                    <div class="gv-calibration-r2-value" id="calibration-r2-value">0.0000</div>
+                    <div class="gv-calibration-r2-indicator" id="calibration-r2-indicator"></div>
+                </div>
+
+                <!-- Multi-Ladder Info -->
+                <div class="gv-calibration-multi-info" id="calibration-multi-info" style="display: none;">
+                    <div class="gv-calibration-multi-badge">
+                        <i class="bi bi-diagram-3"></i>
+                        <span>Multi-Ladder Mode</span>
+                    </div>
+                    <p>Multiple ladders detected. Calibration will use position-aware interpolation for gel smile correction.</p>
+                </div>
+
+                <!-- Calibration Status -->
+                <div class="gv-calibration-status" id="calibration-status">
+                    <div class="gv-calibration-status-item">
+                        <span class="gv-calibration-status-label">Status:</span>
+                        <span class="gv-calibration-status-value" id="calibration-status-value">
+                            <i class="bi bi-check-circle text-success"></i>
+                            Calibrated
+                        </span>
+                    </div>
+                    <div class="gv-calibration-status-item" id="calibration-bands-status" style="display: none;">
+                        <span class="gv-calibration-status-label">Bands updated:</span>
+                        <span class="gv-calibration-status-value" id="calibration-bands-updated">0/0</span>
+                    </div>
+                </div>
+
+                <!-- Calibration Warnings (from API) -->
+                <div class="gv-calibration-warnings" id="calibration-warnings" style="display: none;">
+                    <!-- Populated by JavaScript -->
+                </div>
+
+                <!-- Unmatched Template Bands Warning -->
+                <div class="gv-calibration-unmatched" id="calibration-unmatched" style="display: none;">
+                    <div class="gv-calibration-unmatched-header">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span id="calibration-unmatched-title">Template bands not detected</span>
+                    </div>
+                    <div class="gv-calibration-unmatched-list" id="calibration-unmatched-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                    <div class="gv-calibration-unmatched-note">
+                        <small>These bands are excluded from calibration.</small>
+                    </div>
+                </div>
+
+                <!-- Apply Button -->
+                <div class="gv-calibration-actions">
+                    <button class="gv-calibration-btn gv-calibration-btn-apply" id="calibration-apply" disabled>
+                        <i class="bi bi-check-all"></i>
+                        <span>Apply to All Bands</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="gv-calibration-footer">
+        <div class="gv-calibration-footer-hint">
+            <i class="bi bi-info-circle"></i>
+            <span id="calibration-footer-hint">Select a template to begin calibration.</span>
+        </div>
+        <button class="gv-calibration-btn gv-calibration-btn-reset" id="calibration-reset" title="Reset calibration">
+            <i class="bi bi-arrow-counterclockwise"></i>
+            <span>Reset</span>
+        </button>
+    </div>
+</div>

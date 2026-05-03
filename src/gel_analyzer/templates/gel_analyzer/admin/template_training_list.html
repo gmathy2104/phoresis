@@ -1,0 +1,180 @@
+{% extends "components/app_base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} - Gel Analyzer{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-3">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">{{ title }}</h1>
+            <p class="text-muted mb-0">
+                Train MW ladder templates by learning Rf patterns from annotated gels.
+            </p>
+        </div>
+        <a href="{% url 'gel_analyzer:home' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Back to Gel Analyzer
+        </a>
+    </div>
+
+    <!-- Instructions Card -->
+    <div class="card mb-4 border-info">
+        <div class="card-header bg-info text-white">
+            <i class="bi bi-info-circle me-2"></i> How Template Training Works
+        </div>
+        <div class="card-body">
+            <ol class="mb-0">
+                <li><strong>Annotate gel images</strong> - Mark lanes as LADDER type and detect bands</li>
+                <li><strong>Calibrate ladders</strong> - Use the Calibration Panel to match bands to template MW values</li>
+                <li><strong>Train here</strong> - Click "Train" to learn Rf patterns from your calibrations</li>
+                <li><strong>Use template-guided detection</strong> - Future band detection will filter ghost bands!</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- Templates Grid -->
+    <div class="row">
+        {% for item in template_data %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 js-template-card" data-template-id="{{ item.template.pk }}" data-band-count="{{ item.template.band_count }}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">{{ item.template.name }}</span>
+                    <span class="badge js-quality-badge {% if item.summary.training_quality == 'excellent' %}bg-success{% elif item.summary.training_quality == 'good' %}bg-info{% elif item.summary.training_quality == 'needs_more_data' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                        {% if item.summary.training_quality == 'excellent' %}Trained{% elif item.summary.training_quality == 'good' %}Good{% elif item.summary.training_quality == 'needs_more_data' %}Partial{% else %}Untrained{% endif %}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-2">
+                        {{ item.template.manufacturer }} &bull; {{ item.template.band_count }} bands &bull; {{ item.template.mw_range_display }}
+                    </p>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="bg-light rounded p-2 text-center">
+                                <div class="h5 mb-0 js-calibration-count">{{ item.summary.total_calibrations }}</div>
+                                <small class="text-muted">Calibrations</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="bg-light rounded p-2 text-center">
+                                <div class="h5 mb-0"><span class="js-bands-with-rf">{{ item.summary.bands_with_rf }}</span>/{{ item.template.band_count }}</div>
+                                <small class="text-muted">Bands Trained</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="progress mb-2 js-progress-wrap" style="height: 6px; {% if not item.summary.is_trained %}display: none;{% endif %}">
+                        {% widthratio item.summary.bands_with_rf item.template.band_count 100 as progress %}
+                        <div class="progress-bar bg-success js-progress-bar" role="progressbar"
+                             style="width: {{ progress }}%"></div>
+                    </div>
+
+                    {% if item.summary.total_calibrations > 0 and item.summary.bands_with_rf < item.template.band_count %}
+                    <div class="alert alert-warning small py-2 mb-0 js-dormant-alert">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <span class="js-dormant-count">{{ item.summary.total_calibrations }}</span> calibration{{ item.summary.total_calibrations|pluralize }} not trained yet.
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer bg-transparent d-flex gap-2">
+                    {% if item.summary.total_calibrations > 0 and item.summary.bands_with_rf < item.template.band_count %}
+                    <button type="button" class="btn btn-sm btn-success flex-fill js-train-now-btn">
+                        <i class="bi bi-lightning-charge me-1"></i> Train now
+                    </button>
+                    {% endif %}
+                    <a href="{% url 'gel_analyzer:admin_template_calibration' item.template.pk %}"
+                       class="btn btn-sm {% if item.summary.is_trained %}btn-outline-primary{% else %}btn-primary{% endif %} flex-fill">
+                        <i class="bi bi-mortarboard me-1"></i>
+                        {% if item.summary.is_trained %}View{% else %}Calibrations{% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                No active ladder templates found. Create templates via Django Admin first.
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+(function () {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+        || document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1];
+
+    function updateCard(card, summary) {
+        const bandCount = parseInt(card.dataset.bandCount, 10) || 0;
+        card.querySelector('.js-calibration-count').textContent = summary.total_calibrations;
+        card.querySelector('.js-bands-with-rf').textContent = summary.bands_with_rf;
+
+        const badge = card.querySelector('.js-quality-badge');
+        const qualityMap = {
+            excellent: { cls: 'bg-success', label: 'Trained' },
+            good: { cls: 'bg-info', label: 'Good' },
+            needs_more_data: { cls: 'bg-warning text-dark', label: 'Partial' },
+            untrained: { cls: 'bg-secondary', label: 'Untrained' },
+        };
+        const q = qualityMap[summary.training_quality] || qualityMap.untrained;
+        badge.className = 'badge js-quality-badge ' + q.cls;
+        badge.textContent = q.label;
+
+        const wrap = card.querySelector('.js-progress-wrap');
+        const bar = card.querySelector('.js-progress-bar');
+        if (summary.is_trained && bandCount > 0) {
+            wrap.style.display = '';
+            bar.style.width = Math.round((summary.bands_with_rf / bandCount) * 100) + '%';
+        } else {
+            wrap.style.display = 'none';
+        }
+
+        // Hide the "Train now" button + dormant alert if everything is trained now.
+        if (summary.bands_with_rf >= bandCount) {
+            card.querySelector('.js-train-now-btn')?.remove();
+            card.querySelector('.js-dormant-alert')?.remove();
+        }
+    }
+
+    async function trainNow(btn) {
+        const card = btn.closest('.js-template-card');
+        const templateId = card.dataset.templateId;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Training…';
+        try {
+            const resp = await fetch(`/gel-analyzer/api/admin/templates/${templateId}/train-now/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                    'Content-Type': 'application/json',
+                },
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                throw new Error(data.error || `HTTP ${resp.status}`);
+            }
+            updateCard(card, data.summary);
+        } catch (err) {
+            console.error('Train-now failed:', err);
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            alert('Training failed: ' + err.message);
+        }
+    }
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.js-train-now-btn');
+        if (btn) {
+            e.preventDefault();
+            trainNow(btn);
+        }
+    });
+})();
+</script>
+
+{% csrf_token %}
+{% endblock %}

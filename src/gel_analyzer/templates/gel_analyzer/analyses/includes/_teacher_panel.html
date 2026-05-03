@@ -1,0 +1,149 @@
+<!-- Band Detection Teacher Panel - 3-step calibration wizard (side-docked) -->
+<div class="gv-teacher-panel" id="teacher-panel" style="display: none;">
+    <!-- Header -->
+    <div class="gv-teacher-header">
+        <div class="gv-teacher-title">
+            <i class="bi bi-mortarboard"></i>
+            <span>Teach Band Detection</span>
+        </div>
+        <div class="gv-teacher-header-actions">
+            <button class="gv-teacher-collapse" id="teacher-collapse" title="Collapse panel">
+                <i class="bi bi-chevron-up"></i>
+            </button>
+            <button class="gv-teacher-close" id="teacher-close" title="Close (Esc)">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Step Indicator -->
+    <div class="gv-teacher-steps" id="teacher-steps">
+        <div class="gv-teacher-step active" data-step="0">
+            <div class="gv-teacher-step-circle">1</div>
+            <div class="gv-teacher-step-label">Background</div>
+        </div>
+        <div class="gv-teacher-step-connector"></div>
+        <div class="gv-teacher-step" data-step="1">
+            <div class="gv-teacher-step-circle">2</div>
+            <div class="gv-teacher-step-label">Small Band</div>
+        </div>
+        <div class="gv-teacher-step-connector"></div>
+        <div class="gv-teacher-step" data-step="2">
+            <div class="gv-teacher-step-circle">3</div>
+            <div class="gv-teacher-step-label">Large Band</div>
+        </div>
+    </div>
+
+    <!-- Body (single column, scrollable) -->
+    <div class="gv-teacher-body">
+        <!-- Instructions & Region Cards -->
+        <div class="gv-teacher-left">
+            <!-- Instruction per step (toggled by JS) -->
+            <div class="gv-teacher-instruction" id="teacher-instruction">
+                <div class="gv-teacher-instruction-icon"><i class="bi bi-cursor"></i></div>
+                <div class="gv-teacher-instruction-text">
+                    Draw a rectangle on a <strong>band-free background</strong> region of the gel image.
+                </div>
+            </div>
+
+            <!-- Mode toggle: Image vs Profile -->
+            <div class="gv-teacher-mode-toggle" id="teacher-mode-toggle">
+                <button class="gv-teacher-mode-btn active" data-mode="image" title="Mark on image">
+                    <i class="bi bi-image"></i> Image
+                </button>
+                <button class="gv-teacher-mode-btn" data-mode="profile" title="Mark on electropherogram">
+                    <i class="bi bi-graph-up"></i> Profile
+                </button>
+            </div>
+
+            <!-- Region summary cards -->
+            <div class="gv-teacher-cards">
+                <div class="gv-teacher-region-card" id="teacher-card-background" style="display: none;">
+                    <div class="gv-teacher-card-header">
+                        <span class="gv-teacher-card-dot" style="background: var(--gv-teacher-bg-color);"></span>
+                        Background
+                        <button class="gv-teacher-card-clear" data-region="background" title="Clear">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    <div class="gv-teacher-card-body" id="teacher-card-background-body">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <div class="gv-teacher-region-card" id="teacher-card-small_band" style="display: none;">
+                    <div class="gv-teacher-card-header">
+                        <span class="gv-teacher-card-dot" style="background: var(--gv-teacher-small-color);"></span>
+                        Small Band
+                        <button class="gv-teacher-card-clear" data-region="small_band" title="Clear">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    <div class="gv-teacher-card-body" id="teacher-card-small_band-body">
+                    </div>
+                </div>
+
+                <div class="gv-teacher-region-card" id="teacher-card-large_band" style="display: none;">
+                    <div class="gv-teacher-card-header">
+                        <span class="gv-teacher-card-dot" style="background: var(--gv-teacher-large-color);"></span>
+                        Large Band
+                        <button class="gv-teacher-card-clear" data-region="large_band" title="Clear">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    <div class="gv-teacher-card-body" id="teacher-card-large_band-body">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results (shown below cards after calibration, scrollable) -->
+        <div class="gv-teacher-right" id="teacher-results" style="display: none;">
+            <div class="gv-teacher-results-title">
+                <i class="bi bi-clipboard-data"></i>
+                <span>Calibration Results</span>
+            </div>
+
+            <!-- Diagnostics cards -->
+            <div class="gv-teacher-diagnostics" id="teacher-diagnostics">
+                <!-- Populated by JS -->
+            </div>
+
+            <!-- Derived parameters table -->
+            <div class="gv-teacher-params-table-wrap">
+                <table class="gv-teacher-params-table" id="teacher-params-table">
+                    <thead>
+                        <tr>
+                            <th>Parameter</th>
+                            <th>Value</th>
+                            <th>Why</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teacher-params-tbody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="gv-teacher-footer">
+        <div class="gv-teacher-footer-left">
+            <button class="gv-teacher-btn gv-teacher-btn-skip" id="teacher-skip" title="Skip this step">
+                <i class="bi bi-skip-forward"></i>
+                <span>Skip</span>
+            </button>
+        </div>
+        <div class="gv-teacher-footer-right">
+            <button class="gv-teacher-btn gv-teacher-btn-calibrate" id="teacher-calibrate" title="Run calibration" disabled>
+                <i class="bi bi-cpu"></i>
+                <span>Calibrate</span>
+            </button>
+            <button class="gv-teacher-btn gv-teacher-btn-apply" id="teacher-apply" title="Apply to detection" style="display: none;">
+                <i class="bi bi-check-lg"></i>
+                <span>Apply</span>
+            </button>
+        </div>
+    </div>
+</div>

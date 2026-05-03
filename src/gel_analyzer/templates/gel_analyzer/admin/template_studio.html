@@ -1,0 +1,100 @@
+{% extends "components/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} - Gel Analyzer{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/template_studio.css' %}">
+{% endblock %}
+
+{% block body %}
+<div class="lts-container">
+    <header class="lts-header">
+        <a href="{% url 'gel_analyzer:admin_template_training_list' %}" class="lts-back-link">
+            <i class="bi bi-arrow-left"></i>
+            <span>Template Training</span>
+        </a>
+        <div class="lts-header-center">
+            <h1 class="lts-title">{{ template.name }}</h1>
+            <p class="lts-subtitle">
+                {{ template.manufacturer }} · {{ template.band_count }} bands · {{ template.mw_range_display }}
+            </p>
+        </div>
+        <div class="lts-header-right">
+            {% if training_summary.is_trained %}
+            <span class="lts-badge lts-badge-trained">
+                <i class="bi bi-check-circle"></i> Trained ({{ training_summary.bands_with_rf }}/{{ template.band_count }})
+            </span>
+            {% else %}
+            <span class="lts-badge lts-badge-untrained">
+                <i class="bi bi-circle"></i> Untrained
+            </span>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="lts-main">
+        <aside class="lts-panel lts-panel-picker" aria-label="Lane picker">
+            <h2 class="lts-panel-title"><i class="bi bi-collection"></i> Lane picker</h2>
+            <div class="lts-placeholder">
+                <i class="bi bi-search"></i>
+                <p>Search &amp; filters coming in Phase 3.</p>
+            </div>
+        </aside>
+
+        <section class="lts-panel lts-panel-strips" aria-label="Parallel strips">
+            <h2 class="lts-panel-title"><i class="bi bi-bar-chart-steps"></i> Parallel strips</h2>
+            <div class="lts-placeholder">
+                <i class="bi bi-layers"></i>
+                <p>Side-by-side lane visualization coming in Phase 4.</p>
+            </div>
+        </section>
+
+        <aside class="lts-panel lts-panel-grid" aria-label="Validation grid">
+            <h2 class="lts-panel-title"><i class="bi bi-grid-3x3-gap"></i> Validation grid</h2>
+            <div class="lts-placeholder">
+                <i class="bi bi-check2-square"></i>
+                <p>Auto-assign + drag-to-reassign coming in Phase 5.</p>
+            </div>
+        </aside>
+    </main>
+
+    <footer class="lts-actionbar">
+        <div class="lts-actionbar-left">
+            <button type="button" class="lts-btn lts-btn-primary" id="lts-auto-assign" disabled>
+                <i class="bi bi-lightning-charge"></i> Auto-assign top-N
+            </button>
+            <button type="button" class="lts-btn lts-btn-secondary" id="lts-redetect" disabled
+                    title="Re-run detection with rolling-ball noise subtraction + d1/d2 to recover faint bands that CV2 missed.">
+                <i class="bi bi-activity"></i> Re-detect (profile)
+            </button>
+        </div>
+        <div class="lts-actionbar-status" id="lts-status">
+            Pick 3–10 lanes to begin.
+        </div>
+        <div class="lts-actionbar-right">
+            <button type="button" class="lts-btn lts-btn-success" id="lts-save" disabled>
+                <i class="bi bi-save"></i> Save &amp; Train
+            </button>
+        </div>
+    </footer>
+</div>
+
+<script>
+    window.LTS_CONTEXT = {
+        templateId: "{{ template.pk }}",
+        bandCount: {{ template.band_count }},
+        bandDefinitions: {{ band_definitions_json|safe }},
+        apiUrls: {
+            lanesAvailable: "{% url 'gel_analyzer:api_studio_lanes_available' template.pk %}",
+            autoAssign: "{% url 'gel_analyzer:api_studio_auto_assign' template.pk %}",
+            save: "{% url 'gel_analyzer:api_studio_save' template.pk %}",
+            redetect: "{% url 'gel_analyzer:api_studio_redetect' template.pk %}",
+        },
+    };
+</script>
+<script src="{% static 'gel_analyzer/js/template-studio/index.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/template-studio/lane-picker.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/template-studio/strip-view.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/template-studio/validation-grid.js' %}"></script>
+{% endblock %}

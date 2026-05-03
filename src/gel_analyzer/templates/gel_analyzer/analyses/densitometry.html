@@ -1,0 +1,2140 @@
+{% extends "components/base.html" %}
+{% load static ui_icons %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/densitometry.css' %}?v=20260130a">
+{% endblock %}
+
+{% block body %}
+<div class="dm-app" id="densitometry-app">
+    <!-- Header Toolbar -->
+    <header class="dm-header">
+        <div class="dm-header-left">
+            <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.id %}" class="dm-back-link" data-tooltip="Back to Analysis" data-tooltip-pos="bottom">
+                {% icon "arrow-left" size=16 %}
+            </a>
+            <h1 class="dm-title">{{ analysis.name }}</h1>
+            <span class="dm-subtitle">Densitometry Analysis</span>
+            <button type="button" class="dm-help-btn" id="how-it-works-btn"
+                    data-tooltip="How densitometry works" data-tooltip-pos="bottom">
+                <i class="bi bi-info-circle"></i>
+            </button>
+        </div>
+
+        <div class="dm-header-center">
+            <div class="dm-param-group">
+                <label for="normalization-method">Normalization:</label>
+                <div class="dm-select-with-help">
+                    <select id="normalization-method" class="dm-select">
+                        <option value="lane_total">Lane Total</option>
+                        <option value="gel_total">Gel Total</option>
+                        <option value="loading_control">Loading Control</option>
+                    </select>
+                    <button type="button" class="dm-help-btn" id="normalization-help-btn" aria-label="Normalization help">
+                        <i class="bi bi-question-circle"></i>
+                    </button>
+                </div>
+            </div>
+            <!-- Normalization Help Popover -->
+            <div id="normalization-help-popover" class="dm-help-popover" style="display: none;">
+                <div class="dm-help-popover-header">
+                    <span>Normalization Methods</span>
+                    <button type="button" class="dm-help-popover-close" id="normalization-help-close">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div class="dm-help-popover-content">
+                    <div class="dm-help-method">
+                        <h4><i class="bi bi-bar-chart-fill"></i> Lane Total</h4>
+                        <p>Each band is expressed as a <strong>percentage of its lane's total area</strong>.</p>
+                        <ul>
+                            <li>Each lane sums to ~100%</li>
+                            <li>Best for comparing bands <em>within the same lane</em></li>
+                            <li>Default method for most analyses</li>
+                        </ul>
+                        <code>Band % = (Band Area / Lane Total) × 100</code>
+                    </div>
+                    <div class="dm-help-method">
+                        <h4><i class="bi bi-grid-fill"></i> Gel Total</h4>
+                        <p>Each band is expressed as a <strong>percentage of the entire gel's total area</strong>.</p>
+                        <ul>
+                            <li>Entire gel sums to 100%</li>
+                            <li>Best for comparing bands <em>across different lanes</em></li>
+                            <li>Useful for relative quantification between samples</li>
+                        </ul>
+                        <code>Band % = (Band Area / Gel Total) × 100</code>
+                    </div>
+                    <div class="dm-help-method">
+                        <h4><i class="bi bi-bullseye"></i> Loading Control</h4>
+                        <p>Each band is expressed <strong>relative to MW Reference bands</strong> in the same lane.</p>
+                        <ul>
+                            <li>Values can exceed 100%</li>
+                            <li>Requires bands marked as "MW Reference" type</li>
+                            <li>Compensates for unequal sample loading</li>
+                            <li>Falls back to Lane Total if no reference bands</li>
+                        </ul>
+                        <code>Band % = (Band Area / Reference Area) × 100</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="dm-header-right">
+            {% if analysis.is_editable %}
+            <a href="{% url 'gel_analyzer:analysis_annotate' pk=analysis.id %}" class="dm-btn dm-btn-outline" data-tooltip="Open annotation editor" data-tooltip-pos="bottom">
+                <i class="bi bi-pencil-square me-2"></i>Annotate
+            </a>
+            {% else %}
+            <span class="dm-btn-disabled-wrapper" data-tooltip="Analysis is {{ analysis.get_status_display }} and cannot be edited" data-tooltip-pos="bottom">
+                <button class="dm-btn dm-btn-outline" disabled>
+                    <i class="bi bi-pencil-square me-2"></i>Annotate
+                </button>
+            </span>
+            {% endif %}
+            <a href="{% url 'gel_analyzer:sample_comparison' %}?lanes={{ lane_ids_csv }}" class="dm-btn dm-btn-info" data-tooltip="Compare lanes from this analysis" data-tooltip-pos="bottom">
+                <i class="bi bi-graph-up me-2"></i>Compare Lanes
+            </a>
+            <button id="run-analysis-btn" class="dm-btn dm-btn-primary" data-tooltip="Run densitometry analysis on all bands" data-tooltip-pos="bottom">
+                <i class="bi bi-play-circle me-2"></i>Run Analysis
+            </button>
+            <button id="export-csv-btn" class="dm-btn dm-btn-secondary" data-tooltip="Export measurements to CSV" data-tooltip-pos="bottom" {% if not has_results %}disabled{% endif %}>
+                <i class="bi bi-download me-2"></i>Export CSV
+            </button>
+            <button id="open-report-modal-btn" class="dm-btn dm-btn-report" data-tooltip="Generate Report (Word, Excel, PowerPoint)" data-tooltip-pos="bottom" {% if not has_results %}disabled{% endif %}>
+                <i class="bi bi-file-earmark-richtext me-1"></i>
+                <span class="dm-btn-label">Report</span>
+            </button>
+            <button id="adjust-image-btn" class="dm-btn dm-btn-icon" data-tooltip="Image Adjustments" data-tooltip-pos="bottom">
+                <i class="bi bi-sliders"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Progress Bar (hidden by default) -->
+    <div id="analysis-progress" class="dm-progress-container" style="display: none;">
+        <div class="dm-progress-bar" id="analysis-progress-bar" role="progressbar"
+             style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+        </div>
+    </div>
+
+    <!-- Message Container -->
+    <div id="message-container" class="dm-message-container"></div>
+
+    <!-- Loading Spinner Overlay -->
+    <div id="analysis-spinner" class="dm-spinner-overlay" style="display: none;">
+        <div class="dm-spinner-content">
+            <div class="dm-spinner"></div>
+            <p class="dm-spinner-text">Running analysis...</p>
+            <p class="dm-spinner-subtext" id="spinner-progress">Please wait</p>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="dm-modal-overlay" style="display: none;">
+        <div class="dm-modal">
+            <div class="dm-modal-header">
+                <i class="bi bi-exclamation-triangle-fill dm-modal-icon"></i>
+                <h3 class="dm-modal-title">Overwrite existing analysis?</h3>
+            </div>
+            <div class="dm-modal-body">
+                <p>An analysis has already been performed on this gel.</p>
+                <p>Running a new analysis will <strong>overwrite</strong> the existing results.</p>
+            </div>
+            <div class="dm-modal-footer">
+                <button id="confirm-cancel-btn" class="dm-btn dm-btn-secondary">Cancel</button>
+                <button id="confirm-proceed-btn" class="dm-btn dm-btn-danger">Overwrite &amp; Run</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analysis Options Modal -->
+    <div id="analysis-options-modal" class="dm-modal-overlay" style="display: none;">
+        <div class="dm-modal dm-modal-lg">
+            <div class="dm-modal-header">
+                <i class="bi bi-gear-fill dm-modal-icon dm-modal-icon-primary"></i>
+                <h3 class="dm-modal-title">Analysis Options</h3>
+                <button id="options-close-btn" class="dm-modal-close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="dm-modal-body">
+                <p class="dm-modal-subtitle">Select analysis mode</p>
+
+                <div class="dm-option-group">
+                    <label class="dm-option-card dm-option-recommended">
+                        <input type="radio" name="detection-mode" value="existing" id="mode-existing" checked>
+                        <div class="dm-option-content">
+                            <div class="dm-option-header">
+                                <i class="bi bi-list-check"></i>
+                                <span class="dm-option-title">Analyze existing bands</span>
+                                <span class="dm-badge dm-badge-success">Recommended</span>
+                            </div>
+                            <p class="dm-option-desc">Measure bands annotated in the Annotation Editor (Manual, YOLO, SAM).</p>
+                        </div>
+                    </label>
+
+                    <label class="dm-option-card">
+                        <input type="radio" name="detection-mode" value="auto-detect" id="mode-auto">
+                        <div class="dm-option-content">
+                            <div class="dm-option-header">
+                                <i class="bi bi-graph-up-arrow"></i>
+                                <span class="dm-option-title">Show detected peaks</span>
+                                <span class="dm-badge dm-badge-info">Visual only</span>
+                            </div>
+                            <p class="dm-option-desc">Display peak markers on the chart to identify potential missed bands. Does NOT create bands.</p>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Advanced Options (collapsible) -->
+                <div class="dm-advanced-section">
+                    <button type="button" class="dm-advanced-toggle" id="toggle-advanced">
+                        <i class="bi bi-sliders"></i>
+                        Advanced Options
+                        <i class="bi bi-chevron-down dm-toggle-icon"></i>
+                    </button>
+                    <div class="dm-advanced-content" id="advanced-options" style="display: none;">
+                        <div class="dm-form-row">
+                            <div class="dm-form-group">
+                                <label for="opt-sensitivity">Sensitivity</label>
+                                <input type="range" id="opt-sensitivity" min="0.5" max="1" step="0.05" value="0.85">
+                                <span id="opt-sensitivity-value" class="dm-range-value">0.85</span>
+                            </div>
+                            <div class="dm-form-group">
+                                <label for="opt-min-distance">Min peak distance (px)</label>
+                                <input type="number" id="opt-min-distance" min="3" max="50" value="10" class="dm-input">
+                            </div>
+                        </div>
+                        <div class="dm-form-row">
+                            <div class="dm-form-group">
+                                <label for="opt-match-tolerance">Match tolerance (px)</label>
+                                <input type="number" id="opt-match-tolerance" min="5" max="50" value="15" class="dm-input">
+                            </div>
+                            <div class="dm-form-group">
+                                <label>
+                                    <input type="checkbox" id="opt-enable-deconv"> Enable deconvolution
+                                </label>
+                                <p class="dm-form-hint">Separate overlapping peaks using multi-Gaussian fitting</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="dm-modal-footer">
+                <button id="options-cancel-btn" class="dm-btn dm-btn-secondary">Cancel</button>
+                <button id="options-run-btn" class="dm-btn dm-btn-primary">
+                    <i class="bi bi-play-circle me-2"></i>Run Analysis
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- How Densitometry Works Modal -->
+    <div id="how-it-works-modal" class="dm-modal-overlay" style="display: none;">
+        <div class="dm-modal dm-modal-xl">
+            <div class="dm-modal-header">
+                <i class="bi bi-info-circle-fill dm-modal-icon dm-modal-icon-primary"></i>
+                <h3 class="dm-modal-title">How Densitometry Works</h3>
+                <button class="dm-modal-close" id="how-it-works-close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="dm-modal-body dm-how-body">
+                <p class="dm-how-intro">
+                    Densitometry quantifies band intensities from gel images in four steps.
+                    Each lane is analyzed independently to produce an electropherogram and per-band measurements.
+                </p>
+
+                <!-- Step 1: Profile Extraction -->
+                <div class="dm-step">
+                    <div class="dm-step-header">
+                        <span class="dm-step-number">1</span>
+                        <i class="bi bi-layers dm-step-icon"></i>
+                        <h4 class="dm-step-title">Profile Extraction</h4>
+                    </div>
+                    <div class="dm-step-body">
+                        <p>For each lane, a <strong>1D intensity profile</strong> is built from the 2D gel image.
+                           At every vertical position (Y row), pixel intensities are <strong>averaged across the lane width</strong>.</p>
+                        <div class="dm-step-diagram">
+<pre>Lane (2D)                  Profile (1D)
+
+ ┌─────────┐               │
+ │░░███░░░░│  ─── avg ───► │    ╭──╮
+ │░░███░░░░│               │    │  │
+ │░░░░░░░░░│               │ ───┘  └───
+ │░████████│  ─── avg ───► │  ╭──────╮
+ │░████████│               │  │      │
+ │░░░░░░░░░│               │──┘      └──
+ └─────────┘               │
+  ◄──50%──►                Intensity →
+  (center)</pre>
+                        </div>
+                        <p class="dm-step-detail">By default, only the <strong>center 50%</strong> of the lane width is used
+                            (configurable via <em>profile_width_percent</em>). This avoids edge artifacts and noise from lane boundaries.
+                            For polygon-shaped lanes, margins are recalculated at each row.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: Signal Processing -->
+                <div class="dm-step">
+                    <div class="dm-step-header">
+                        <span class="dm-step-number">2</span>
+                        <i class="bi bi-activity dm-step-icon"></i>
+                        <h4 class="dm-step-title">Signal Processing</h4>
+                    </div>
+                    <div class="dm-step-body">
+                        <p>The raw profile is cleaned up through two operations:</p>
+                        <ul class="dm-step-list">
+                            <li><strong>Savitzky-Golay smoothing</strong> &mdash; reduces high-frequency noise while preserving peak shape,
+                                height, and width (window size: 11 points)</li>
+                            <li><strong>Background subtraction</strong> &mdash; removes the baseline signal using the
+                                <em>rolling ball</em> algorithm (simulates a ball rolling under the curve)</li>
+                        </ul>
+                        <div class="dm-step-diagram">
+<pre>  Raw             Smoothed          Background-subtracted
+
+  ╭╮ ╭╮           ╭╮  ╭╮                ╭╮  ╭╮
+ ╭╯╰╮╯╰╮╭─      ╭╯╰──╯╰╮╭─            ╭╯╰──╯╰╮
+╭╯~~~~╰───╯    ╭╯~~~~~~~~╰╯         ───╯       ╰───
+~~~~~~~~       ─────────────         ───────────────
+               (noise removed)       (baseline flat)</pre>
+                        </div>
+                        <p class="dm-step-detail">The result is a clean electropherogram where each peak corresponds to a protein band.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3: Peak Integration -->
+                <div class="dm-step">
+                    <div class="dm-step-header">
+                        <span class="dm-step-number">3</span>
+                        <i class="bi bi-graph-up-arrow dm-step-icon"></i>
+                        <h4 class="dm-step-title">Peak Integration</h4>
+                    </div>
+                    <div class="dm-step-body">
+                        <p>Each annotated band is matched to its region on the electropherogram.
+                           A <strong>Gaussian curve</strong> is fitted to the peak, and the <strong>area under the curve</strong>
+                           is computed as the band's intensity.</p>
+                        <div class="dm-step-diagram">
+<pre>     ╭──╮
+    ╱ ·· ╲          Area = ∫ G(x) dx
+   ╱ ·  · ╲
+  ╱ ·    · ╲        G(x) = A · exp(-(x-μ)² / 2σ²)
+─╱··      ··╲───
+                    R² = goodness of fit (closer to 1 = better)</pre>
+                        </div>
+                        <p class="dm-step-detail">The <strong>R&sup2;</strong> value shown in the measurements table indicates
+                            how well the Gaussian curve fits the actual peak shape. Values above 0.95 indicate a clean, well-resolved band.</p>
+                    </div>
+                </div>
+
+                <!-- Step 4: Normalization & Purity -->
+                <div class="dm-step">
+                    <div class="dm-step-header">
+                        <span class="dm-step-number">4</span>
+                        <i class="bi bi-percent dm-step-icon"></i>
+                        <h4 class="dm-step-title">Normalization &amp; Purity</h4>
+                    </div>
+                    <div class="dm-step-body">
+                        <p>Band areas are converted to <strong>relative percentages</strong> using the selected normalization method:</p>
+                        <ul class="dm-step-list">
+                            <li><strong>Lane Total</strong> &mdash; each band as % of its lane total (each lane sums to 100%)</li>
+                            <li><strong>Gel Total</strong> &mdash; each band as % of the entire gel area</li>
+                            <li><strong>Loading Control</strong> &mdash; relative to MW Reference bands</li>
+                        </ul>
+                        <div class="dm-step-diagram">
+<pre>Purity (%) = POI Area / (POI Area + OTHER Area) &times; 100
+
+Note: MW Reference bands are excluded from purity calculations.</pre>
+                        </div>
+                        <p class="dm-step-detail">
+                            The <strong>Protein of Interest (POI)</strong> band is the target protein you are measuring.
+                            All other bands are impurities. MW Reference bands (from ladder lanes) serve only as molecular weight markers.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="dm-modal-footer">
+                <button id="how-it-works-ok-btn" class="dm-btn dm-btn-primary">Got it</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Configuration Modal -->
+    <div class="dm-modal-overlay" id="report-config-modal" style="display: none;">
+        <div class="dm-modal">
+            <div class="dm-modal-header">
+                <h3>Generate Report</h3>
+                <button class="dm-btn-icon dm-modal-close" id="report-modal-close">&times;</button>
+            </div>
+            <div class="dm-modal-body">
+                <!-- Format Selection -->
+                <div class="dm-report-field-group">
+                    <label class="dm-report-field-label">Document Format</label>
+                    <div class="dm-report-format-group">
+                        <label class="dm-report-format-option">
+                            <input type="radio" name="report-format" value="docx" checked>
+                            <span class="dm-report-format-card">
+                                <i class="bi bi-file-earmark-word"></i>
+                                <span>Word</span>
+                                <small>.docx</small>
+                            </span>
+                        </label>
+                        <label class="dm-report-format-option">
+                            <input type="radio" name="report-format" value="xlsx">
+                            <span class="dm-report-format-card">
+                                <i class="bi bi-file-earmark-excel"></i>
+                                <span>Excel</span>
+                                <small>.xlsx</small>
+                            </span>
+                        </label>
+                        <label class="dm-report-format-option">
+                            <input type="radio" name="report-format" value="pptx">
+                            <span class="dm-report-format-card">
+                                <i class="bi bi-file-earmark-ppt"></i>
+                                <span>PowerPoint</span>
+                                <small>.pptx</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Section Selection -->
+                <div class="dm-report-field-group">
+                    <div class="dm-report-sections-header">
+                        <label class="dm-report-field-label">Report Sections</label>
+                        <span class="dm-report-toggle-links">
+                            <a href="#" id="report-select-all">Select All</a>
+                            <span class="dm-report-toggle-sep">|</span>
+                            <a href="#" id="report-select-none">Select None</a>
+                        </span>
+                    </div>
+                    <div class="dm-report-sections-list">
+
+                        <!-- Group: Summary -->
+                        <div class="dm-report-section-group" data-group="summary">
+                            <label class="dm-report-group-header">
+                                <input type="checkbox" checked data-group-toggle="summary">
+                                <i class="bi bi-chevron-down dm-report-group-chevron"></i>
+                                <span>Summary</span>
+                            </label>
+                            <div class="dm-report-group-children" data-group-body="summary">
+                                <label class="dm-report-section-option dm-report-child-option" data-section="overview" data-parent-group="summary">
+                                    <input type="checkbox" checked data-section-key="overview">
+                                    <span>Analysis Overview</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option" data-section="sample_summary" data-parent-group="summary">
+                                    <input type="checkbox" checked data-section-key="sample_summary">
+                                    <span>Sample Summary Table</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option" data-section="poi_purity" data-parent-group="summary">
+                                    <input type="checkbox" checked data-section-key="poi_purity">
+                                    <span>POI Purity Chart</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Group: Gel Visuals -->
+                        <div class="dm-report-section-group" data-group="gel_visuals" data-image-group>
+                            <label class="dm-report-group-header">
+                                <input type="checkbox" checked data-group-toggle="gel_visuals">
+                                <i class="bi bi-chevron-down dm-report-group-chevron"></i>
+                                <span>Gel Visuals</span>
+                            </label>
+                            <div class="dm-report-group-children" data-group-body="gel_visuals">
+                                <label class="dm-report-section-option dm-report-child-option" data-section="gel_image" data-parent-group="gel_visuals" data-image-only>
+                                    <input type="checkbox" checked data-section-key="gel_image">
+                                    <span>Full Gel Image</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-band-overlay-option" data-parent-group="gel_visuals" data-depends-on="gel_image">
+                                    <input type="checkbox" id="report-band-overlay" checked>
+                                    <span>Show band overlays on gel image</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option" data-section="digital_gel" data-parent-group="gel_visuals" data-image-only>
+                                    <input type="checkbox" checked data-section-key="digital_gel">
+                                    <span>Digital Gel (All Lanes)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Group: Detailed Analysis -->
+                        <div class="dm-report-section-group" data-group="detailed">
+                            <label class="dm-report-group-header">
+                                <input type="checkbox" checked data-group-toggle="detailed">
+                                <i class="bi bi-chevron-down dm-report-group-chevron"></i>
+                                <span>Detailed Analysis</span>
+                            </label>
+                            <div class="dm-report-group-children" data-group-body="detailed">
+                                <label class="dm-report-section-option dm-report-child-option" data-section="lane_details" data-parent-group="detailed">
+                                    <input type="checkbox" checked data-section-key="lane_details">
+                                    <span>Lane Details (Electropherogram + Band Table)</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option" data-section="terrain_view" data-parent-group="detailed" data-image-only>
+                                    <input type="checkbox" checked data-section-key="terrain_view">
+                                    <span>3D Terrain View</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Standalone: Materials & Methods -->
+                        <label class="dm-report-section-option" data-section="materials_methods" data-image-only>
+                            <input type="checkbox" checked data-section-key="materials_methods">
+                            <span>Materials &amp; Methods</span>
+                        </label>
+
+                    </div>
+                    <div id="report-format-note" class="dm-report-format-note" style="display: none;">
+                        <i class="bi bi-info-circle me-1"></i> Excel format does not include image-only sections (Gel Visuals, Terrain View, Materials &amp; Methods). These will be skipped.
+                    </div>
+                </div>
+            </div>
+            <div class="dm-report-footer">
+                <button class="dm-btn dm-btn-secondary" id="report-modal-cancel">Cancel</button>
+                <button class="dm-btn dm-btn-primary" id="report-modal-generate">
+                    <i class="bi bi-download me-1"></i> <span id="report-generate-text">Generate Report</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main 4-Panel Layout -->
+    <main class="dm-main">
+        <!-- Top Row -->
+        <div class="dm-panel-row dm-row-top">
+            <!-- Gel Overview (Top-Left) -->
+            <div class="dm-panel dm-panel-gel-overview" id="gel-overview-panel">
+                <div class="dm-panel-header">
+                    <span class="dm-panel-title">Gel Overview</span>
+                    <div class="dm-panel-actions">
+                        <button class="dm-gel-enhance-btn" id="gel-auto-enhance" title="Auto-enhance image">
+                            <i class="bi bi-magic"></i>
+                        </button>
+                        <button class="dm-gel-invert-btn" id="gel-invert-toggle" title="Invert image colors">
+                            <i class="bi bi-circle-half"></i>
+                        </button>
+                        <button class="dm-gel-bands-toggle active" id="gel-bands-toggle" title="Toggle band overlays">
+                            <i class="bi bi-layers"></i>
+                        </button>
+                        <button class="dm-panel-expand-btn" data-panel="gel-overview-panel" title="Expand to fullscreen">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="dm-panel-content">
+                    <!-- Canvas for gel image will be inserted by JS -->
+                    <div class="dm-gel-canvas-container">
+                        <div class="dm-placeholder">Loading gel image...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chromatogram (Top-Right) -->
+            <div class="dm-panel dm-panel-chromatogram" id="chromatogram-panel">
+                <div class="dm-panel-header">
+                    <span class="dm-panel-title"><i class="bi bi-graph-up me-1"></i>Graphical View</span>
+                    <div class="dm-panel-actions">
+                        <div class="dm-view-toggle" id="graphical-view-toggle">
+                            <button class="dm-view-btn active" data-view="electropherogram" data-tooltip="Electropherogram">
+                                <i class="bi bi-activity"></i> Electropherogram
+                            </button>
+                            <button class="dm-view-btn" data-view="3d-mountain" data-tooltip="3D Mountain View">
+                                <i class="bi bi-box"></i> 3D Mountain
+                            </button>
+                            <button class="dm-view-btn" data-view="poi-purity" data-tooltip="POI Purity (all lanes)">
+                                <i class="bi bi-bar-chart-fill"></i> POI Purity
+                            </button>
+                        </div>
+                        <button class="dm-panel-btn" id="snapshot-btn" data-tooltip="Download as PNG">
+                            <i class="bi bi-camera"></i>
+                        </button>
+                        <button class="dm-panel-btn" id="zoom-reset-btn" data-tooltip="Reset Zoom">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+                        <button class="dm-panel-expand-btn" data-panel="chromatogram-panel" title="Expand to fullscreen">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="dm-panel-content">
+                    <!-- D3.js chart will be inserted here -->
+                    <!-- 3D terrain view container (hidden by default, toggled via view toggle) -->
+                    <div class="dm-chromatogram-3d-container" id="chromatogram-3d-container" style="display: none;"></div>
+                    <!-- POI purity bar chart container (hidden by default, toggled via view toggle) -->
+                    <div id="poi-purity-container" class="dm-poi-purity-container" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row -->
+        <div class="dm-panel-row dm-row-bottom">
+            <!-- Band Detail (Bottom-Left) -->
+            <div class="dm-panel dm-panel-band-detail" id="band-zoom-panel">
+                <div class="dm-panel-header">
+                    <span class="dm-panel-title">Band Detail</span>
+                    <div class="dm-panel-actions">
+                        <button class="dm-panel-expand-btn" data-panel="band-zoom-panel" title="Expand to fullscreen">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="dm-panel-content">
+                    <!-- Band zoom and digital lane will be inserted by JS -->
+                </div>
+            </div>
+
+            <!-- Results Table (Bottom-Right) -->
+            <div class="dm-panel dm-panel-results" id="results-table-panel">
+                <div class="dm-panel-header">
+                    <span class="dm-panel-title">Measurements</span>
+                    <div class="dm-panel-actions">
+                        <button class="dm-panel-expand-btn" data-panel="results-table-panel" title="Expand to fullscreen">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="dm-panel-content">
+                    <!-- Results table will be inserted by JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Panel Magnify Overlay -->
+    <div class="dm-magnify-overlay" id="panel-magnify-overlay">
+        <div class="dm-magnify-modal">
+            <div class="dm-magnify-header">
+                <span class="dm-magnify-title" id="magnify-title">Panel View</span>
+                <button class="dm-magnify-close" id="magnify-close" title="Close (ESC)">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="dm-magnify-content" id="magnify-content">
+                <!-- Panel content moves here when expanded -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Adjustments Panel (Floating) -->
+    <div id="adjustments-panel" class="dm-adjustments-panel" style="display: none;">
+        <div class="dm-panel-header">
+            <span class="dm-panel-title">Image Adjustments</span>
+            <button id="adjustments-close" class="dm-panel-close">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+        <div class="dm-panel-content">
+            <div class="dm-adj-group">
+                <label for="adj-brightness">Brightness</label>
+                <input type="range" id="adj-brightness" min="0" max="200" value="100">
+                <span id="adj-brightness-value">100%</span>
+            </div>
+            <div class="dm-adj-group">
+                <label for="adj-contrast">Contrast</label>
+                <input type="range" id="adj-contrast" min="0" max="200" value="100">
+                <span id="adj-contrast-value">100%</span>
+            </div>
+            <div class="dm-adj-group">
+                <label>
+                    <input type="checkbox" id="adj-invert"> Invert
+                </label>
+            </div>
+            <div class="dm-adj-actions">
+                <button id="adj-reset" class="dm-btn dm-btn-sm">Reset</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart Tooltip (global) -->
+<div id="dm-chart-tooltip" class="dm-tooltip" style="display: none;"></div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Three.js Import Map (must appear before any module scripts) -->
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+}
+</script>
+
+<!-- D3.js v7 -->
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<!-- Shared Utilities (must load before module scripts) -->
+<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}?v=20260129a"></script>
+<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}?v=20260129a"></script>
+
+<!-- Densitometry Module Scripts -->
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-event-bus.js' %}?v=20260120b"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-state.js' %}?v=20260120c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-api-client.js' %}?v=20260120c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/gel-overview-panel.js' %}?v=20260120b"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260130a"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/band-zoom-panel.js' %}?v=20260121g"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/results-table-panel.js' %}?v=20260120e"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-app.js' %}?v=20260121a"></script>
+<script src="{% static 'gel_analyzer/js/report/report-capture.js' %}?v=20260129d"></script>
+
+<!-- 3D Terrain Renderer (ES Module — attaches to window.Densitometry for IIFE interop) -->
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// GLSL Shaders
+const VERTEX_SHADER = `
+    varying vec3 vColor;
+    varying float vElevation;
+    varying vec3 vNormal;
+
+    void main() {
+        vColor = color;
+        vElevation = position.y;
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+`;
+
+const FRAGMENT_SHADER = `
+    uniform float contourInterval;
+    uniform vec3 contourColor;
+    uniform float contourWidth;
+    uniform float opacity;
+
+    varying vec3 vColor;
+    varying float vElevation;
+    varying vec3 vNormal;
+
+    void main() {
+        // Diffuse lighting
+        vec3 lightDir = normalize(vec3(0.5, 1.0, 0.7));
+        float diff = max(dot(vNormal, lightDir), 0.0) * 0.6 + 0.4;
+        vec3 litColor = vColor * diff;
+
+        // Contour lines via fract + fwidth + smoothstep
+        float scaledElev = vElevation / contourInterval;
+        float f = fract(scaledElev);
+        float df = fwidth(scaledElev);
+        float contour = smoothstep(df * contourWidth, df * (contourWidth + 1.0), f)
+                      * smoothstep(df * contourWidth, df * (contourWidth + 1.0), 1.0 - f);
+
+        // Mix: contour=0 on line, contour=1 away from line
+        vec3 finalColor = mix(contourColor, litColor, contour);
+
+        gl_FragColor = vec4(finalColor, opacity);
+    }
+`;
+
+class Chromatogram3DRenderer {
+    constructor(options) {
+        this.container = options.container;
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.controls = null;
+        this.terrainMesh = null;
+        this.labelSprites = [];
+        this.highlightMesh = null;
+        this.animationId = null;
+        this._isAnimating = false;
+        this._dampingTimeout = null;
+        this.profileData = null;
+        this.bands = null;
+        this.depthSegments = 30;
+
+        // Band type colors (match densitometry CSS variables)
+        this.bandColors = {
+            POI: new THREE.Color(0x22C55E),
+            MW_REFERENCE: new THREE.Color(0xFFC107),
+            OTHER: new THREE.Color(0x9E9E9E),
+            DEFAULT: new THREE.Color(0x2196F3),
+        };
+    }
+
+    init() {
+        const w = this.container.clientWidth || 600;
+        const h = this.container.clientHeight || 400;
+
+        // Scene
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x1a1a2e);
+
+        // Camera
+        this.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
+        this.camera.position.set(0, 12, 18);
+        this.camera.lookAt(0, 2, 0);
+
+        // Renderer
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(w, h);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.container.appendChild(this.renderer.domElement);
+
+        // OrbitControls
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.05;
+        this.controls.target.set(0, 2, 0);
+        this.controls.update();
+
+        // On-demand rendering: only animate during user interaction + damping
+        this.controls.addEventListener('start', () => this._startAnimating());
+        this.controls.addEventListener('end', () => this._stopAnimatingAfterDamping());
+
+        // Lighting
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 15, 10);
+        this.scene.add(dirLight);
+
+        // Legend overlay
+        this._createLegend();
+
+        // Grid at base
+        const grid = new THREE.GridHelper(24, 24, 0x444466, 0x2a2a44);
+        grid.position.y = 0;
+        this.scene.add(grid);
+
+        // Initial single frame render (no continuous loop)
+        this._renderFrame();
+    }
+
+    render(profileData, bands) {
+        this._clearTerrain();
+        this.profileData = profileData;
+        this.bands = bands || [];
+
+        if (!profileData || !profileData.y_positions || profileData.y_positions.length === 0) return;
+
+        const positions = profileData.y_positions;
+        const intensities = profileData.intensities;
+        const n = positions.length;
+
+        // Downsample if too many data points (for performance)
+        let step = 1;
+        if (n > 500) step = Math.ceil(n / 500);
+        const sampledPositions = [];
+        const sampledIntensities = [];
+        for (let i = 0; i < n; i += step) {
+            sampledPositions.push(positions[i]);
+            sampledIntensities.push(intensities[i]);
+        }
+        // Ensure last point is included
+        if (sampledPositions[sampledPositions.length - 1] !== positions[n - 1]) {
+            sampledPositions.push(positions[n - 1]);
+            sampledIntensities.push(intensities[n - 1]);
+        }
+
+        const sn = sampledPositions.length;
+        const posMin = sampledPositions[0];
+        const posMax = sampledPositions[sn - 1];
+        const intMax = Math.max(...sampledIntensities) || 1;
+        const sceneWidth = 20;
+        const sceneDepth = 6;
+        const scaleX = sceneWidth / (posMax - posMin || 1);
+        const scaleY = 8 / intMax;
+        const ds = this.depthSegments;
+
+        // Create PlaneGeometry and rotate to XZ plane with Y as up
+        const geometry = new THREE.PlaneGeometry(sceneWidth, sceneDepth, sn - 1, ds);
+        geometry.rotateX(-Math.PI / 2);
+
+        const posAttr = geometry.attributes.position;
+        const vertexCount = posAttr.count;
+        const colors = new Float32Array(vertexCount * 3);
+        const xSegments = sn;
+        const zSegments = ds + 1;
+
+        for (let i = 0; i < vertexCount; i++) {
+            const ix = i % xSegments;
+            const iz = Math.floor(i / xSegments);
+
+            // Gaussian falloff across Z (depth) — mountain cross-section
+            const zCenter = ds / 2;
+            const zDist = (iz - zCenter) / (zCenter || 1);
+            const zFalloff = Math.exp(-zDist * zDist * 3.0);
+
+            // Height = intensity * scale * falloff
+            const height = sampledIntensities[ix] * scaleY * zFalloff;
+            posAttr.setY(i, height);
+
+            // Vertex color based on band type
+            const color = this._getVertexColor(sampledPositions[ix]);
+            colors[i * 3] = color.r;
+            colors[i * 3 + 1] = color.g;
+            colors[i * 3 + 2] = color.b;
+        }
+
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geometry.computeVertexNormals();
+        posAttr.needsUpdate = true;
+
+        // ShaderMaterial with contour lines
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                contourInterval: { value: 1.0 },
+                contourColor: { value: new THREE.Color(0xffffff) },
+                contourWidth: { value: 1.0 },
+                opacity: { value: 1.0 },
+            },
+            vertexShader: VERTEX_SHADER,
+            fragmentShader: FRAGMENT_SHADER,
+            vertexColors: true,
+            side: THREE.DoubleSide,
+            extensions: { derivatives: true },
+        });
+
+        this.terrainMesh = new THREE.Mesh(geometry, material);
+        this.scene.add(this.terrainMesh);
+
+        // Semi-transparent base plane
+        this._addBasePlane(sceneWidth, sceneDepth);
+
+        // Peak labels (MW kDa values above peaks)
+        this._addPeakLabels(sampledPositions, sampledIntensities, scaleX, scaleY, posMin);
+
+        // Adjust contour interval based on terrain height
+        const maxHeight = intMax * scaleY;
+        const contourCount = 8;
+        material.uniforms.contourInterval.value = maxHeight / contourCount;
+
+        // Reset camera to see the whole terrain
+        this._resetCamera();
+
+        // Render the frame (on-demand, no continuous loop)
+        this._renderFrame();
+    }
+
+    highlightBand(bandId) {
+        // Remove previous highlight
+        if (this.highlightMesh) {
+            this.scene.remove(this.highlightMesh);
+            this.highlightMesh.geometry?.dispose();
+            this.highlightMesh.material?.dispose();
+            this.highlightMesh = null;
+        }
+
+        if (!bandId || !this.bands || !this.profileData) return;
+
+        const band = this.bands.find(b => b.id === bandId || b.uuid === bandId);
+        if (!band) return;
+
+        // Create a glowing ring/marker at the band's peak position
+        const positions = this.profileData.y_positions;
+        const intensities = this.profileData.intensities;
+        const posMin = positions[0];
+        const posMax = positions[positions.length - 1];
+        const intMax = Math.max(...intensities) || 1;
+        const scaleX = 20 / (posMax - posMin || 1);
+        const scaleY = 8 / intMax;
+
+        const bandY = band.densitometry?.peak_center_y || band.position_y || band.y;
+        if (!bandY) return;
+
+        const x = (bandY - posMin) * scaleX - 10;
+        // Find nearest intensity
+        let nearestIdx = 0;
+        let minDist = Infinity;
+        for (let i = 0; i < positions.length; i++) {
+            const d = Math.abs(positions[i] - bandY);
+            if (d < minDist) { minDist = d; nearestIdx = i; }
+        }
+        const height = intensities[nearestIdx] * scaleY;
+
+        // Torus ring above the peak
+        const torusGeom = new THREE.TorusGeometry(0.5, 0.08, 8, 32);
+        const torusMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.8 });
+        this.highlightMesh = new THREE.Mesh(torusGeom, torusMat);
+        this.highlightMesh.position.set(x, height + 0.8, 0);
+        this.highlightMesh.rotation.x = Math.PI / 2;
+        this.scene.add(this.highlightMesh);
+        this._renderFrame();
+    }
+
+    _getVertexColor(yPos) {
+        let bestBand = null;
+        let bestDist = Infinity;
+        for (const band of this.bands) {
+            const sigma = band.densitometry?.peak_sigma || band.densitometry?.sigma || 15;
+            const center = band.densitometry?.peak_center_y || band.position_y || band.y;
+            if (!center) continue;
+            const dist = Math.abs(yPos - center);
+            if (dist <= sigma * 3 && dist < bestDist) {
+                bestDist = dist;
+                bestBand = band;
+            }
+        }
+        if (bestBand) {
+            const type = bestBand.band_type || 'OTHER';
+            return this.bandColors[type] || this.bandColors.DEFAULT;
+        }
+        return this.bandColors.DEFAULT;
+    }
+
+    _addBasePlane(width, depth) {
+        const geom = new THREE.PlaneGeometry(width, depth);
+        geom.rotateX(-Math.PI / 2);
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0x2196F3,
+            transparent: true,
+            opacity: 0.05,
+            side: THREE.DoubleSide,
+        });
+        const plane = new THREE.Mesh(geom, mat);
+        plane.position.y = 0.01;
+        plane.userData.isBase = true;
+        this.scene.add(plane);
+    }
+
+    _createLegend() {
+        const legend = document.createElement('div');
+        legend.className = 'dm-3d-legend';
+        legend.innerHTML = `
+            <div class="dm-3d-legend-title">Band Types</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#22C55E"></span>POI</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#9E9E9E"></span>Other</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#FFC107"></span>MW Reference</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#2196F3"></span>Baseline</div>
+        `;
+        this.container.appendChild(legend);
+        this.legendElement = legend;
+    }
+
+    _addPeakLabels(sampledPositions, sampledIntensities, scaleX, scaleY, posMin) {
+        // Clear old labels
+        this.labelSprites.forEach(s => this.scene.remove(s));
+        this.labelSprites = [];
+
+        for (const band of this.bands) {
+            const mw = band.estimated_mw_kda || band.densitometry?.estimated_mw;
+            const pct = band.densitometry?.relative_percent_lane;
+            const center = band.densitometry?.peak_center_y || band.position_y || band.y;
+            if (!center) continue;
+
+            // Find peak height
+            let nearestIdx = 0;
+            let minDist = Infinity;
+            for (let i = 0; i < sampledPositions.length; i++) {
+                const d = Math.abs(sampledPositions[i] - center);
+                if (d < minDist) { minDist = d; nearestIdx = i; }
+            }
+
+            const x = (center - posMin) * scaleX - 10;
+            const height = sampledIntensities[nearestIdx] * scaleY;
+
+            // Label text
+            let text = '';
+            if (mw) text = `${Math.round(mw)} kDa`;
+            else if (pct !== undefined) text = `${pct.toFixed(1)}%`;
+            else text = band.band_type || '';
+            if (!text) continue;
+
+            const sprite = this._makeTextSprite(text, band.band_type);
+            sprite.position.set(x, height + 1.2, 0);
+            sprite.scale.set(2, 1, 1);
+            this.scene.add(sprite);
+            this.labelSprites.push(sprite);
+        }
+    }
+
+    _makeTextSprite(text, bandType) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+
+        // Background pill
+        ctx.fillStyle = 'rgba(26, 26, 46, 0.85)';
+        const textWidth = ctx.measureText(text).width;
+        const pillWidth = Math.max(textWidth + 40, 80);
+        const pillX = (256 - pillWidth) / 2;
+        ctx.beginPath();
+        ctx.roundRect(pillX, 30, pillWidth, 48, 12);
+        ctx.fill();
+
+        // Border
+        const colors = { POI: '#22C55E', MW_REFERENCE: '#FFC107', OTHER: '#9E9E9E' };
+        ctx.strokeStyle = colors[bandType] || '#2196F3';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Text
+        ctx.font = 'bold 24px -apple-system, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 128, 54);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+
+        const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        return new THREE.Sprite(spriteMat);
+    }
+
+    _resetCamera() {
+        this.camera.position.set(0, 12, 18);
+        this.controls.target.set(0, 2, 0);
+        this.controls.update();
+    }
+
+    _clearTerrain() {
+        // Remove terrain mesh
+        if (this.terrainMesh) {
+            this.scene.remove(this.terrainMesh);
+            this.terrainMesh.geometry?.dispose();
+            this.terrainMesh.material?.dispose();
+            this.terrainMesh = null;
+        }
+        // Remove highlight
+        if (this.highlightMesh) {
+            this.scene.remove(this.highlightMesh);
+            this.highlightMesh.geometry?.dispose();
+            this.highlightMesh.material?.dispose();
+            this.highlightMesh = null;
+        }
+        // Remove labels
+        this.labelSprites.forEach(s => {
+            this.scene.remove(s);
+            s.material?.map?.dispose();
+            s.material?.dispose();
+        });
+        this.labelSprites = [];
+        // Remove base planes
+        const toRemove = [];
+        this.scene.traverse(obj => {
+            if (obj.userData?.isBase) toRemove.push(obj);
+        });
+        toRemove.forEach(obj => {
+            this.scene.remove(obj);
+            obj.geometry?.dispose();
+            obj.material?.dispose();
+        });
+    }
+
+    /** Render a single frame (no loop). */
+    _renderFrame() {
+        if (!this.renderer || !this.scene || !this.camera) return;
+        this.controls?.update();
+        if (this.highlightMesh) {
+            this.highlightMesh.rotation.z += 0.02;
+        }
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    /** Start the animation loop (called on OrbitControls 'start'). */
+    _startAnimating() {
+        if (this._dampingTimeout) {
+            clearTimeout(this._dampingTimeout);
+            this._dampingTimeout = null;
+        }
+        if (this._isAnimating) return;
+        this._isAnimating = true;
+        this._animateLoop();
+    }
+
+    /** Continue animating briefly after interaction ends (for damping). */
+    _stopAnimatingAfterDamping() {
+        // Keep animating for 600ms to let damping settle
+        if (this._dampingTimeout) clearTimeout(this._dampingTimeout);
+        this._dampingTimeout = setTimeout(() => {
+            this._isAnimating = false;
+            this._dampingTimeout = null;
+            // One last frame to finalize
+            this._renderFrame();
+        }, 600);
+    }
+
+    /** Animation loop — only runs while _isAnimating is true. */
+    _animateLoop() {
+        if (!this._isAnimating) return;
+        this.animationId = requestAnimationFrame(() => this._animateLoop());
+        this._renderFrame();
+    }
+
+    onResize() {
+        if (!this.container || !this.renderer || !this.camera) return;
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        if (w === 0 || h === 0) return;
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(w, h);
+        this._renderFrame();
+    }
+
+    dispose() {
+        this._isAnimating = false;
+        if (this._dampingTimeout) {
+            clearTimeout(this._dampingTimeout);
+            this._dampingTimeout = null;
+        }
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+        this._clearTerrain();
+        if (this.renderer) {
+            this.renderer.dispose();
+            if (this.renderer.domElement?.parentNode) {
+                this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+            }
+            this.renderer = null;
+        }
+        this.controls?.dispose();
+        this.controls = null;
+        this.scene = null;
+        this.camera = null;
+        if (this.legendElement?.parentNode) {
+            this.legendElement.parentNode.removeChild(this.legendElement);
+            this.legendElement = null;
+        }
+    }
+}
+
+// Attach to window for IIFE interop
+window.Densitometry = window.Densitometry || {};
+window.Densitometry.Chromatogram3DRenderer = Chromatogram3DRenderer;
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize data
+    const analysisId = '{{ analysis.id }}';
+    const csrfToken = '{{ csrf_token }}';
+
+    const lanes = {{ lanes|safe }};
+    const bands = {{ bands|safe }};
+    const hasResults = {{ has_results|yesno:"true,false" }};
+
+    // Calibration data for MW axis mode
+    const calibrationData = {{ calibration_json }};
+
+    // Initialize the app
+    const app = new Densitometry.App({
+        analysisId: analysisId,
+        csrfToken: csrfToken,
+        lanes: lanes,
+        bands: bands,
+        calibrationData: calibrationData,
+        {% if gel_image %}{% if gel_image.display_file or gel_image.original_file %}
+        imageUrl: '{% url "gel_analyzer:api_image_proxy" pk=gel_image.id %}',
+        {% endif %}{% endif %}
+        apiUrls: {
+            densitometry: '{{ api_urls.densitometry }}',
+            run: '{{ api_urls.run }}',
+            runAsync: '{{ api_urls.run_async }}',
+            export: '{{ api_urls.export }}',
+        },
+    });
+
+    app.init();
+
+    // Make app globally accessible for debugging
+    window.densitometryApp = app;
+
+    // ============================================
+    // Generate Report (Modal)
+    // ============================================
+    const reportBtn = document.getElementById('open-report-modal-btn');
+    const reportModal = {
+        overlay: document.getElementById('report-config-modal'),
+        generateBtn: document.getElementById('report-modal-generate'),
+        generateText: document.getElementById('report-generate-text'),
+        formatNote: document.getElementById('report-format-note'),
+
+        open() {
+            // Reset all group toggles and section checkboxes to checked
+            this.overlay.querySelectorAll('input[data-group-toggle]').forEach(cb => {
+                cb.checked = true;
+            });
+            this.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
+                cb.checked = true;
+            });
+            document.getElementById('report-band-overlay').checked = true;
+
+            // Reset format to docx
+            const docxRadio = this.overlay.querySelector('input[value="docx"]');
+            if (docxRadio) docxRadio.checked = true;
+
+            this.onFormatChange();
+            this.updateAllGroups();
+            this.overlay.style.display = 'flex';
+        },
+
+        close() {
+            this.overlay.style.display = 'none';
+        },
+
+        getFormat() {
+            const checked = this.overlay.querySelector('input[name="report-format"]:checked');
+            return checked ? checked.value : 'docx';
+        },
+
+        getSections() {
+            const sections = [];
+            this.overlay.querySelectorAll('input[data-section-key]:checked').forEach(cb => {
+                if (!cb.disabled) {
+                    sections.push(cb.dataset.sectionKey);
+                }
+            });
+            return sections;
+        },
+
+        // --- Group toggle logic ---
+
+        onGroupToggle(groupName) {
+            const toggle = this.overlay.querySelector(`input[data-group-toggle="${groupName}"]`);
+            const body = this.overlay.querySelector(`[data-group-body="${groupName}"]`);
+            if (!toggle || !body) return;
+
+            const enabled = toggle.checked;
+
+            body.querySelectorAll('input[data-section-key]').forEach(cb => {
+                if (enabled) {
+                    const opt = cb.closest('.dm-report-section-option');
+                    const isFormatDisabled = opt && opt.classList.contains('format-disabled');
+                    if (!isFormatDisabled) {
+                        cb.disabled = false;
+                        cb.checked = true;
+                    }
+                } else {
+                    cb.disabled = true;
+                    cb.checked = false;
+                }
+            });
+
+            // Also handle the band overlay sub-option
+            const bandOverlay = body.querySelector('#report-band-overlay');
+            if (bandOverlay) {
+                bandOverlay.disabled = !enabled;
+                if (!enabled) bandOverlay.checked = false;
+            }
+
+            // Visual state
+            body.classList.toggle('dm-report-group-disabled', !enabled);
+            const chevron = this.overlay.querySelector(`[data-group="${groupName}"] .dm-report-group-chevron`);
+            if (chevron) {
+                chevron.classList.toggle('collapsed', !enabled);
+            }
+
+            this.updateDependencies();
+        },
+
+        updateDependencies() {
+            this.overlay.querySelectorAll('[data-depends-on]').forEach(opt => {
+                const dependsOn = opt.dataset.dependsOn;
+                const parentCb = this.overlay.querySelector(`input[data-section-key="${dependsOn}"]`);
+                const childCb = opt.querySelector('input');
+                if (!parentCb || !childCb) return;
+
+                const parentEnabled = parentCb.checked && !parentCb.disabled;
+                if (!parentEnabled) {
+                    childCb.disabled = true;
+                    childCb.checked = false;
+                    opt.classList.add('disabled-section');
+                } else {
+                    childCb.disabled = false;
+                    opt.classList.remove('disabled-section');
+                }
+            });
+        },
+
+        syncGroupFromChildren(groupName) {
+            const toggle = this.overlay.querySelector(`input[data-group-toggle="${groupName}"]`);
+            const body = this.overlay.querySelector(`[data-group-body="${groupName}"]`);
+            if (!toggle || !body) return;
+
+            const children = body.querySelectorAll('input[data-section-key]');
+            if (children.length === 0) return;
+
+            const checkedCount = Array.from(children).filter(cb => cb.checked && !cb.disabled).length;
+            const enabledCount = Array.from(children).filter(cb => !cb.disabled).length;
+
+            if (checkedCount === 0) {
+                toggle.checked = false;
+                toggle.indeterminate = false;
+            } else if (checkedCount < enabledCount) {
+                toggle.checked = true;
+                toggle.indeterminate = true;
+            } else {
+                toggle.checked = true;
+                toggle.indeterminate = false;
+            }
+        },
+
+        updateAllGroups() {
+            ['summary', 'gel_visuals', 'detailed'].forEach(g => {
+                this.onGroupToggle(g);
+                this.syncGroupFromChildren(g);
+            });
+            this.updateDependencies();
+        },
+
+        // --- Format change ---
+
+        onFormatChange() {
+            const fmt = this.getFormat();
+            const isExcel = fmt === 'xlsx';
+
+            // Disable image-only sections for Excel
+            this.overlay.querySelectorAll('.dm-report-section-option[data-image-only]').forEach(opt => {
+                const cb = opt.querySelector('input');
+                if (isExcel) {
+                    cb.checked = false;
+                    cb.disabled = true;
+                    opt.classList.add('disabled-section', 'format-disabled');
+                } else {
+                    const parentGroup = opt.dataset.parentGroup;
+                    const groupToggle = parentGroup
+                        ? this.overlay.querySelector(`input[data-group-toggle="${parentGroup}"]`)
+                        : null;
+                    const groupEnabled = !groupToggle || groupToggle.checked;
+                    if (groupEnabled) {
+                        cb.disabled = false;
+                    }
+                    opt.classList.remove('disabled-section', 'format-disabled');
+                }
+            });
+
+            // Disable entire gel_visuals group for Excel
+            const gelGroup = this.overlay.querySelector('[data-group="gel_visuals"]');
+            if (gelGroup) {
+                if (isExcel) {
+                    gelGroup.classList.add('disabled-section');
+                    const groupToggle = gelGroup.querySelector('input[data-group-toggle]');
+                    if (groupToggle) {
+                        groupToggle.checked = false;
+                        groupToggle.disabled = true;
+                    }
+                    this.onGroupToggle('gel_visuals');
+                } else {
+                    gelGroup.classList.remove('disabled-section');
+                    const groupToggle = gelGroup.querySelector('input[data-group-toggle]');
+                    if (groupToggle) {
+                        groupToggle.disabled = false;
+                        groupToggle.checked = true;
+                    }
+                    this.onGroupToggle('gel_visuals');
+                }
+            }
+
+            this.formatNote.style.display = isExcel ? 'block' : 'none';
+            this.updateDependencies();
+        },
+
+        // --- Generate ---
+
+        async generate() {
+            const format = this.getFormat();
+            const sections = this.getSections();
+            const bandOverlayCb = document.getElementById('report-band-overlay');
+            const bandOverlay = bandOverlayCb ? (bandOverlayCb.checked && !bandOverlayCb.disabled) : true;
+
+            if (sections.length === 0) {
+                gaToast('Please select at least one section.', 'warning');
+                return;
+            }
+
+            this.generateBtn.disabled = true;
+            this.generateText.textContent = 'Generating...';
+
+            try {
+                const response = await fetch(
+                    '{% url "gel_analyzer:api_generate_densitometry_report" pk=analysis.id %}',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken,
+                        },
+                        body: JSON.stringify({ format, sections, band_overlay: bandOverlay }),
+                    }
+                );
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.error || `Server error (${response.status})`);
+                }
+
+                // Download file
+                const blob = await response.blob();
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+                const fallbackExt = { docx: '.docx', xlsx: '.xlsx', pptx: '.pptx' }[format] || '.docx';
+                const filename = filenameMatch ? filenameMatch[1] : `densitometry_report${fallbackExt}`;
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+
+                this.close();
+
+                // Brief feedback on the header button
+                const label = reportBtn.querySelector('.dm-btn-label');
+                label.textContent = 'Downloaded';
+                setTimeout(() => { label.textContent = 'Report'; }, 3000);
+
+            } catch (err) {
+                console.error('[Report] Generation failed:', err);
+                gaToast('Report generation failed: ' + err.message, 'danger');
+            } finally {
+                this.generateBtn.disabled = false;
+                this.generateText.textContent = 'Generate Report';
+            }
+        },
+    };
+
+    if (reportBtn) {
+        reportBtn.addEventListener('click', () => {
+            if (reportBtn.disabled) return;
+            reportModal.open();
+        });
+
+        // Modal event listeners
+        document.getElementById('report-modal-close').addEventListener('click', () => reportModal.close());
+        document.getElementById('report-modal-cancel').addEventListener('click', () => reportModal.close());
+        reportModal.overlay.addEventListener('click', (e) => {
+            if (e.target === reportModal.overlay) reportModal.close();
+        });
+        document.getElementById('report-modal-generate').addEventListener('click', () => reportModal.generate());
+
+        // Format radio change
+        reportModal.overlay.querySelectorAll('input[name="report-format"]').forEach(radio => {
+            radio.addEventListener('change', () => reportModal.onFormatChange());
+        });
+
+        // Group toggle listeners
+        reportModal.overlay.querySelectorAll('input[data-group-toggle]').forEach(toggle => {
+            toggle.addEventListener('change', () => {
+                reportModal.onGroupToggle(toggle.dataset.groupToggle);
+            });
+        });
+
+        // Child checkbox change -> sync parent group + update dependencies
+        reportModal.overlay.querySelectorAll('.dm-report-child-option input[data-section-key]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const parentGroup = cb.closest('[data-parent-group]')?.dataset.parentGroup;
+                if (parentGroup) {
+                    reportModal.syncGroupFromChildren(parentGroup);
+                }
+                reportModal.updateDependencies();
+            });
+        });
+
+        // Select All / None
+        document.getElementById('report-select-all').addEventListener('click', (e) => {
+            e.preventDefault();
+            reportModal.overlay.querySelectorAll('input[data-group-toggle]').forEach(cb => {
+                if (!cb.disabled) cb.checked = true;
+            });
+            ['summary', 'gel_visuals', 'detailed'].forEach(g => reportModal.onGroupToggle(g));
+            reportModal.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
+                if (!cb.disabled) cb.checked = true;
+            });
+            const bandCb = document.getElementById('report-band-overlay');
+            if (bandCb && !bandCb.disabled) bandCb.checked = true;
+            reportModal.overlay.querySelectorAll('.dm-report-section-option:not(.dm-report-child-option) input[data-section-key]').forEach(cb => {
+                if (!cb.disabled) cb.checked = true;
+            });
+            reportModal.updateDependencies();
+        });
+        document.getElementById('report-select-none').addEventListener('click', (e) => {
+            e.preventDefault();
+            reportModal.overlay.querySelectorAll('input[data-group-toggle]').forEach(cb => {
+                if (!cb.disabled) {
+                    cb.checked = false;
+                    cb.indeterminate = false;
+                }
+            });
+            ['summary', 'gel_visuals', 'detailed'].forEach(g => reportModal.onGroupToggle(g));
+            reportModal.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
+                if (!cb.disabled) cb.checked = false;
+            });
+            const bandCb = document.getElementById('report-band-overlay');
+            if (bandCb) bandCb.checked = false;
+            reportModal.updateDependencies();
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && reportModal.overlay.style.display === 'flex') {
+                reportModal.close();
+            }
+        });
+    }
+
+    // Image adjustments panel toggle
+    const adjustBtn = document.getElementById('adjust-image-btn');
+    const adjustPanel = document.getElementById('adjustments-panel');
+    const adjustClose = document.getElementById('adjustments-close');
+
+    if (adjustBtn && adjustPanel) {
+        adjustBtn.addEventListener('click', () => {
+            adjustPanel.style.display = adjustPanel.style.display === 'none' ? 'block' : 'none';
+        });
+
+        adjustClose?.addEventListener('click', () => {
+            adjustPanel.style.display = 'none';
+        });
+    }
+
+    // Normalization help popover
+    const helpBtn = document.getElementById('normalization-help-btn');
+    const helpPopover = document.getElementById('normalization-help-popover');
+    const helpClose = document.getElementById('normalization-help-close');
+
+    if (helpBtn && helpPopover) {
+        helpBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = helpPopover.style.display !== 'none';
+            helpPopover.style.display = isVisible ? 'none' : 'block';
+        });
+
+        helpClose?.addEventListener('click', () => {
+            helpPopover.style.display = 'none';
+        });
+
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!helpPopover.contains(e.target) && !helpBtn.contains(e.target)) {
+                helpPopover.style.display = 'none';
+            }
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && helpPopover.style.display !== 'none') {
+                helpPopover.style.display = 'none';
+            }
+        });
+    }
+
+    // Image adjustment controls
+    const brightnessSlider = document.getElementById('adj-brightness');
+    const contrastSlider = document.getElementById('adj-contrast');
+    const invertCheckbox = document.getElementById('adj-invert');
+    const resetBtn = document.getElementById('adj-reset');
+
+    function updateAdjustments() {
+        const adjustments = {
+            brightness: parseInt(brightnessSlider.value),
+            contrast: parseInt(contrastSlider.value),
+            invert: invertCheckbox.checked,
+        };
+
+        document.getElementById('adj-brightness-value').textContent = adjustments.brightness + '%';
+        document.getElementById('adj-contrast-value').textContent = adjustments.contrast + '%';
+
+        app.eventBus.emit(Densitometry.Events.IMAGE_ADJUSTED, adjustments);
+    }
+
+    brightnessSlider?.addEventListener('input', updateAdjustments);
+    contrastSlider?.addEventListener('input', updateAdjustments);
+    invertCheckbox?.addEventListener('change', updateAdjustments);
+
+    resetBtn?.addEventListener('click', () => {
+        brightnessSlider.value = 100;
+        contrastSlider.value = 100;
+        invertCheckbox.checked = false;
+        updateAdjustments();
+    });
+
+    // ============================================
+    // Graphical View Toggle (Electropherogram / 3D Mountain / POI Purity)
+    // ============================================
+    (function initViewToggle() {
+        const toggleContainer = document.getElementById('graphical-view-toggle');
+        if (!toggleContainer) return;
+
+        const viewBtns = toggleContainer.querySelectorAll('.dm-view-btn');
+        let currentView = 'electropherogram';
+        let poiChartInitialized = false;
+        let poiResizeObserver = null;
+
+        // References for hiding/showing electropherogram-specific buttons
+        const chromPanel = document.getElementById('chromatogram-panel');
+        const panelActions = chromPanel?.querySelector('.dm-panel-actions');
+        const zoomResetBtn = document.getElementById('zoom-reset-btn');
+
+        // Electropherogram-specific toggle button IDs (created by chromatogram-panel.js)
+        const ephemeralBtnIds = ['mw-toggle-btn', 'legend-toggle-btn', 'boundaries-toggle-btn', 'labels-toggle-btn'];
+
+        function setEphemeralButtonsVisible(visible) {
+            ephemeralBtnIds.forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.style.display = visible ? '' : 'none';
+            });
+            if (zoomResetBtn) zoomResetBtn.style.display = visible ? '' : 'none';
+        }
+
+        function switchView(view) {
+            if (view === currentView) return;
+            const previousView = currentView;
+            currentView = view;
+
+            // Notify ChromatogramPanel of view change so it can guard
+            // SVG creation/visibility during resize and 3D toggle
+            app?.eventBus?.emit(Densitometry.Events.VIEW_MODE_CHANGED, { view, previousView });
+
+            // Update button active states
+            viewBtns.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === view);
+            });
+
+            // Get containers — query SVG fresh each time to avoid stale
+            // references after chart rebuilds (which create new SVG elements)
+            const panelContent = chromPanel?.querySelector('.dm-panel-content');
+            const container3d = document.getElementById('chromatogram-3d-container');
+            const poiContainer = document.getElementById('poi-purity-container');
+
+            // Hide all containers first (querySelectorAll catches any SVGs)
+            panelContent?.querySelectorAll('svg').forEach(svg => svg.style.display = 'none');
+            if (container3d) container3d.style.display = 'none';
+            if (poiContainer) poiContainer.style.display = 'none';
+            const placeholder = panelContent?.querySelector('.dm-chart-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+
+            // Hide ephemeral buttons for non-electropherogram views
+            setEphemeralButtonsVisible(view === 'electropherogram');
+
+            if (view === 'electropherogram') {
+                const svgEl = panelContent?.querySelector('svg');
+                if (svgEl) {
+                    svgEl.style.display = 'block';
+                }
+                // Rebuild the 2D chart when returning from any other view
+                if (previousView !== 'electropherogram') {
+                    const chromPanelInstance = app?.panels?.chromatogram;
+                    if (chromPanelInstance) {
+                        setTimeout(() => {
+                            // Always rebuild the chart when returning from another view.
+                            // The lane may have changed while in 3D mode, leaving
+                            // stale D3 scales/selections that _renderProfile alone
+                            // cannot fix (the resize handler also skips if dimensions
+                            // are unchanged, so dispatching resize is not enough).
+                            chromPanelInstance._createChart();
+                            // Re-render the current lane's profile
+                            if (chromPanelInstance.currentLaneId) {
+                                const profile = chromPanelInstance.state.getProfile(chromPanelInstance.currentLaneId);
+                                if (profile) chromPanelInstance._renderProfile(profile);
+                            }
+                        }, 50);
+                    }
+                }
+            } else if (view === '3d-mountain') {
+                if (container3d) container3d.style.display = 'block';
+                // Use the chromatogram panel's 3D toggle
+                const chromPanelInstance = app?.panels?.chromatogram;
+                if (chromPanelInstance && !chromPanelInstance.is3DMode) {
+                    chromPanelInstance._toggle3DView();
+                    // Re-enable controls (disabled when leaving 3D)
+                    if (chromPanelInstance.renderer3D?.controls) {
+                        chromPanelInstance.renderer3D.controls.enabled = true;
+                    }
+                } else if (chromPanelInstance && chromPanelInstance.renderer3D) {
+                    chromPanelInstance._enforce3DVisibility(true);
+                    // Re-enable controls (disabled when leaving 3D)
+                    if (chromPanelInstance.renderer3D.controls) {
+                        chromPanelInstance.renderer3D.controls.enabled = true;
+                    }
+                    chromPanelInstance.renderer3D.onResize();
+                }
+            } else if (view === 'poi-purity') {
+                if (poiContainer) poiContainer.style.display = 'flex';
+                if (!poiChartInitialized) {
+                    renderPOIPurityChart();
+                    poiChartInitialized = true;
+                } else {
+                    // Re-render on switch for up-to-date data
+                    renderPOIPurityChart();
+                }
+            }
+
+            // When leaving 3D, disable 3D mode and stop GPU work
+            if (previousView === '3d-mountain' && view !== '3d-mountain') {
+                const chromPanelInstance = app?.panels?.chromatogram;
+                if (chromPanelInstance && chromPanelInstance.is3DMode) {
+                    chromPanelInstance.is3DMode = false;
+                    chromPanelInstance._enforce3DVisibility(false);
+                }
+                // Stop the animation loop and disable controls to prevent
+                // GPU work while the 3D canvas is hidden
+                const r3d = chromPanelInstance?.renderer3D;
+                if (r3d) {
+                    r3d._isAnimating = false;
+                    if (r3d._dampingTimeout) {
+                        clearTimeout(r3d._dampingTimeout);
+                        r3d._dampingTimeout = null;
+                    }
+                    if (r3d.animationId) {
+                        cancelAnimationFrame(r3d.animationId);
+                        r3d.animationId = null;
+                    }
+                    if (r3d.controls) {
+                        r3d.controls.enabled = false;
+                    }
+                }
+            }
+        }
+
+        // Wire up buttons
+        viewBtns.forEach(btn => {
+            btn.addEventListener('click', () => switchView(btn.dataset.view));
+        });
+
+        // ============================================
+        // POI Purity Bar Chart Renderer (D3.js)
+        // ============================================
+        function renderPOIPurityChart() {
+            const container = document.getElementById('poi-purity-container');
+            if (!container) return;
+
+            // Clear previous
+            container.innerHTML = '';
+
+            const state = app?.state;
+            if (!state) return;
+
+            const lanes = state.getAllLanes();
+            const chartData = lanes
+                .filter(lane => lane.lane_type !== 'LADDER')
+                .map(lane => {
+                    const raw = lane.process_sample?.sample_id || lane.sample_name || `Lane ${lane.lane_number}`;
+                    return {
+                        laneId: lane.id,
+                        laneNumber: lane.lane_number,
+                        fullLabel: raw,
+                        label: raw.length > 22 ? raw.substring(0, 20) + '\u2026' : raw,
+                        poiPurity: lane.densitometry?.poi_percentage ?? null,
+                    };
+                })
+                .filter(d => d.poiPurity !== null);
+
+            if (chartData.length === 0) {
+                container.innerHTML = `
+                    <div class="dm-poi-placeholder">
+                        <i class="bi bi-bar-chart" style="font-size: 2.5rem; opacity: 0.4;"></i>
+                        <span>No POI purity data</span>
+                        <small style="color: rgba(255,255,255,0.35);">Run densitometry analysis first</small>
+                    </div>`;
+                return;
+            }
+
+            const rect = container.getBoundingClientRect();
+            const maxLabelLen = Math.max(...chartData.map(d => d.label.length));
+            const dynamicBottom = Math.min(Math.max(60, maxLabelLen * 4), 150);
+            const margin = { top: 30, right: 30, bottom: dynamicBottom, left: 55 };
+            const width = rect.width - margin.left - margin.right;
+            const height = rect.height - margin.top - margin.bottom;
+
+            if (width <= 0 || height <= 0) return;
+
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', rect.width)
+                .attr('height', rect.height)
+                .attr('class', 'dm-poi-purity-svg');
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Scales
+            const x = d3.scaleBand()
+                .domain(chartData.map(d => d.label))
+                .range([0, width])
+                .padding(0.3);
+
+            const y = d3.scaleLinear()
+                .domain([0, 100])
+                .range([height, 0]);
+
+            // X Axis
+            const rotation = chartData.length > 10 ? -45 : -30;
+            g.append('g')
+                .attr('class', 'x-axis')
+                .attr('transform', `translate(0,${height})`)
+                .call(d3.axisBottom(x))
+                .selectAll('text')
+                .attr('transform', `rotate(${rotation})`)
+                .style('text-anchor', 'end')
+                .style('font-size', '11px')
+                .style('fill', 'rgba(255,255,255,0.7)');
+
+            // Add full-label tooltips on x-axis labels
+            g.selectAll('.x-axis text')
+                .each(function(d) {
+                    const item = chartData.find(c => c.label === d);
+                    if (item && item.fullLabel !== item.label) {
+                        d3.select(this).append('title').text(item.fullLabel);
+                    }
+                });
+
+            g.selectAll('.x-axis path, .x-axis line')
+                .style('stroke', 'rgba(255,255,255,0.2)');
+
+            // Y Axis
+            g.append('g')
+                .attr('class', 'y-axis')
+                .call(d3.axisLeft(y).ticks(5).tickFormat(d => d + '%'))
+                .selectAll('text')
+                .style('font-size', '11px')
+                .style('fill', 'rgba(255,255,255,0.7)');
+
+            g.selectAll('.y-axis path, .y-axis line')
+                .style('stroke', 'rgba(255,255,255,0.2)');
+
+            // Y axis label
+            g.append('text')
+                .attr('transform', 'rotate(-90)')
+                .attr('x', -height / 2)
+                .attr('y', -40)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '12px')
+                .style('fill', 'rgba(255,255,255,0.5)')
+                .text('POI Purity (%)');
+
+            // Threshold lines
+            const thresholds = [
+                { value: 90, color: '#22C55E', label: 'Target (90%)' },
+                { value: 70, color: '#FFC107', label: 'Minimum (70%)' },
+            ];
+
+            thresholds.forEach(t => {
+                g.append('line')
+                    .attr('class', 'dm-poi-threshold-line')
+                    .attr('x1', 0)
+                    .attr('x2', width)
+                    .attr('y1', y(t.value))
+                    .attr('y2', y(t.value))
+                    .attr('stroke', t.color)
+                    .attr('stroke-dasharray', '6,4')
+                    .attr('stroke-width', 1.5)
+                    .attr('opacity', 0.7);
+
+                g.append('text')
+                    .attr('class', 'dm-poi-threshold-label')
+                    .attr('x', width + 4)
+                    .attr('y', y(t.value) + 4)
+                    .style('font-size', '10px')
+                    .style('fill', t.color)
+                    .style('opacity', 0.8)
+                    .text(t.label);
+            });
+
+            // Color function
+            function barColor(purity) {
+                if (purity >= 90) return '#22C55E';
+                if (purity >= 70) return '#FFC107';
+                return '#EF4444';
+            }
+
+            // Bars with rounded tops
+            const barRadius = 4;
+            const selectedLaneId = state.selectedLaneId;
+
+            g.selectAll('.dm-poi-bar')
+                .data(chartData)
+                .enter()
+                .append('path')
+                .attr('class', d => {
+                    let cls = 'dm-poi-bar';
+                    if (selectedLaneId && d.laneId !== selectedLaneId) cls += ' dimmed';
+                    return cls;
+                })
+                .attr('d', d => {
+                    const bx = x(d.label);
+                    const bw = x.bandwidth();
+                    const by = y(d.poiPurity);
+                    const bh = height - by;
+                    const r = Math.min(barRadius, bw / 2, bh);
+                    if (bh <= 0) return '';
+                    return `M${bx},${height}
+                            L${bx},${by + r}
+                            Q${bx},${by} ${bx + r},${by}
+                            L${bx + bw - r},${by}
+                            Q${bx + bw},${by} ${bx + bw},${by + r}
+                            L${bx + bw},${height}Z`;
+                })
+                .attr('fill', d => barColor(d.poiPurity))
+                .attr('data-lane-id', d => d.laneId)
+                .style('cursor', 'pointer')
+                .on('click', function(event, d) {
+                    state.selectLane(d.laneId);
+                    app.eventBus.emit(Densitometry.Events.LANE_SELECTED, { laneId: d.laneId });
+                    highlightSelectedBar(d.laneId);
+                })
+                .on('mouseenter', function(event, d) {
+                    d3.select(this).style('filter', 'brightness(1.2)');
+                })
+                .on('mouseleave', function() {
+                    d3.select(this).style('filter', null);
+                });
+
+            // Value labels above bars
+            g.selectAll('.dm-poi-value-label')
+                .data(chartData)
+                .enter()
+                .append('text')
+                .attr('class', 'dm-poi-value-label')
+                .attr('x', d => x(d.label) + x.bandwidth() / 2)
+                .attr('y', d => y(d.poiPurity) - 6)
+                .attr('text-anchor', 'middle')
+                .style('font-family', "'Roboto Mono', monospace")
+                .style('font-size', '12px')
+                .style('font-weight', '600')
+                .style('fill', '#fff')
+                .text(d => d.poiPurity.toFixed(1) + '%');
+
+            // Highlight selected lane
+            function highlightSelectedBar(laneId) {
+                g.selectAll('.dm-poi-bar')
+                    .classed('dimmed', d => laneId && d.laneId !== laneId);
+            }
+
+            // Listen for LANE_SELECTED events
+            app.eventBus.on(Densitometry.Events.LANE_SELECTED, (data) => {
+                if (currentView === 'poi-purity') {
+                    highlightSelectedBar(data.laneId);
+                }
+            });
+
+            // Listen for DATA_UPDATED → re-render
+            app.eventBus.on(Densitometry.Events.DATA_UPDATED, () => {
+                if (currentView === 'poi-purity') {
+                    renderPOIPurityChart();
+                }
+            });
+
+            // ResizeObserver for responsive redraw
+            if (poiResizeObserver) poiResizeObserver.disconnect();
+            poiResizeObserver = new ResizeObserver(() => {
+                if (currentView === 'poi-purity') {
+                    renderPOIPurityChart();
+                }
+            });
+            poiResizeObserver.observe(container);
+        }
+
+        // ============================================
+        // Snapshot: Download current view as PNG
+        // ============================================
+        function inlineStyles(element) {
+            const computed = getComputedStyle(element);
+            const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'font-size',
+                           'font-family', 'font-weight', 'text-anchor', 'opacity', 'display'];
+            props.forEach(prop => {
+                const val = computed.getPropertyValue(prop);
+                if (val) element.style.setProperty(prop, val);
+            });
+            Array.from(element.children).forEach(child => {
+                if (child instanceof SVGElement || child instanceof HTMLElement) {
+                    inlineStyles(child);
+                }
+            });
+        }
+
+        async function captureSVGtoPNG(svgElement, scale) {
+            scale = scale || 2;
+            const cloned = svgElement.cloneNode(true);
+            cloned.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            inlineStyles(cloned);
+
+            const w = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+            const h = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+
+            const svgStr = new XMLSerializer().serializeToString(cloned);
+            const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w * scale;
+                    canvas.height = h * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.scale(scale, scale);
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+                img.onerror = reject;
+                img.src = url;
+            });
+        }
+
+        function downloadDataUrl(dataUrl, filename) {
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        async function snapshotCurrentView() {
+            const btn = document.getElementById('snapshot-btn');
+            if (!btn) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+
+            try {
+                let dataUrl = null;
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+
+                if (currentView === 'electropherogram') {
+                    const svgEl = document.querySelector('#chromatogram-panel .dm-panel-content svg.dm-chromatogram-svg');
+                    if (svgEl) dataUrl = await captureSVGtoPNG(svgEl);
+
+                } else if (currentView === '3d-mountain') {
+                    const canvas = document.querySelector('.dm-chromatogram-3d-container canvas');
+                    if (canvas) dataUrl = canvas.toDataURL('image/png');
+
+                } else if (currentView === 'poi-purity') {
+                    const svgEl = document.querySelector('.dm-poi-purity-svg');
+                    if (svgEl) dataUrl = await captureSVGtoPNG(svgEl);
+                }
+
+                if (dataUrl) {
+                    downloadDataUrl(dataUrl, `graphical-view-${currentView}-${timestamp}.png`);
+                }
+            } catch (err) {
+                console.error('[Snapshot] Failed:', err);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-camera"></i>';
+            }
+        }
+
+        document.getElementById('snapshot-btn')?.addEventListener('click', snapshotCurrentView);
+    })();
+
+    // How It Works modal
+    const howModal = document.getElementById('how-it-works-modal');
+    const howBtn = document.getElementById('how-it-works-btn');
+    const howClose = document.getElementById('how-it-works-close');
+    const howOk = document.getElementById('how-it-works-ok-btn');
+
+    function openHowModal() { howModal.style.display = 'flex'; }
+    function closeHowModal() { howModal.style.display = 'none'; }
+
+    howBtn?.addEventListener('click', openHowModal);
+    howClose?.addEventListener('click', closeHowModal);
+    howOk?.addEventListener('click', closeHowModal);
+    howModal?.addEventListener('click', (e) => {
+        if (e.target === howModal) closeHowModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && howModal.style.display !== 'none') closeHowModal();
+    });
+});
+</script>
+{% endblock %}
