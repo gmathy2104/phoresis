@@ -1,4 +1,5 @@
 """Top-level conftest — ensures src/ is importable for pytest."""
+
 import sys
 from pathlib import Path
 

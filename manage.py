@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Django administrative tasks — adds src/ to sys.path before delegating."""
+
 import os
 import sys
 from pathlib import Path
@@ -14,9 +15,7 @@ def main() -> None:
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
-        raise ImportError(
-            "Couldn't import Django. Did you `uv sync --extra dev` and activate the venv?"
-        ) from exc
+        raise ImportError("Couldn't import Django. Did you `uv sync --extra dev` and activate the venv?") from exc
     execute_from_command_line(sys.argv)
 
 

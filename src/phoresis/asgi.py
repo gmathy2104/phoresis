@@ -1,4 +1,5 @@
 """ASGI entry point — reserved for future async views/SSE."""
+
 import os
 
 from django.core.asgi import get_asgi_application

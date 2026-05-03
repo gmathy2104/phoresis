@@ -4,6 +4,7 @@ App-specific includes are added in their respective tasks:
 - accounts: Task 6
 - dashboard: Task 11
 """
+
 from django.contrib import admin
 from django.urls import path
 
