@@ -16,3 +16,17 @@ STORAGES = {
     **STORAGES,
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
+
+# DRF settings for tests — Phoresis does not yet ship a base REST_FRAMEWORK
+# block, so define the bare minimum (pagination, schema class, throttle rates)
+# here. Throttle rates are very high so throttling never trips during tests.
+REST_FRAMEWORK = {
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "100000/hour",
+        "user_write": "100000/hour",
+        "user_computation": "100000/hour",
+    },
+}

@@ -23,6 +23,26 @@ def test_user(db):
 
 
 @pytest.fixture
+def api_client():
+    """Return a DRF APIClient for testing."""
+    from rest_framework.test import APIClient
+
+    return APIClient()
+
+
+@pytest.fixture
+def authenticated_api_client(api_client, test_user):
+    """Return a DRF APIClient force-authenticated as ``test_user``.
+
+    Phoresis does not have an APIKey model — DRF defaults are AllowAny, so we
+    use ``force_authenticate`` to attach a real user to the request for
+    consistency with view-level expectations.
+    """
+    api_client.force_authenticate(user=test_user)
+    return api_client
+
+
+@pytest.fixture
 def sample_gel_png_bytes():
     """Create a sample gel image as PNG bytes."""
     # Create a simple grayscale image with some "bands"
