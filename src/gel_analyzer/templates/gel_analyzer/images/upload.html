@@ -1,0 +1,42 @@
+{% extends 'components/app_base.html' %}
+{% load ui_components ui_icons %}
+
+{% block title %}Upload gel — Phoresis{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-2xl space-y-6">
+    <header>
+        <h1 class="text-2xl font-semibold">Upload gel image</h1>
+        <p class="mt-1 text-sm text-text-muted">Supported formats: .gel, .scn, .tiff, .tif, .png, .jpg, .jpeg.</p>
+    </header>
+
+    {% card_open %}
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        <div>
+            <label class="mb-1.5 block text-sm font-medium">File</label>
+            <input type="file" name="original_file" required accept=".gel,.scn,.tiff,.tif,.png,.jpg,.jpeg"
+                   class="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-accent-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-700 hover:file:bg-accent-100">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-sm font-medium">Gel type</label>
+            <select name="gel_type" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">
+                <option value="">— Select —</option>
+                <option value="SDS_PAGE">SDS-PAGE</option>
+                <option value="DOT_BLOT">Dot Blot</option>
+                <option value="WESTERN_BLOT">Western Blot</option>
+                <option value="UNKNOWN">Unknown</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-sm font-medium">Description</label>
+            <textarea name="description" rows="3" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" placeholder="Optional notes…"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+            {% btn "Cancel" href="/images/" variant="ghost" %}
+            {% btn "Upload" type_="submit" variant="primary" icon="upload" %}
+        </div>
+    </form>
+    {% card_close %}
+</div>
+{% endblock %}
