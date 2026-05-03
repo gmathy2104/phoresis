@@ -57,3 +57,27 @@ def test_logout_redirects_to_login(client) -> None:
     response = client.post(reverse("accounts:logout"))
     assert response.status_code == 302
     assert reverse("accounts:login") in response.url
+
+
+@pytest.mark.django_db
+def test_theme_set_persists_to_userprofile(client) -> None:
+    user = UserFactory(username="theme_user")
+    client.force_login(user)
+    response = client.post(reverse("accounts:theme_set"), {"theme": "dark"})
+    assert response.status_code == 204
+    user.profile.refresh_from_db()
+    assert user.profile.theme == "dark"
+
+
+@pytest.mark.django_db
+def test_theme_set_rejects_invalid_value(client) -> None:
+    user = UserFactory(username="theme_user2")
+    client.force_login(user)
+    response = client.post(reverse("accounts:theme_set"), {"theme": "purple"})
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_theme_set_requires_login(client) -> None:
+    response = client.post(reverse("accounts:theme_set"), {"theme": "dark"})
+    assert response.status_code == 302

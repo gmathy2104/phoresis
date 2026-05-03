@@ -16,6 +16,18 @@ document.addEventListener("alpine:init", () => {
       this.user = value;
       localStorage.setItem("phoresis_theme", value);
       this.apply();
+
+      // Persist to server (best-effort; localStorage is the canonical client store)
+      const csrf = document.querySelector("[name=csrfmiddlewaretoken]")?.value
+        || document.cookie.split("; ").find(c => c.startsWith("csrftoken="))?.split("=")[1];
+      if (csrf && document.body.dataset.user !== "anonymous") {
+        fetch("/accounts/theme/", {
+          method: "POST",
+          headers: { "X-CSRFToken": csrf, "Content-Type": "application/x-www-form-urlencoded" },
+          body: `theme=${encodeURIComponent(value)}`,
+          credentials: "same-origin",
+        }).catch(() => { /* silent — localStorage is the source of truth */ });
+      }
     },
 
     apply() {

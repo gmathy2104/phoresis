@@ -28,7 +28,8 @@
 
     {% block head %}{% endblock %}
 </head>
-<body class="min-h-screen bg-bg text-text antialiased">
+<body class="min-h-screen bg-bg text-text antialiased"
+      data-user="{% if request.user.is_authenticated %}{{ request.user.username }}{% else %}anonymous{% endif %}">
     {% block body %}
         <main class="mx-auto max-w-7xl px-6 md:px-8 py-8">
             {% block content %}{% endblock %}
