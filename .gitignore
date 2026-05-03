@@ -71,3 +71,47 @@ playwright/.cache/
 
 # Docker
 .docker-cache/
+
+# --- Python / uv ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.python-version
+
+# --- Django ---
+*.log
+*.pot
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+local_settings.py
+
+# --- uv ---
+uv.lock
+
+# --- pytest / coverage / mypy ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*~
+
+# --- env ---
+.env
+.env.local
+.env.*.local
+
+# --- node (Phase 3+) ---
+node_modules/
