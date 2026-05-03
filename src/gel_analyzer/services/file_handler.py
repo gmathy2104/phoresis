@@ -161,9 +161,7 @@ class GelFileHandler:
         metadata["height"], metadata["width"] = img_array.shape[:2]
 
         log.info(
-            f"Read gel image: {file_path.name}, "
-            f"{metadata['width']}x{metadata['height']}, "
-            f"{metadata['bit_depth']}-bit"
+            f"Read gel image: {file_path.name}, {metadata['width']}x{metadata['height']}, {metadata['bit_depth']}-bit"
         )
 
         return img_array, metadata
@@ -498,7 +496,7 @@ class GelFileHandler:
                         pil_img = pil_img.resize((display_w, display_h), Image.Resampling.LANCZOS)
                         img_array = np.array(pil_img)
                         log.info(
-                            f"Resized from {img_w}x{img_h} to {display_w}x{display_h} " f"for coordinate compatibility"
+                            f"Resized from {img_w}x{img_h} to {display_w}x{display_h} for coordinate compatibility"
                         )
 
             log.debug(f"Loaded image: shape={img_array.shape}, dtype={img_array.dtype}")
@@ -541,7 +539,7 @@ class GelFileHandler:
             raise ValueError("Crop coordinates must be non-negative.")
         if x + width > gel_image.width or y + height > gel_image.height:
             raise ValueError(
-                f"Crop rect ({x},{y},{width},{height}) exceeds image bounds " f"({gel_image.width}x{gel_image.height})."
+                f"Crop rect ({x},{y},{width},{height}) exceeds image bounds ({gel_image.width}x{gel_image.height})."
             )
 
         # ── DISPLAY PIPELINE: crop the display PNG (preserves original colors) ──

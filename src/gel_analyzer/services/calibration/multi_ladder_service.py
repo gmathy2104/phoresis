@@ -510,7 +510,7 @@ class MultiLadderCalibrationService:
                 bands_updated += 1
 
         logger.info(
-            f"Applied multi-ladder calibration: {bands_updated}/{bands_total} bands updated, " f"{bands_failed} failed"
+            f"Applied multi-ladder calibration: {bands_updated}/{bands_total} bands updated, {bands_failed} failed"
         )
 
         return {

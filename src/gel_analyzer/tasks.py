@@ -51,9 +51,7 @@ def detect_bands_lane_task(
 
     User = get_user_model()
 
-    logger.info(
-        f"[Task {self.request.id}] === BAND DETECTION TASK STARTED === " f"lane_id={lane_id}, save={save_results}"
-    )
+    logger.info(f"[Task {self.request.id}] === BAND DETECTION TASK STARTED === lane_id={lane_id}, save={save_results}")
 
     try:
         # Get lane and related data
@@ -380,8 +378,7 @@ def detect_bands_cv2_bulk_task(
         total_bands = sum(r["band_count"] for r in results)
 
         logger.info(
-            f"[Task {self.request.id}] === CV2 BULK DETECTION COMPLETED === "
-            f"lanes={len(results)}, bands={total_bands}"
+            f"[Task {self.request.id}] === CV2 BULK DETECTION COMPLETED === lanes={len(results)}, bands={total_bands}"
         )
 
         return {
@@ -842,7 +839,7 @@ def export_densitometry_csv_task(
     from gel_analyzer.services.densitometry.export import DensitometryExporter, generate_csv_filename
     from gel_analyzer.services.file_handler import GelFileHandler
 
-    logger.info(f"[Task {self.request.id}] === DENSITOMETRY EXPORT STARTED === " f"analysis_id={analysis_id}")
+    logger.info(f"[Task {self.request.id}] === DENSITOMETRY EXPORT STARTED === analysis_id={analysis_id}")
 
     try:
         analysis = GelAnalysis.objects.select_related("gel_image").get(pk=analysis_id)
@@ -871,7 +868,7 @@ def export_densitometry_csv_task(
         file_path = f"exports/densitometry/{filename}"
         saved_path = default_storage.save(file_path, ContentFile(csv_content.encode("utf-8")))
 
-        logger.info(f"[Task {self.request.id}] === DENSITOMETRY EXPORT COMPLETED === " f"file={saved_path}")
+        logger.info(f"[Task {self.request.id}] === DENSITOMETRY EXPORT COMPLETED === file={saved_path}")
 
         return {
             "success": True,

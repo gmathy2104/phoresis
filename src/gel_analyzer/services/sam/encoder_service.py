@@ -74,7 +74,7 @@ class MobileSAMEncoderService:
         except ImportError as e:
             logger.error(f"MobileSAM not installed: {e}")
             raise ImportError(
-                "MobileSAM is required. Install with: " "pip install git+https://github.com/ChaoningZhang/MobileSAM.git"
+                "MobileSAM is required. Install with: pip install git+https://github.com/ChaoningZhang/MobileSAM.git"
             ) from e
 
         if not self._model_path.exists():

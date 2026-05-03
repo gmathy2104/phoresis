@@ -197,7 +197,7 @@ def complete_analysis(db, gel_image, test_user):
             y=10,
             width=40,
             height=480,
-            sample_name=f"Sample {i-1}",
+            sample_name=f"Sample {i - 1}",
         )
         # Add some bands
         for y, mw in [(100, 75), (200, 50), (300, 25)]:

@@ -353,7 +353,7 @@ class StudioService:
             # Legacy: top-N by intensity, then CalibrationService matching.
             bands_sorted_by_intensity = sorted(
                 all_bands,
-                key=lambda b: (b.intensity_peak or 0.0),
+                key=lambda b: b.intensity_peak or 0.0,
                 reverse=True,
             )
             kept = bands_sorted_by_intensity[:n_expected]
@@ -694,7 +694,7 @@ class StudioService:
 
         if not (0.3 <= alpha <= 3.0):
             # Degenerate alignment (fit likely driven by mis-matches).
-            return 1.0, 0.0, (f"Alignment rejected (α={alpha:.3f} outside sane range) — " "using raw trained priors.")
+            return 1.0, 0.0, (f"Alignment rejected (α={alpha:.3f} outside sane range) — using raw trained priors.")
         # Only flag a note if the alignment moves things meaningfully.
         if abs(alpha - 1.0) > 0.1 or abs(beta) > 0.03:
             return (

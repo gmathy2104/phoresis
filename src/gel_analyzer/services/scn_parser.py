@@ -159,7 +159,7 @@ class SCNParser:
             scan_attrs, item_header_xml, protocol_xml, width=width, height=height, endian=endian
         )
 
-        log.info(f"Parsed SCN: {width}x{height}, 16-bit, " f"scanner={metadata.get('scanner_model', 'unknown')}")
+        log.info(f"Parsed SCN: {width}x{height}, 16-bit, scanner={metadata.get('scanner_model', 'unknown')}")
 
         return img_array, metadata
 

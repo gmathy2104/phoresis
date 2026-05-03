@@ -201,9 +201,9 @@ class TestRollingBallGuardrail:
         params = BandDetectionParams(rolling_ball_radius=20, max_band_width_px=100)
         pp_mod.ProfileProcessor(params).process(self._build_profile())
 
-        assert any(
-            "rolling_ball_radius=20" in m and "max_band_width_px=100" in m for m in warnings_captured
-        ), f"Expected guardrail warning not found; got: {warnings_captured}"
+        assert any("rolling_ball_radius=20" in m and "max_band_width_px=100" in m for m in warnings_captured), (
+            f"Expected guardrail warning not found; got: {warnings_captured}"
+        )
 
     def test_does_not_warn_when_radius_sufficient(self, monkeypatch):
         from gel_analyzer.services.band_detection import profile_processor as pp_mod
@@ -220,6 +220,6 @@ class TestRollingBallGuardrail:
         pp_mod.ProfileProcessor(params).process(self._build_profile())
 
         for msg in warnings_captured:
-            assert not (
-                "rolling_ball_radius=150" in msg and "< max_band_width_px" in msg
-            ), f"Did not expect guardrail warning when radius >= max_band_width; got: {msg}"
+            assert not ("rolling_ball_radius=150" in msg and "< max_band_width_px" in msg), (
+                f"Did not expect guardrail warning when radius >= max_band_width; got: {msg}"
+            )

@@ -82,8 +82,7 @@ class MobileSAMDecoderService:
         if not self._model_path.exists():
             logger.error(f"MobileSAM decoder not found at {self._model_path}")
             raise FileNotFoundError(
-                f"MobileSAM decoder not found at {self._model_path}. "
-                "Download from MobileSAM-in-the-Browser repository."
+                f"MobileSAM decoder not found at {self._model_path}. Download from MobileSAM-in-the-Browser repository."
             )
 
         logger.info(f"Loading MobileSAM decoder from {self._model_path}")
@@ -210,7 +209,7 @@ class MobileSAMDecoderService:
                 )
 
         total_ms = (time.time() - total_start) * 1000
-        logger.info(f"SAM batch: refined {len(bands)} bands in {total_ms:.1f}ms " f"({total_ms/len(bands):.1f}ms/band)")
+        logger.info(f"SAM batch: refined {len(bands)} bands in {total_ms:.1f}ms ({total_ms / len(bands):.1f}ms/band)")
 
         return results
 
@@ -369,7 +368,7 @@ class MobileSAMDecoderService:
         xs = [p[0] for p in polygon]
         ys = [p[1] for p in polygon]
         logger.info(
-            f"SAM POLYGON: bbox=({bx},{by})-({bx+bw},{by+bh}), "
+            f"SAM POLYGON: bbox=({bx},{by})-({bx + bw},{by + bh}), "
             f"polygon bounds=({min(xs)},{min(ys)})-({max(xs)},{max(ys)}), "
             f"points={len(polygon)}"
         )

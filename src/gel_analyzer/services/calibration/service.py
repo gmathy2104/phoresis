@@ -154,7 +154,7 @@ class CalibrationService:
         matches, warnings = self.get_bands_with_assigned_mw(lane)
 
         if matches:
-            logger.info(f"Using {len(matches)} bands with existing MW assignments " f"(ignoring template for matching)")
+            logger.info(f"Using {len(matches)} bands with existing MW assignments (ignoring template for matching)")
             return matches
 
         # Fallback to template-based matching only if no MW assigned
@@ -207,12 +207,12 @@ class CalibrationService:
 
         # CASE 2: More detected than template - identify outliers
         if n_detected > n_template:
-            logger.info(f"More bands detected ({n_detected}) than template ({n_template}), " f"identifying outliers...")
+            logger.info(f"More bands detected ({n_detected}) than template ({n_template}), identifying outliers...")
             return self._match_with_outlier_detection(detected_with_rf, template_bands, lane_top, lane_bottom)
 
         # CASE 3: Fewer detected than template - some bands missing
         logger.info(
-            f"Fewer bands detected ({n_detected}) than template ({n_template}), " f"some template bands won't match"
+            f"Fewer bands detected ({n_detected}) than template ({n_template}), some template bands won't match"
         )
         return self._match_with_missing_bands(detected_with_rf, template_bands, lane_top, lane_bottom)
 
@@ -468,7 +468,7 @@ class CalibrationService:
         # Sort matches by template order for consistency
         matches.sort(key=lambda m: m.template_band_order)
 
-        logger.info(f"Matched {len(matches)}/{n_template} template bands " f"({n_template - len(matches)} missing)")
+        logger.info(f"Matched {len(matches)}/{n_template} template bands ({n_template - len(matches)} missing)")
         return matches
 
     def _deduplicate_bands_by_position(
@@ -517,8 +517,7 @@ class CalibrationService:
 
         if len(result) < len(bands):
             logger.debug(
-                f"De-duplicated bands: {len(bands)} -> {len(result)} "
-                f"(removed {len(bands) - len(result)} duplicates)"
+                f"De-duplicated bands: {len(bands)} -> {len(result)} (removed {len(bands) - len(result)} duplicates)"
             )
 
         return result
@@ -588,9 +587,7 @@ class CalibrationService:
         # Add collected warnings to result
         result.warnings = collected_warnings
 
-        logger.info(
-            f"Calibration complete: method={result.method}, " f"R²={result.r_squared:.4f}, bands={len(matches)}"
-        )
+        logger.info(f"Calibration complete: method={result.method}, R²={result.r_squared:.4f}, bands={len(matches)}")
 
         return result
 

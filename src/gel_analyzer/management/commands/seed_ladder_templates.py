@@ -26,7 +26,7 @@ PRECISION_PLUS_LADDERS = {
         "manufacturer": "Bio-Rad",
         "catalog_number": "1610363",
         "category": LadderCategory.UNSTAINED,
-        "description": "Ten clearly resolved bands from 10-250 kDa. " "Standard ladder for accurate MW determination.",
+        "description": "Ten clearly resolved bands from 10-250 kDa. Standard ladder for accurate MW determination.",
         "bands": [
             {"mw_kda": 250, "band_order": 1, "color": BandColor.NONE},
             {"mw_kda": 150, "band_order": 2, "color": BandColor.NONE},
@@ -45,7 +45,7 @@ PRECISION_PLUS_LADDERS = {
         "manufacturer": "Bio-Rad",
         "catalog_number": "1610373",
         "category": LadderCategory.PRESTAINED,
-        "description": "Ten blue-stained bands from 10-250 kDa. " "Visible during electrophoresis and transfer.",
+        "description": "Ten blue-stained bands from 10-250 kDa. Visible during electrophoresis and transfer.",
         "bands": [
             {"mw_kda": 250, "band_order": 1, "color": BandColor.BLUE},
             {"mw_kda": 150, "band_order": 2, "color": BandColor.BLUE},
