@@ -13,4 +13,6 @@ class PhoresisCoreConfig(AppConfig):
         from .logging_config import setup_logging
 
         setup_logging()
-        # Navigation autodiscover is added in Task 10 (extends this method).
+        from .navigation.registry import autodiscover_nav_modules
+
+        autodiscover_nav_modules()
