@@ -44,7 +44,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
-    # ExceptionContextMiddleware is appended in Task 9.
+    "phoresis_core.error_handling.middleware.ExceptionContextMiddleware",
 ]
 
 ROOT_URLCONF = "phoresis.urls"
