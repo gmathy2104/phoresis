@@ -1,7 +1,4 @@
-"""Tests for gel_analyzer analysis views (Phase 3 shells).
-
-Marked xfail(strict=False) until Task 14 wires the URLs.
-"""
+"""Tests for gel_analyzer analysis views (Phase 3 shells)."""
 
 import pytest
 
@@ -22,7 +19,6 @@ def gel_image(db):
     )
 
 
-@pytest.mark.xfail(strict=False, reason="URL wired in Task 14")
 @pytest.mark.django_db
 def test_analysis_list_returns_200(client, gel_image) -> None:
     user = UserFactory(username="al_user")
@@ -32,7 +28,6 @@ def test_analysis_list_returns_200(client, gel_image) -> None:
     assert b"Analyses" in response.content
 
 
-@pytest.mark.xfail(strict=False, reason="URL wired in Task 14")
 @pytest.mark.django_db
 def test_analysis_create_get_returns_200(client, gel_image) -> None:
     user = UserFactory(username="ac_user")
