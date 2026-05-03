@@ -42,10 +42,11 @@ staticfiles/
 .env.*
 !.env.example
 
-# Node / Tailwind build
+# --- Node / Tailwind ---
 node_modules/
-package-lock.json
 src/phoresis_ui/static/phoresis_ui/css/output.css
+src/phoresis_ui/static/phoresis_ui/css/output.css.map
+package-lock.json
 
 # IDE
 .idea/

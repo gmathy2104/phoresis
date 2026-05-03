@@ -1,0 +1,18 @@
+{
+  "name": "phoresis-ui",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i src/phoresis_ui/static/phoresis_ui/css/input.css -o src/phoresis_ui/static/phoresis_ui/css/output.css --minify",
+    "watch:css": "tailwindcss -i src/phoresis_ui/static/phoresis_ui/css/input.css -o src/phoresis_ui/static/phoresis_ui/css/output.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "@tailwindcss/forms": "^0.5.9",
+    "@tailwindcss/typography": "^0.5.15",
+    "@tailwindcss/container-queries": "^0.1.1",
+    "tailwindcss": "^4.0.0",
+    "postcss": "^8.4.47",
+    "autoprefixer": "^10.4.20"
+  }
+}
