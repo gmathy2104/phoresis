@@ -20,9 +20,10 @@ from .densitometry import (
 from .file_handler import GelFileHandler
 from .sam import MobileSAMDecoderService, MobileSAMEncoderService
 from .scn_parser import SCNParseError, SCNParser
+from .studio import StudioService
+from .template_learning import TemplateLearningService
 
 # Ported incrementally — re-enable as later Phase 2 tasks land:
-# from .template_learning import TemplateLearningService            # Task 10
 # from .report import (                                             # deferred to Phase 4
 #     GelAnalysisReportBuilder,
 #     ReportDataCollector,
@@ -41,7 +42,10 @@ __all__ = [
     # SAM
     "MobileSAMEncoderService",
     "MobileSAMDecoderService",
-    # 'TemplateLearningService',
+    # Template learning
+    "TemplateLearningService",
+    # Studio
+    "StudioService",
     # # Reports
     # 'GelAnalysisReportBuilder',
     # 'ReportDataCollector',
