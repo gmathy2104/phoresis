@@ -48,6 +48,9 @@ def test_profile_view_authenticated_returns_200(client) -> None:
     client.force_login(user)
     response = client.get(reverse("accounts:profile"))
     assert response.status_code == 200
+    # Ensure the profile content (not just the chrome) actually renders.
+    assert b"Appearance" in response.content
+    assert b"Account details" in response.content
 
 
 @pytest.mark.django_db
