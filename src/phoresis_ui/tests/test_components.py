@@ -113,3 +113,10 @@ def test_confirm_renders_alpine_close_handler_on_cancel() -> None:
         Context({})
     )
     assert '@click="$store.modal.close()"' in rendered
+
+
+def test_nav_palette_items_json_serializes_dashboard() -> None:
+    """The dashboard nav.py registers its app in Phase 1 — palette JSON should include it."""
+    rendered = Template("{% load ui_components %}{% nav_palette_items_json %}").render(Context({}))
+    assert "Dashboard" in rendered
+    assert "Home" in rendered

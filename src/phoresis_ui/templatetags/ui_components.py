@@ -13,6 +13,8 @@ Conventions:
 
 from __future__ import annotations
 
+import json
+
 from django import template
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -284,3 +286,33 @@ def kpi(label, value, *, trend=None, trend_label="", icon=None, accent="accent")
         "icon": icon,
         "accent_class": accents.get(accent, accents["accent"]),
     }
+
+
+# ============================================================================
+# Command palette JSON (Ctrl+K)
+# ============================================================================
+
+
+@register.simple_tag
+def nav_palette_items_json() -> str:
+    """Serialize ``nav_registry.get_flat_items()`` for the command palette client.
+
+    URLs that look like Django URL names (``app:view``) are reversed; entries
+    that fail to reverse are skipped (the URL isn't wired yet — typical during
+    progressive Phase 3 build-out).
+    """
+    from django.urls import NoReverseMatch, reverse
+
+    from phoresis_core.navigation import nav_registry
+
+    items = []
+    for item in nav_registry.get_flat_items():
+        url = item["url"]
+        # Resolve URL name → path if it looks like a name
+        if url and ":" in url and "/" not in url:
+            try:
+                url = reverse(url)
+            except NoReverseMatch:
+                continue  # URL not yet wired — skip silently
+        items.append({"name": item["name"], "url": url, "type": item["type"], "icon": item.get("icon")})
+    return mark_safe(json.dumps(items))

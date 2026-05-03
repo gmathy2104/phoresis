@@ -51,3 +51,9 @@
         {% endif %}
     </div>
 </header>
+
+<script>
+  document.addEventListener("alpine:init", () => {
+    Alpine.store("palette").items = {% nav_palette_items_json %};
+  });
+</script>
