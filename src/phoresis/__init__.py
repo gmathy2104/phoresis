@@ -1,1 +1,5 @@
-"""Phoresis Django project. Celery app is wired in Task 8."""
+"""Phoresis Django project — re-exports the Celery app for autodiscovery."""
+
+from phoresis_core.celery_app import app as celery_app
+
+__all__ = ("celery_app",)
