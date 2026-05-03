@@ -22,7 +22,9 @@ from .logging_config import get_logger
 logger = get_logger(__name__)
 
 # (app_label, model_name, status_field, running_value, failed_value, error_field, timestamp_field)
-STALE_TASK_REGISTRY: list[tuple[str, str, str, str, str, str, str]] = []
+STALE_TASK_REGISTRY: list[tuple[str, str, str, str, str, str, str]] = [
+    ("gel_analyzer", "DensitometryJob", "status", "RUNNING", "FAILED", "error_message", "started_at"),
+]
 STALE_TASK_TIMEOUT_HOURS_DEFAULT = 2
 
 _warned_no_time_limit: set[str] = set()
