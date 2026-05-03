@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Phoresis — Profile</title>
+</head>
+<body>
+    <h1>Phoresis</h1>
+    <h2>Profile — {{ user }}</h2>
+    <dl>
+        <dt>Username</dt><dd>{{ user.username }}</dd>
+        <dt>Email</dt><dd>{{ user.email }}</dd>
+        <dt>Theme</dt><dd>{{ user.profile.theme }}</dd>
+        <dt>Language</dt><dd>{{ user.profile.language }}</dd>
+    </dl>
+    <form method="post" action="{% url 'accounts:logout' %}">
+        {% csrf_token %}
+        <button type="submit">Sign out</button>
+    </form>
+</body>
+</html>
