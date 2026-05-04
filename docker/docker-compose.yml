@@ -158,6 +158,10 @@ services:
       WATCHTOWER_SCHEDULE: "0 0 3 * * *"   # 03:00 daily
       WATCHTOWER_NOTIFICATION_URL: "${WATCHTOWER_NOTIFICATION_URL:-}"
       TZ: "${TZ:-Europe/Brussels}"
+      # Watchtower 1.7.1 ships with an old Docker SDK that negotiates API
+      # v1.25 by default. Modern Docker Desktop (Win/Mac) requires min v1.40.
+      # Force a compatible version explicitly.
+      DOCKER_API_VERSION: "1.41"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [phoresis_net]
