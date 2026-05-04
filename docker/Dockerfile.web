@@ -118,7 +118,12 @@ ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
     PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT}
 
 # Non-root user
-RUN useradd --create-home --shell /bin/bash --uid 1000 phoresis
+# Ubuntu 24.04 (CUDA stage base) ships with a default 'ubuntu' user at UID 1000.
+# Remove it first so we can claim UID 1000 for 'phoresis' — keeps host-side
+# bind-mount permissions consistent (Windows host UID maps to phoresis inside).
+# On the CPU stage (Debian slim-bookworm) the userdel is a no-op.
+RUN (userdel -r ubuntu 2>/dev/null || true) && \
+    useradd --create-home --shell /bin/bash --uid 1000 phoresis
 WORKDIR /app
 
 # App code

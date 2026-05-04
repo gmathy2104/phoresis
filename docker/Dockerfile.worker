@@ -77,7 +77,10 @@ ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
     SKIP_COLLECTSTATIC=1 \
     SKIP_SEEDS=1
 
-RUN useradd --create-home --shell /bin/bash --uid 1000 phoresis
+# Ubuntu 24.04 (CUDA stage base) ships with a default 'ubuntu' user at UID 1000.
+# Remove it first; on Debian slim-bookworm (CPU stage) the userdel is a no-op.
+RUN (userdel -r ubuntu 2>/dev/null || true) && \
+    useradd --create-home --shell /bin/bash --uid 1000 phoresis
 WORKDIR /app
 
 COPY --chown=phoresis:phoresis manage.py ./
