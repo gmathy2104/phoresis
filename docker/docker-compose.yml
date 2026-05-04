@@ -67,7 +67,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      # start_period 180s covers: collectstatic (~60-90s for ~700 hashed +
+      # gzipped files) + seed_groups + seed_ladder_templates +
+      # create_initial_users + gunicorn boot. Failing probes during this
+      # window don't count toward `retries`.
+      start_period: 180s
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 

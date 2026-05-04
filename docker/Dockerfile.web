@@ -158,7 +158,9 @@ ENV STATIC_ROOT=/srv/staticfiles MEDIA_ROOT=/srv/media
 USER phoresis
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+# start-period 180s covers collectstatic (~60-90s for the manifest backend
+# hashing + gzipping ~700 files) + DB seeds + gunicorn boot. See compose.yml.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/live/', timeout=3).status == 200 else 1)"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
