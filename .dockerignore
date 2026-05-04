@@ -1,0 +1,65 @@
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Worktrees and Claude artifacts
+.claude/
+
+# Python build / cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.python-version
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+
+# Generated CSS (rebuilt in image)
+src/phoresis_ui/static/phoresis_ui/css/output.css
+src/phoresis_ui/static/phoresis_ui/css/output.css.map
+
+# Docs / specs (not needed in runtime image)
+docs/
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Django local
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+local_settings.py
+logs/
+
+# Test fixtures (heavy gel images aren't shipped in runtime image)
+src/gel_analyzer/tests/data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+*.tar.gz
