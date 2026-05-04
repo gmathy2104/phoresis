@@ -7,25 +7,49 @@ on:
 
 env:
   DJANGO_SETTINGS_MODULE: phoresis.settings.test
+  PYTHON_VERSION: "3.12"
 
 jobs:
+
+  # ───────────────────────── lint ─────────────────────────
   lint:
-    name: Lint (ruff)
+    name: Lint (ruff + djlint)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v3
-      - name: Install dependencies
-        run: uv sync --extra dev
-      - name: Ruff check
-        run: uv run ruff check .
-      - name: Ruff format check
-        run: uv run ruff format --check .
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --extra dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
 
-  test:
-    name: Test (pytest, Postgres + Redis)
+  # ───────────────────────── frontend build ─────────────────────────
+  frontend:
+    name: Frontend (Tailwind build sanity)
     runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm" }
+      - run: npm install
+      - run: npm run build:css
+      - name: Verify output.css
+        run: |
+          test -s src/phoresis_ui/static/phoresis_ui/css/output.css
+          echo "output.css size: $(stat -c%s src/phoresis_ui/static/phoresis_ui/css/output.css) bytes"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tailwind-css
+          path: src/phoresis_ui/static/phoresis_ui/css/output.css
+          if-no-files-found: error
+
+  # ───────────────────────── unit + integration tests ─────────────────────────
+  test:
+    name: Tests (pytest, Postgres 17 + Redis 7)
+    runs-on: ubuntu-24.04
+    needs: [lint]
     services:
       postgres:
         image: postgres:17
@@ -49,19 +73,117 @@ jobs:
           --health-retries 5
     env:
       DB_HOST: 127.0.0.1
-      DB_PORT: 5432
       DB_NAME: phoresis
       DB_USER: phoresis
       DB_PASSWORD: phoresis
       REDIS_HOST: 127.0.0.1
-      REDIS_PORT: 6379
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install dependencies
-        run: uv sync --extra dev
-      - name: Run migrations
-        run: uv run python manage.py migrate --noinput
-      - name: Pytest
-        run: uv run pytest -v --create-db
+        with: { lfs: true }
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --extra dev
+      - run: uv run python manage.py migrate --noinput
+      - run: uv run pytest -v --create-db --cov=src --cov-report=xml
+      - uses: codecov/codecov-action@v4
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+
+  # ───────────────────────── e2e (Playwright Chromium) ─────────────────────────
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-24.04
+    needs: [test, frontend]
+    services:
+      postgres:
+        image: postgres:17
+        env: { POSTGRES_DB: phoresis_e2e, POSTGRES_USER: phoresis, POSTGRES_PASSWORD: phoresis }
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DB_HOST: 127.0.0.1
+      DB_NAME: phoresis_e2e
+      DB_USER: phoresis
+      DB_PASSWORD: phoresis
+      REDIS_HOST: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+        with: { lfs: true }
+      - uses: astral-sh/setup-uv@v3
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - run: uv sync --extra dev
+      - run: uv run playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: tailwind-css
+          path: src/phoresis_ui/static/phoresis_ui/css/
+      - run: uv run pytest tests/e2e/ -m e2e -v
+
+  # ───────────────────────── docker image build (smoke) ─────────────────────────
+  build-cpu:
+    name: Build CPU image (smoke)
+    runs-on: ubuntu-24.04
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+        with: { lfs: true }
+      - uses: docker/setup-buildx-action@v3
+      - name: Build phoresis-web (cpu)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          build-args: TORCH_VARIANT=cpu
+          push: false
+          tags: phoresis-web:ci-cpu
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+          outputs: type=docker
+      - name: Build phoresis-worker (cpu)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          build-args: TORCH_VARIANT=cpu
+          push: false
+          tags: phoresis-worker:ci-cpu
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+          outputs: type=docker
+
+  # ───────────────────────── trivy CVE scan ─────────────────────────
+  trivy:
+    name: Trivy CVE scan
+    runs-on: ubuntu-24.04
+    needs: [build-cpu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Rebuild web image (uses cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          build-args: TORCH_VARIANT=cpu
+          push: false
+          tags: phoresis-web:trivy
+          cache-from: type=gha
+          load: true
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: phoresis-web:trivy
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: os,library
