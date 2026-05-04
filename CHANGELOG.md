@@ -9,6 +9,12 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.8] - 2026-05-04
+
+### CI frontend cache fix
+
+- **`package-lock.json` now committed.** The `actions/setup-node@v5` step in `ci.yml` uses `cache: "npm"` which requires the lockfile to be present in the repo root to compute its cache key. Phase 3 Task 1 had `.gitignored` the lockfile with a note "commit in Phase 5 (Docker reproducibility)" but Phase 5 never honored it — same oversight pattern as `uv.lock`, which was eventually committed in v1.0.0. Fix: dropped `package-lock.json` from `.gitignore` and committed the 46 KB file pinning Tailwind 4.2.4 + 45 transitive deps. Verified locally with a fresh `rm -rf node_modules && npm ci` which completes cleanly.
+
 ## [1.0.7] - 2026-05-04
 
 ### CI simplification + dev workflow improvements
