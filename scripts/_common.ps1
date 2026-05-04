@@ -114,36 +114,43 @@ function Wait-HttpOk {
         [int]$TimeoutSeconds = 90,
         [int]$IntervalSeconds = 3
     )
-    # PS5.1 (Windows default) does NOT support `Invoke-WebRequest -SkipCertificateCheck`
-    # (that flag is PS7+). To stay compatible with both, override the legacy
-    # ServerCertificateValidationCallback so Caddy's freshly-minted internal
-    # CA is accepted before the user has trusted it.
-    $previousCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-    # PS5.1 defaults to SSL3+TLS1.0 which modern Caddy refuses. Force TLS 1.2.
-    try {
-        [System.Net.ServicePointManager]::SecurityProtocol =
-            [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
-    } catch { }
+    # We use curl.exe (shipped with Windows 10 build 17063+ as
+    # C:\Windows\System32\curl.exe) instead of Invoke-WebRequest because:
+    #   1. PS5.1's Invoke-WebRequest uses legacy .NET WebRequest which fails
+    #      TLS handshake against modern Caddy ("La connexion sous-jacente a
+    #      ete fermee" / "underlying connection closed during send"), even
+    #      after forcing Tls12 + bypassing cert validation.
+    #   2. -SkipCertificateCheck is PS7-only; -k is curl-native.
+    #   3. curl.exe brings its own TLS stack and always works.
+    # Falls back to Invoke-WebRequest if curl.exe is missing (rare).
+    $curl = Join-Path $env:WINDIR 'System32\curl.exe'
+    $useCurl = Test-Path $curl
 
-    try {
-        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-        while ((Get-Date) -lt $deadline) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ($useCurl) {
+            $status = & $curl -k -s -o $null -w '%{http_code}' --max-time 5 $Url 2>$null
+            if ($status -eq '200') { return $true }
+        } else {
+            # Legacy fallback. Best-effort -- may fail on some PS5.1 + modern
+            # Caddy combinations regardless of these tweaks.
+            $previousCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+            try {
+                [System.Net.ServicePointManager]::SecurityProtocol =
+                    [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+            } catch { }
             try {
                 $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
                 if ($resp.StatusCode -eq 200) { return $true }
-            } catch {
-                # Not ready yet -- loop. Could be DNS-not-in-hosts, Caddy
-                # still booting, or upstream still spinning up.
+            } catch { }
+            finally {
+                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCallback
             }
-            Start-Sleep -Seconds $IntervalSeconds
         }
-        return $false
-    } finally {
-        # Restore so we don't leave the validation callback bypassed for any
-        # subsequent code in the same session.
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCallback
+        Start-Sleep -Seconds $IntervalSeconds
     }
+    return $false
 }
 
 # ---------- winget resolver ----------
