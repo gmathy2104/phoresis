@@ -85,6 +85,15 @@ DATABASES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
+# Allow login with email OR username. install.ps1 asks the operator for an
+# email and create_initial_users derives `username = local-part-of-email`,
+# so users naturally try to log in with the email they entered -- and the
+# default ModelBackend (username-only) refuses. Our backend tries email
+# first (case-insensitive), then username.
+AUTHENTICATION_BACKENDS = [
+    "accounts.backends.EmailOrUsernameModelBackend",
+]
+
 # DRF / drf-spectacular base configuration. Without DEFAULT_SCHEMA_CLASS
 # pointing at drf-spectacular's AutoSchema, GET /api/schema/ raises
 # AssertionError when introspecting other DRF views (e.g. SpectacularSwaggerView).

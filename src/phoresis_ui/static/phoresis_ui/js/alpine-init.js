@@ -67,10 +67,14 @@ document.addEventListener("alpine:init", () => {
   });
 
   // ---- command palette ----
+  // `items` is sourced from window.PHORESIS_PALETTE_ITEMS, which the topbar
+  // template populates inline at render time (so navigation registry data
+  // can be Django-rendered, then handed off to Alpine here without any
+  // alpine:init listener-ordering footguns).
   Alpine.store("palette", {
     open: false,
     query: "",
-    items: [],     // populated by topbar with nav_registry.get_flat_items()
+    items: window.PHORESIS_PALETTE_ITEMS || [],
 
     show()  { this.open = true; },
     hide()  { this.open = false; this.query = ""; },
