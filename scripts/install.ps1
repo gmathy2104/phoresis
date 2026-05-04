@@ -71,6 +71,64 @@ if (-not ($os.Caption -match "Windows 1[01]")) {
 }
 Write-Ok "$($os.Caption)"
 
+# --- 0b. Git LFS (ML models) ---
+# The SAM band-detection models (mobilesam_decoder.onnx, mobile_sam.pt, ...)
+# live in src/gel_analyzer/static/gel_analyzer/ml/sam/ and are tracked via
+# Git LFS. A `git clone` on a host without git-lfs gets ~134-byte pointer
+# files instead of the real ~40 MB binaries -- and the worker silently
+# crashes on the first band-detection task with a FileNotFoundError or
+# "not a valid model" deep in onnxruntime.
+#
+# Detect this and run `git lfs install` + `git lfs pull` automatically.
+Write-Step "Git LFS (ML model binaries)"
+$samModel = Join-Path $Script:RepoRoot 'src\gel_analyzer\static\gel_analyzer\ml\sam\mobile_sam.pt'
+if (-not (Test-Path $samModel)) {
+    Write-Err "Expected ML model not found at $samModel -- is this a Phoresis clone?"
+    exit 1
+}
+$samSize = (Get-Item $samModel).Length
+if ($samSize -lt 1MB) {
+    Write-Sub "ML models look like LFS pointer files (mobile_sam.pt is $samSize bytes -- expected >40 MB)"
+    $gitLfs = Get-Command 'git-lfs' -ErrorAction SilentlyContinue
+    if (-not $gitLfs) {
+        # Try git lfs subcommand (older installs expose it that way)
+        try { & git lfs version | Out-Null } catch { }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Sub "git-lfs not installed. Installing via winget..."
+            $winget = Resolve-Winget
+            if (-not $winget) {
+                Write-Err "winget unavailable. Install Git LFS manually: https://git-lfs.com/"
+                exit 1
+            }
+            & $winget install --silent --accept-package-agreements --accept-source-agreements GitHub.GitLFS
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "Failed to install Git LFS via winget (exit $LASTEXITCODE)"
+                exit 1
+            }
+            Write-Ok "Git LFS installed"
+        }
+    }
+    Write-Sub "Initializing git lfs hooks + fetching LFS objects..."
+    Push-Location $Script:RepoRoot
+    try {
+        & git lfs install --local
+        & git lfs pull
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "git lfs pull failed (exit $LASTEXITCODE)"
+            exit 1
+        }
+    } finally { Pop-Location }
+
+    $samSize = (Get-Item $samModel).Length
+    if ($samSize -lt 1MB) {
+        Write-Err "After git lfs pull, mobile_sam.pt is still only $samSize bytes. LFS objects might not be available on the remote."
+        exit 1
+    }
+    Write-Ok "ML models pulled via LFS (mobile_sam.pt: $([math]::Round($samSize/1MB,1)) MB)"
+} else {
+    Write-Ok "ML models present ($([math]::Round($samSize/1MB,1)) MB sample)"
+}
+
 # --- 1. Docker Desktop ---
 Write-Step "Docker Desktop"
 $docker = Get-Command docker -ErrorAction SilentlyContinue

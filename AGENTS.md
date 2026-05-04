@@ -70,7 +70,27 @@ access inside `alpine:init` aborts the whole listener and breaks every
 `src/phoresis_ui/static/phoresis_ui/js/alpine-init.js` has reference helpers
 (`safeLocalGet` / `safeLocalSet`) to copy the pattern from.
 
-## 4. Settings: env-overridable in production
+## 4. Git LFS for ML models
+
+`src/gel_analyzer/static/gel_analyzer/ml/sam/{mobile_sam.pt,
+mobilesam_decoder*.onnx}` and `src/gel_analyzer/static/gel_analyzer/ml/
+gel_analysis.onnx` are tracked via Git LFS (see `.gitattributes`). A
+`git clone` on a host without git-lfs installed returns ~134-byte
+**pointer files** instead of the real ~40 MB binaries. The web container
+boots fine (the SAM services are lazy-loaded) but the worker silently
+fails the moment a band-detection task runs, deep inside onnxruntime
+with a confusing "not a valid model" error.
+
+`install.ps1` has a guard that detects pointer-sized SAM model files and
+runs `git lfs install --local` + `git lfs pull` automatically (and
+installs git-lfs via winget if missing). Don't remove that guard.
+
+Manual recovery if git LFS wasn't on PATH at clone time:
+    cd <repo>
+    git lfs install --local
+    git lfs pull
+
+## 5. Settings: env-overridable in production
 
 Anything that points at a writable filesystem path (STATIC_ROOT, MEDIA_ROOT,
 log dirs, ML model dirs, ...) must be readable from `os.environ` with a
@@ -81,7 +101,7 @@ WORKDIR (we hit this in v1.0.18).
 For ML model paths: anchor on `SRC_DIR` (`= BASE_DIR / "src"`), not
 `BASE_DIR`, because source is COPY'd to `/app/src/...` in the Docker image.
 
-## 5. Reverse proxy + Caddy
+## 6. Reverse proxy + Caddy
 
 Production runs behind Caddy 2 at `https://phoresis`, with active health
 probes against the upstream `web:8000`. That means:
@@ -94,7 +114,7 @@ probes against the upstream `web:8000`. That means:
 - `CSRF_TRUSTED_ORIGINS` must include the public origin(s); without it
   every POST returns 403.
 
-## 6. Container init order
+## 7. Container init order
 
 Web container entrypoint runs in this order, per spec §10.3:
 `migrate -> collectstatic --clear --ignore "input.css" --ignore "tokens.css"
@@ -105,7 +125,7 @@ otherwise. The `--skip-existing` for `create_initial_users` is intentional;
 the same flag for `seed_ladder_templates` does NOT exist (the command is
 already idempotent via `update_or_create`).
 
-## 7. Login UX
+## 8. Login UX
 
 Custom auth backend at `accounts.backends.EmailOrUsernameModelBackend`
 accepts BOTH email and username (case-insensitive on email). install.ps1
@@ -113,7 +133,7 @@ asks the operator for an email; `create_initial_users` derives username
 from the local part. Users naturally try logging in with the email they
 entered, so the backend has to honour both.
 
-## 8. Compose env-file resolution + media storage
+## 9. Compose env-file resolution + media storage
 
 `.env` lives at the project root (`<repo>/.env`) but the compose file is
 at `docker/docker-compose.yml`. Compose v2 looks for `.env` next to the
@@ -158,7 +178,7 @@ Backup / restore via dedicated scripts:
 - `scripts/restore.ps1`       -- pick from snapshots interactively
 - `scripts/wipe-media.ps1`    -- nuclear, with safety net
 
-## 9. PowerShell compatibility
+## 10. PowerShell compatibility
 
 `scripts/*.ps1` MUST run on Windows PowerShell 5.1 (the default on Windows
 Server / older Windows boxes), not just PS7+. That means:
@@ -173,7 +193,7 @@ Server / older Windows boxes), not just PS7+. That means:
   variable expands to empty string; curl writes body to stdout). Use
   `curl -o NUL` (the Windows null device).
 
-## 10. Direct-to-main pushes
+## 11. Direct-to-main pushes
 
 The user authorized direct pushes to `main` for the v1.0.x bug-hunt cycle
 ("fix directement dans le main hein"). For v1.1.x onward, prefer PRs unless
