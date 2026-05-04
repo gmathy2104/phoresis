@@ -21,7 +21,7 @@ document.addEventListener("alpine:init", () => {
       const csrf = document.querySelector("[name=csrfmiddlewaretoken]")?.value
         || document.cookie.split("; ").find(c => c.startsWith("csrftoken="))?.split("=")[1];
       if (csrf && document.body.dataset.user !== "anonymous") {
-        fetch("/accounts/theme/", {
+        fetch(window.PHORESIS_URLS.theme_set, {
           method: "POST",
           headers: { "X-CSRFToken": csrf, "Content-Type": "application/x-www-form-urlencoded" },
           body: `theme=${encodeURIComponent(value)}`,

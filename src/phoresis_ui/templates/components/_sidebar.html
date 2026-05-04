@@ -18,12 +18,12 @@
             {% icon "layout-dashboard" %}
             <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Dashboard</span>
         </a>
-        <a href="/images/"
+        <a href="{% url 'gel_analyzer:image_list' %}"
            class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.url_name == 'image_list' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
             {% icon "image" %}
             <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Gel Images</span>
         </a>
-        <a href="/analyses/"
+        <a href="{% url 'gel_analyzer:analysis_list' %}"
            class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.url_name == 'analysis_list' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
             {% icon "layers" %}
             <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Analyses</span>
