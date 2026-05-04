@@ -79,8 +79,12 @@ ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/venv/bin:$PATH \
     PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT} \
+    PYTHONPATH=/app/src \
     SKIP_COLLECTSTATIC=1 \
     SKIP_SEEDS=1
+# PYTHONPATH=/app/src so `celery -A phoresis_core.celery_app` resolves the
+# package without going through manage.py. See Dockerfile.web for the full
+# rationale.
 
 # Ubuntu 24.04 (CUDA stage base) ships with a default 'ubuntu' user at UID 1000.
 # Remove it first; on Debian slim-bookworm (CPU stage) the userdel is a no-op.

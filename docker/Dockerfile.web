@@ -121,7 +121,11 @@ ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/venv/bin:$PATH \
-    PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT}
+    PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT} \
+    PYTHONPATH=/app/src
+# PYTHONPATH=/app/src so gunicorn (`phoresis.wsgi:application`) and any direct
+# Python invocations can import `phoresis` and `phoresis_core` without going
+# through manage.py's sys.path injection. manage.py still works the same way.
 
 # Non-root user
 # Ubuntu 24.04 (CUDA stage base) ships with a default 'ubuntu' user at UID 1000.
