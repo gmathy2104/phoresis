@@ -45,7 +45,6 @@ staticfiles/
 node_modules/
 src/phoresis_ui/static/phoresis_ui/css/output.css
 src/phoresis_ui/static/phoresis_ui/css/output.css.map
-package-lock.json
 
 # IDE
 .idea/
