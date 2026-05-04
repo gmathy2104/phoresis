@@ -38,6 +38,14 @@ services:
   #      watchtower service below (or mount ~/.docker/config.json read-only).
   web:
     image: ${PHORESIS_WEB_IMAGE:-ghcr.io/gmathy2104/phoresis-web:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    # `build:` lets `docker compose build` produce a local image tagged with
+    # the `image:` value above. CPU builds normally pull from GHCR; CUDA users
+    # build locally (cu128 wheels too big for GitHub-runner disk).
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        TORCH_VARIANT: ${PHORESIS_IMAGE_VARIANT:-cpu}
     restart: unless-stopped
     env_file: ../.env
     environment:
@@ -66,6 +74,11 @@ services:
   # ────────────────────── Celery worker ──────────────────────
   worker:
     image: ${PHORESIS_WORKER_IMAGE:-ghcr.io/gmathy2104/phoresis-worker:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+      args:
+        TORCH_VARIANT: ${PHORESIS_IMAGE_VARIANT:-cpu}
     restart: unless-stopped
     env_file: ../.env
     environment:
