@@ -199,13 +199,24 @@ Write-Ok "Selected variant: $resolvedVariant"
 # --- 4. Hosts file entry ---
 Write-Step "Hosts file (127.0.0.1 phoresis)"
 $hostsPath = "$env:windir\System32\drivers\etc\hosts"
-$hostsContent = Get-Content -Path $hostsPath -Raw
-if ($hostsContent -notmatch '\bphoresis\b') {
-    Add-Content -Path $hostsPath -Value "`n127.0.0.1`tphoresis"
-    ipconfig /flushdns | Out-Null
-    Write-Ok "Added 127.0.0.1 phoresis"
+# Don't trust a string match -- a stale comment with "phoresis" or a
+# half-wiped previous install can fool the regex. Resolve the hostname
+# instead: if Windows DNS can answer with 127.0.0.1, we're good. Anything
+# else (NXDOMAIN, wrong IP) -> rewrite the hosts line.
+$resolved = $null
+try {
+    $resolved = [System.Net.Dns]::GetHostAddresses("phoresis") | ForEach-Object { $_.IPAddressToString }
+} catch { $resolved = $null }
+
+if ($resolved -contains '127.0.0.1') {
+    Write-Ok "Already resolves to 127.0.0.1"
 } else {
-    Write-Ok "Already configured"
+    # Strip any existing phoresis line (comment, wrong IP, etc.) before adding ours.
+    $newContent = (Get-Content -Path $hostsPath) | Where-Object { $_ -notmatch '\bphoresis\b' }
+    [System.IO.File]::WriteAllLines($hostsPath, $newContent, [System.Text.UTF8Encoding]::new($false))
+    Add-Content -Path $hostsPath -Value "127.0.0.1`tphoresis"
+    ipconfig /flushdns | Out-Null
+    Write-Ok "Added 127.0.0.1 phoresis (replaced any stale entry)"
 }
 
 # --- 4b. Storage paths ---
