@@ -114,17 +114,36 @@ function Wait-HttpOk {
         [int]$TimeoutSeconds = 90,
         [int]$IntervalSeconds = 3
     )
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        try {
-            $resp = Invoke-WebRequest -Uri $Url -SkipCertificateCheck -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-            if ($resp.StatusCode -eq 200) { return $true }
-        } catch {
-            # not yet ready - loop
+    # PS5.1 (Windows default) does NOT support `Invoke-WebRequest -SkipCertificateCheck`
+    # (that flag is PS7+). To stay compatible with both, override the legacy
+    # ServerCertificateValidationCallback so Caddy's freshly-minted internal
+    # CA is accepted before the user has trusted it.
+    $previousCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    # PS5.1 defaults to SSL3+TLS1.0 which modern Caddy refuses. Force TLS 1.2.
+    try {
+        [System.Net.ServicePointManager]::SecurityProtocol =
+            [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+    } catch { }
+
+    try {
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        while ((Get-Date) -lt $deadline) {
+            try {
+                $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                if ($resp.StatusCode -eq 200) { return $true }
+            } catch {
+                # Not ready yet -- loop. Could be DNS-not-in-hosts, Caddy
+                # still booting, or upstream still spinning up.
+            }
+            Start-Sleep -Seconds $IntervalSeconds
         }
-        Start-Sleep -Seconds $IntervalSeconds
+        return $false
+    } finally {
+        # Restore so we don't leave the validation callback bypassed for any
+        # subsequent code in the same session.
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCallback
     }
-    return $false
 }
 
 # ---------- winget resolver ----------

@@ -120,8 +120,13 @@ _REDIS_BASE = f"redis://{REDIS_HOST}:{REDIS_PORT}"
 
 CELERY_BROKER_URL = f"{_REDIS_BASE}/{REDIS_DB_CELERY}"
 CELERY_RESULT_BACKEND = f"{_REDIS_BASE}/{REDIS_DB_CELERY}"
-CELERY_TASK_QUEUES = ("default", "heavy")
+# Celery's `task_queues` setting expects a sequence of kombu.Queue OBJECTS
+# (it iterates and accesses `q.name`). Passing strings raises AttributeError
+# at worker startup. Easier path: just don't declare static queues -- let
+# `task_create_missing_queues=True` (Celery default) auto-create whatever
+# the `-Q default,heavy` CLI flag asks for at boot.
 CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_CREATE_MISSING_QUEUES = True
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 # Recycle each worker child after this many tasks to mitigate memory creep —
