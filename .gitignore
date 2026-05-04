@@ -25,7 +25,6 @@ htmlcov/
 .hypothesis/
 
 # uv
-uv.lock
 .python-version
 
 # Django
