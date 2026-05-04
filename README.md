@@ -1,54 +1,82 @@
 # Phoresis
 
-> Standalone gel electrophoresis analysis platform — locally installable, modern UI, scientific-grade.
+> Standalone gel electrophoresis analysis platform — runs on your laptop, no cloud.
 
-[![Status](https://img.shields.io/badge/status-bootstrap-orange)](docs/specs/2026-05-03-phoresis-standalone-design.md)
-[![License](https://img.shields.io/badge/license-private-lightgrey)]()
+![Phoresis dashboard](docs/images/hero-dashboard.png)
 
-Phoresis is a Django-based, self-hostable lab application for SDS-PAGE / Dot Blot / Western Blot gel image analysis. Extracted from a larger lab notebook monorepo, redesigned from scratch with a Tailwind 4 + HTMX 2 + Alpine.js 3 frontend, packaged as a single-command Docker install on Windows.
+[![Status](https://img.shields.io/badge/status-v1.0.0-brightgreen)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-private-lightgrey)](LICENSE)
 
-**Status:** project bootstrap. See the [design spec](docs/specs/2026-05-03-phoresis-standalone-design.md) for the full plan.
+Phoresis is a Django-based lab application for SDS-PAGE, Dot Blot, and Western Blot gel image analysis. Originally extracted from a larger lab notebook monorepo, it ships as a single-command Docker install on Windows 11 with a modern Tailwind 4 + HTMX + Alpine frontend.
 
-## Highlights
+## Features
 
-- 🧪 **Lane & band annotation** — interactive SVG editor with rectangle / quadrilateral / polygon lanes
-- 🤖 **Hybrid band detection** — CV2 primary + d1/d2 derivative gap-fill + cross-lane consensus
-- 📊 **Densitometry** — Gaussian peak fitting, normalization, purity computation, CSV export
-- ⚖️ **MW calibration** — single & multi-ladder, Hungarian + RANSAC matching, polynomial smile correction
-- 🎯 **Sample comparison** — side-by-side digital lanes, MW-aligned table, drag-reorder
-- 📄 **Report generation** — Word, Excel, PowerPoint
-- 🧠 **MobileSAM polygon refinement** — bbox → precise polygon via Meta's MobileSAM (CPU or CUDA)
-- 🌓 **Dark/light auto** — full parity, smooth transitions, designed for long lab sessions
+- **Lane and band annotation** — interactive SVG editor with rectangle, quadrilateral, and polygon lanes; MobileSAM (ONNX) polygon refinement.
+- **Hybrid band detection** — CV2 primary + d1/d2 derivative gap-fill + cross-lane consensus.
+- **MW calibration** — single and multi-ladder; Hungarian + RANSAC matching; polynomial smile correction.
+- **Densitometry** — Gaussian peak fitting, deconvolution, normalization, POI purity, CSV export.
+- **Lane comparison** — side-by-side digital lanes, electropherograms, MW-aligned cross-lane view.
+- **Report generation** — Word, Excel, PowerPoint exports.
+- **Dark / light auto** — full parity, smooth transitions, designed for long lab sessions.
+- **Local install + auto-update** — no cloud, no telemetry. Watchtower pulls new images at 03:00 daily.
 
 ## Quick start (end-user)
 
-> Phoresis is currently in pre-release. The one-command install will be available at v1.0.0.
-
 ```powershell
-# Coming with v0.6.0:
+# Run as Administrator
 .\scripts\install.ps1
 ```
 
-Then open `https://phoresis/` in your browser.
+Five minutes later (warm cache; 10–20 minutes cold), `https://phoresis/` opens in your browser. See [docs/INSTALL.md](docs/INSTALL.md) for the full walkthrough.
 
-## Quick start (developer)
+## Screenshots
 
-> Coming with v0.1.0. See [DEVELOPMENT.md](docs/DEVELOPMENT.md).
+| | |
+|---|---|
+| ![Annotate](docs/images/annotate-viewer.png) | ![Densitometry](docs/images/densitometry-view.png) |
+| Lane and band annotation editor | Densitometry view with electropherogram |
+| ![Comparison](docs/images/comparison-view.png) | ![Theme toggle](docs/images/theme-toggle.png) |
+| Cross-lane comparison | Light / dark theme switch |
 
-## Roadmap
+## For developers
 
-7-phase build, ~3-5 weeks effort. See the full [design spec](docs/specs/2026-05-03-phoresis-standalone-design.md#12-roadmap-7-phases).
+Clone, install deps, run dev server:
 
-| Phase | Tag | Focus |
-|---|---|---|
-| 1 | v0.1.0 | Bootstrap & shims |
-| 2 | v0.2.0 | Models & services extraction |
-| 3 | v0.3.0 | Frontend foundation |
-| 4 | v0.4.0 | Heavy viewers ported |
-| 5 | v0.5.0 | Docker + Caddy packaging |
-| 6 | v0.6.0 | CI/CD + install scripts |
-| 7 | **v1.0.0** | Polish + docs + release |
+```bash
+git clone https://github.com/gmathy2104/phoresis.git
+cd phoresis && git lfs pull
+uv sync --extra dev
+npm install
+DB_HOST=127.0.0.1 DB_USER=phoresis DB_PASSWORD=phoresis DB_NAME=phoresis \
+  .venv/Scripts/python.exe manage.py migrate
+.venv/Scripts/python.exe manage.py runserver
+```
+
+Full guide: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Architecture
+
+Phoresis runs as a six-container Docker stack (Caddy + Django web + Celery worker + Celery beat + Redis + Watchtower) talking to a native PostgreSQL on the Windows host. Media files live at a host bind-mount path (`%USERPROFILE%\Phoresis-Data\media`), not in a Docker volume — so `docker compose down -v` cannot wipe user data. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design with Mermaid diagrams.
+
+## Documentation
+
+- [INSTALL.md](docs/INSTALL.md) — end-user installation walkthrough
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — apps, containers, data flow, CI/CD
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md) — clone, deps, run, tests, conventions
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — release flow, Watchtower, rollback, troubleshooting
+- [DESIGN.md](docs/DESIGN.md) — design tokens, component catalogue, animations, accessibility
+- [CHANGELOG.md](CHANGELOG.md) — release notes per version
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Conventional Commits, release flow, scheduled backups
+
+Per-app deep-dives: [phoresis_core](src/phoresis_core/docs/README.md) · [accounts](src/accounts/docs/README.md) · [gel_analyzer](src/gel_analyzer/docs/README.md) · [dashboard](src/dashboard/docs/README.md) · [phoresis_ui](src/phoresis_ui/docs/README.md).
 
 ## License
 
-Private.
+See [LICENSE](LICENSE).
+
+## Acknowledgements
+
+- Original `gel_analyzer` lineage from `ds-hub-django` (the multi-app lab platform Phoresis was extracted from).
+- [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) for polygon refinement.
+- [Lucide Icons](https://lucide.dev/) for the icon system (curated subset).
+- [Tailwind CSS 4](https://tailwindcss.com/), [HTMX](https://htmx.org/), [Alpine.js](https://alpinejs.dev/), [Django](https://www.djangoproject.com/), [Caddy](https://caddyserver.com/).

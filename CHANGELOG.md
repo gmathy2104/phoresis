@@ -9,11 +9,25 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
-## [Unreleased]
+## [1.0.0] - 2026-05-04
 
-### Phase 6 — CI/CD + install scripts (in progress)
+### Phase 7 — Polish + docs + v1.0.0
 
-- See `docs/superpowers/plans/2026-05-03-phase-6-cicd-install-scripts.md`.
+- Micro-interactions: button ripple, HTMX top progress bar, sidebar icon scale on hover, dropzone pulse, floating labels.
+- Branded 404 / 500 pages with `PHOR-YYYYMMDD-XXXXXX` reference IDs surfaced from the `ExceptionContextMiddleware`.
+- Full documentation suite: root `README.md`, `docs/{ARCHITECTURE,DESIGN,DEVELOPMENT,DEPLOYMENT,INSTALL}.md`, plus per-app `README.md` files (5 apps).
+- Pre-v1 cleanup: switched component badge variants to design tokens, escaped `</script>` breakout in `nav_palette_items_json`, made `{% btn disabled=True href=... %}` produce a11y-correct disabled anchors, replaced hardcoded URLs in sidebar + alpine-init with `{% url %}` reverses, removed legacy `_layout.html` (replaced by `app_base.html` in Phase 3), committed `uv.lock` for reproducible Docker builds.
+- Media files moved from a Docker named volume to a host bind-mount at `${PHORESIS_MEDIA_DIR}` (default `%USERPROFILE%\Phoresis-Data\media`), so `docker compose down -v` cannot wipe user data.
+
+## [0.6.0] - 2026-05-04
+
+### Phase 6 — CI/CD + install scripts
+
+- `release-please` config + initial `CHANGELOG.md`.
+- `ci.yml` extended with frontend build, e2e (Playwright Chromium), Docker image build smoke, Trivy CVE scan.
+- `release.yml` with 4-variant matrix build `(cpu, cuda) × (web, worker)`, GHCR push, GitHub Release with SBOM.
+- 7 PowerShell scripts: `install.ps1` (clean-machine), `start.ps1` / `stop.ps1` (daily), `update.ps1` (with `-Rollback`), `backup.ps1` / `restore.ps1` (pg_dump + media tar, 30-day retention), plus `_common.ps1` shared helpers.
+- Watchtower credentials story documented (PUBLIC GHCR by default, private fallback in 3 steps).
 
 ## [0.5.0] - 2026-05-04
 

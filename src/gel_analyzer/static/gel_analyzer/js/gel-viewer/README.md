@@ -1611,5 +1611,5 @@ stateManager.clearLocalStorage();
 
 ## Related Documentation
 
-- [Gel Analyzer Module README](../../README.md) - Django app documentation
-- [CLAUDE.md](../../../../../CLAUDE.md) - Project-wide guidance
+- [Gel Analyzer module README](../../../../docs/README.md) — Django app documentation
+- [Phoresis architecture](../../../../../../docs/ARCHITECTURE.md) — system overview, data flow, container layout

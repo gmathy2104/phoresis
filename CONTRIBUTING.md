@@ -80,6 +80,18 @@ Celery task state.
 This means **`docker compose down -v` cannot wipe user data** — it only blasts the four
 disposable volumes. Database stays on the host, media stays at `PHORESIS_MEDIA_DIR`.
 
+## Documentation
+
+When you add or change a feature, update the relevant doc:
+
+- New templatetag → [docs/DESIGN.md](docs/DESIGN.md) component catalogue + [src/phoresis_ui/docs/README.md](src/phoresis_ui/docs/README.md).
+- New service in `gel_analyzer` → [src/gel_analyzer/docs/README.md](src/gel_analyzer/docs/README.md).
+- New PowerShell script → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and (if user-facing) [docs/INSTALL.md](docs/INSTALL.md).
+- New Celery task → [src/gel_analyzer/docs/README.md](src/gel_analyzer/docs/README.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) if it changes the data flow.
+- Architectural decision → write a short ADR under `docs/adr/` (template the directory if it doesn't exist yet).
+
+The [README.md](README.md) cross-links to all the above; keep its "Documentation" section current too.
+
 ## Image visibility (public/private)
 
 Phoresis images on `ghcr.io/gmathy2104/phoresis-{web,worker}` are PUBLIC by
