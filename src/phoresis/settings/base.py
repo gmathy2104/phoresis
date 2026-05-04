@@ -105,9 +105,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# STATIC_ROOT / MEDIA_ROOT are env-overridable so the Docker image can point
+# them at /srv/{staticfiles,media} (writable volumes) without a code change.
+# The dev/local default keeps everything inside the repo for convenience.
+STATIC_ROOT = os.environ.get("STATIC_ROOT") or (BASE_DIR / "staticfiles")
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT") or (BASE_DIR / "media")
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
