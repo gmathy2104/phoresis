@@ -9,6 +9,14 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.1] - 2026-05-04
+
+### Post-v1 hardening pass
+
+- Branded `handler400` (Bad request) and `handler403` (Access denied / CSRF failure) pages wired in `phoresis_core.error_handling.views`. Same chrome and CTAs as the existing 404 / 500.
+- `prefers-reduced-motion` media query in `input.css` neutralizes ripple, shimmer, dropzone pulse, and long transitions for users with system "Reduce motion" enabled. App stays fully functional.
+- `CELERY_WORKER_MAX_TASKS_PER_CHILD = 50` (env-overridable via `CELERY_WORKER_MAX_TASKS_PER_CHILD`) so prefork children recycle to release memory after the ~100 MB ONNX models loaded by band-detection / SAM / densitometry services.
+
 ## [1.0.0] - 2026-05-04
 
 ### Phase 7 — Polish + docs + v1.0.0
