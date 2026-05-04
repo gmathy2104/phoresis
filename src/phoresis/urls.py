@@ -14,3 +14,7 @@ urlpatterns = [
     path("healthz/live/", healthz.liveness, name="healthz_live"),
     path("", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
 ]
+
+# Custom error handlers
+handler404 = "phoresis_core.error_handling.views.handler404"
+handler500 = "phoresis_core.error_handling.views.handler500"
