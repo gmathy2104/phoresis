@@ -23,3 +23,28 @@ This skips schema migration on subsequent runs. **Caveat:** if you've added a ne
 ```
 
 We don't enable `--reuse-db` by default in `pyproject.toml` because it's a frequent source of stale-schema test failures during phases of rapid migration churn.
+
+## Release flow
+
+1. Land changes on `main` using [Conventional Commits](https://www.conventionalcommits.org/):
+   - `feat: ...` → minor version bump
+   - `fix: ...` → patch bump
+   - `feat!: ...` or `BREAKING CHANGE:` in body → major bump
+2. `release-please` opens a PR titled "chore(main): release X.Y.Z" with the bumped version + auto-generated CHANGELOG entries.
+3. Review and merge the PR.
+4. Merging tags `vX.Y.Z` and triggers `release.yml`, which:
+   - Builds 4 images: `(cpu, cuda) × (web, worker)`.
+   - Pushes to `ghcr.io/gmathy2104/phoresis-{web,worker}:{vX.Y.Z, latest}-{cpu, cuda}`.
+   - Creates a GitHub Release with auto-generated notes.
+   - Attaches the CPU web image SBOM.
+5. Watchtower (running on every Phoresis install) detects the new `:latest-{variant}` digest at 03:00 daily and self-updates.
+
+## Manual rollback
+
+Pin a specific image tag in `.env`:
+
+```
+PHORESIS_IMAGE_TAG=v0.4.0-cpu
+```
+
+Then run `scripts/update.ps1 -Rollback v0.4.0`.
