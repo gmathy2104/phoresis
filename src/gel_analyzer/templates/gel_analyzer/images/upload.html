@@ -15,8 +15,23 @@
         {% csrf_token %}
         <div>
             <label class="mb-1.5 block text-sm font-medium">File</label>
-            <input type="file" name="original_file" required accept=".gel,.scn,.tiff,.tif,.png,.jpg,.jpeg"
-                   class="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-accent-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-700 hover:file:bg-accent-100">
+            <div class="ui-dropzone rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center"
+                 x-data="{ active: false }"
+                 :data-active="active"
+                 @dragenter.prevent="active = true"
+                 @dragleave.prevent="active = false"
+                 @dragover.prevent
+                 @drop.prevent="active = false; $refs.fileInput.files = $event.dataTransfer.files; $refs.fileInput.dispatchEvent(new Event('change', {bubbles:true}))">
+                <div class="text-text-muted">
+                    {% icon "upload" size=32 class_="mx-auto mb-2" %}
+                    <p class="text-sm">Drop a gel image here or
+                        <label for="id_original_file" class="cursor-pointer text-accent-600 hover:underline">browse files</label>.
+                    </p>
+                </div>
+                <input id="id_original_file" type="file" name="original_file" required accept=".gel,.scn,.tiff,.tif,.png,.jpg,.jpeg"
+                       x-ref="fileInput"
+                       class="sr-only">
+            </div>
         </div>
         <div>
             <label class="mb-1.5 block text-sm font-medium">Gel type</label>

@@ -87,3 +87,83 @@
     to   { transform: translateX(100%); }
   }
 }
+
+@layer components {
+  /* Ripple effect for buttons (data-ripple in btn templatetag) */
+  .ui-ripple-host {
+    position: relative;
+    overflow: hidden;
+  }
+  .ui-ripple-host > .ui-ripple {
+    position: absolute;
+    border-radius: 9999px;
+    transform: scale(0);
+    animation: ui-ripple-anim 600ms var(--ease-out);
+    background: currentColor;
+    opacity: 0.25;
+    pointer-events: none;
+  }
+  @keyframes ui-ripple-anim {
+    to { transform: scale(4); opacity: 0; }
+  }
+
+  /* HTMX top progress bar */
+  .ui-htmx-progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 3px;
+    width: 0;
+    background: var(--color-accent-500);
+    z-index: 100;
+    transition: width 250ms var(--ease-out), opacity 200ms var(--ease-out) 50ms;
+    box-shadow: 0 0 8px rgb(from var(--color-accent-500) r g b / 0.5);
+    pointer-events: none;
+    opacity: 0;
+  }
+  .ui-htmx-progress[data-state="loading"] { opacity: 1; width: 70%; }
+  .ui-htmx-progress[data-state="done"]    { opacity: 0; width: 100%; }
+
+  /* Dropzone pulse */
+  .ui-dropzone {
+    transition: transform 150ms var(--ease-out),
+                background-color 150ms var(--ease-out),
+                border-color 150ms var(--ease-out);
+  }
+  .ui-dropzone[data-active="true"] {
+    transform: scale(1.02);
+    background-color: var(--color-accent-50);
+    border-color: var(--color-accent-500);
+    animation: ui-dropzone-pulse 1.4s var(--ease-out) infinite;
+  }
+  @keyframes ui-dropzone-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(from var(--color-accent-500) r g b / 0.3); }
+    50%      { box-shadow: 0 0 0 12px rgb(from var(--color-accent-500) r g b / 0); }
+  }
+
+  /* Floating labels (opt-in via .ui-float wrapper) */
+  .ui-float {
+    position: relative;
+  }
+  .ui-float > input,
+  .ui-float > textarea {
+    padding-top: 1.25rem;
+    padding-bottom: 0.5rem;
+  }
+  .ui-float > label {
+    position: absolute;
+    top: 0.6rem;
+    left: 0.75rem;
+    pointer-events: none;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    transform-origin: 0 0;
+    transition: transform 150ms var(--ease-out), color 150ms var(--ease-out);
+  }
+  .ui-float > input:focus + label,
+  .ui-float > input:not(:placeholder-shown) + label,
+  .ui-float > textarea:focus + label,
+  .ui-float > textarea:not(:placeholder-shown) + label {
+    transform: translateY(-0.4rem) scale(0.85);
+    color: var(--color-accent-600);
+  }
+}

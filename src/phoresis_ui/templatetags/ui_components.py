@@ -103,7 +103,7 @@ def btn(
             cls += " pointer-events-none opacity-50"
             anchor_extra = ' aria-disabled="true" tabindex="-1"'
         return format_html(
-            '<a href="{}" class="{}"{}{}{}>{}</a>',
+            '<a href="{}" class="{}" data-ripple{}{}{}>{}</a>',
             href,
             cls,
             htmx_html,
@@ -114,7 +114,7 @@ def btn(
 
     disabled_attr = mark_safe(" disabled") if disabled else ""
     return format_html(
-        '<button type="{}" class="{}"{}{}{}>{}</button>',
+        '<button type="{}" class="{}" data-ripple{}{}{}>{}</button>',
         type_,
         cls,
         htmx_html,

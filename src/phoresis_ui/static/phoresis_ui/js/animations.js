@@ -39,3 +39,40 @@
     });
   }
 })();
+
+// ============================================================================
+// Ripple effect on buttons (opt-in via data-ripple on the host element)
+// ============================================================================
+document.addEventListener("click", (e) => {
+  const host = e.target.closest("[data-ripple]");
+  if (!host) return;
+  host.classList.add("ui-ripple-host");
+  const rect = host.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const ripple = document.createElement("span");
+  ripple.className = "ui-ripple";
+  ripple.style.width = ripple.style.height = `${size}px`;
+  ripple.style.left = `${e.clientX - rect.left - size / 2}px`;
+  ripple.style.top  = `${e.clientY - rect.top  - size / 2}px`;
+  host.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 600);
+});
+
+// ============================================================================
+// HTMX top progress bar
+// ============================================================================
+(function () {
+  let bar = null;
+
+  function ensureBar() {
+    if (bar) return bar;
+    bar = document.createElement("div");
+    bar.className = "ui-htmx-progress";
+    document.body.appendChild(bar);
+    return bar;
+  }
+
+  document.addEventListener("htmx:beforeRequest", () => ensureBar().setAttribute("data-state", "loading"));
+  document.addEventListener("htmx:afterRequest",  () => ensureBar().setAttribute("data-state", "done"));
+  document.addEventListener("htmx:responseError", () => ensureBar().setAttribute("data-state", "done"));
+})();
