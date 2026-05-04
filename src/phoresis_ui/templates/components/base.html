@@ -36,18 +36,24 @@
         </main>
     {% endblock %}
 
-    {# HTMX 2 + Alpine.js 3 -- self-hosted via WhiteNoise. NO CDN: see AGENTS.md #}
-    <script defer src="{% static 'phoresis_ui/js/vendor/htmx-2.0.3.min.js' %}"></script>
-    <script defer src="{% static 'phoresis_ui/js/vendor/alpine-3.14.3.min.js' %}"></script>
-
+    {# Order matters here. Alpine 3 cdn-build queueMicrotask()'s start() at
+       the end of its module, which fires `alpine:init` at the next microtask
+       checkpoint -- which happens BETWEEN deferred scripts. So if alpine.js
+       is loaded BEFORE alpine-init.js (both with defer), alpine:init fires
+       before the listener is registered, and EVERY $store.* on the page
+       comes back undefined. Per Alpine's own docs example, the init code
+       must run BEFORE Alpine's bundle. #}
     <script>
       window.PHORESIS_URLS = {
         theme_set: "{% url 'accounts:theme_set' %}",
         countup_js: "{% static 'phoresis_ui/js/vendor/countup-2.8.0.min.js' %}",
       };
     </script>
-    <script src="{% static 'phoresis_ui/js/htmx-config.js' %}" defer></script>
     <script src="{% static 'phoresis_ui/js/alpine-init.js' %}" defer></script>
+    <script src="{% static 'phoresis_ui/js/htmx-config.js' %}" defer></script>
+    {# HTMX 2 + Alpine.js 3 -- self-hosted via WhiteNoise. NO CDN: see AGENTS.md #}
+    <script defer src="{% static 'phoresis_ui/js/vendor/htmx-2.0.3.min.js' %}"></script>
+    <script defer src="{% static 'phoresis_ui/js/vendor/alpine-3.14.3.min.js' %}"></script>
     <script src="{% static 'phoresis_ui/js/animations.js' %}" defer></script>
 
     {% block scripts %}{% endblock %}
