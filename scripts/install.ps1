@@ -327,8 +327,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- 7. Wait for healthcheck ---
-Write-Step "Waiting for https://phoresis/healthz/live/ (max 90s)"
-if (Wait-HttpOk -Url 'https://phoresis/healthz/live/' -TimeoutSeconds 90) {
+# 240s timeout: covers the worst case where `docker compose up -d` recreates
+# the web container (e.g. after a rebuild on update). Web entrypoint takes
+# 30-90s (migrate + collectstatic post-processing of ~700 files + seeds +
+# gunicorn boot), and Caddy's active health check needs another ~10s to
+# detect the upstream is back.
+Write-Step "Waiting for https://phoresis/healthz/live/ (max 240s)"
+if (Wait-HttpOk -Url 'https://phoresis/healthz/live/' -TimeoutSeconds 240) {
     Write-Ok "Stack healthy"
 } else {
     Write-Err "Healthcheck timed out. Run: docker compose $($composeArgs -join ' ') logs"
