@@ -25,9 +25,14 @@ param(
     [ValidateSet('auto', 'cpu', 'cuda')]
     [string]$Variant = 'auto',
 
-    [switch]$SkipBrowserOpen
-,
-    [string]$DataDir = (Join-Path $env:USERPROFILE 'Phoresis-Data')
+    [switch]$SkipBrowserOpen,
+
+    [string]$DataDir = (Join-Path $env:USERPROFILE 'Phoresis-Data'),
+
+    # Postgres port. Default 5432, but override when an existing Postgres
+    # (e.g. PG16) already owns 5432 and the new Phoresis-targeted PG17
+    # ended up on 5433.
+    [int]$DBPort = 5432
 )
 
 . "$PSScriptRoot\_common.ps1"
@@ -129,12 +134,16 @@ if (-not $psql) {
 Write-Ok "psql present ($(psql --version))"
 
 # Create phoresis DB + user (idempotent)
-Write-Sub "Provisioning 'phoresis' database + user"
-$pgPassword = Read-Host "Postgres superuser ('postgres') password" -AsSecureString
+Write-Sub "Provisioning 'phoresis' database + user on port $DBPort"
+if ($DBPort -ne 5432) {
+    Write-Sub "Non-default port detected — make sure Postgres 17 is reachable at 127.0.0.1:$DBPort"
+}
+$pgPassword = Read-Host "Postgres superuser ('postgres') password (port $DBPort)" -AsSecureString
 $pgPasswordPlain = ConvertFrom-SecureToPlain -Secure $pgPassword
 
 $env:PGPASSWORD = $pgPasswordPlain
-$initSql = @"
+# 1. Role (idempotent via DO block)
+$roleSql = @"
 DO `$`$
 BEGIN
    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'phoresis') THEN
@@ -142,13 +151,16 @@ BEGIN
    END IF;
 END
 `$`$;
-SELECT 'created' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'phoresis')
-\gexec
-CREATE DATABASE phoresis OWNER phoresis;
 "@
-$initSql | psql -U postgres -h 127.0.0.1 -d postgres
+$roleSql | psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres
+
+# 2. Database (CREATE DATABASE can't run inside a DO block — check then create)
+$dbExists = & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='phoresis'"
+if ($dbExists -ne '1') {
+    & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -c "CREATE DATABASE phoresis OWNER phoresis"
+}
 $env:PGPASSWORD = $null
-Write-Ok "phoresis DB + user ready"
+Write-Ok "phoresis DB + user ready on port $DBPort"
 
 # --- 3. GPU detection ---
 # The CUDA image ships PyTorch built with cu128 (CUDA 12.8), which officially
@@ -221,8 +233,10 @@ if ($drive) {
     }
 }
 
-# Migrate from a previous named-volume install if it exists
-$oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null).Trim()
+# Migrate from a previous named-volume install if it exists.
+# `docker volume ls -q --filter` returns $null (not '') when no match — pipe
+# through Out-String so .Trim() is always callable under Set-StrictMode.
+$oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null | Out-String).Trim()
 if ($oldVolume) {
     Write-Warn "Detected legacy phoresis_media named volume - migrating contents to $mediaDir"
     $mediaDirForward = $mediaDir -replace '\\', '/'
@@ -262,7 +276,7 @@ if (Test-Path $envPath) {
         DB_NAME                  = 'phoresis'
         DB_USER                  = 'phoresis'
         DB_PASSWORD              = 'phoresis'
-        DB_PORT                  = '5432'
+        DB_PORT                  = "$DBPort"
         REDIS_HOST               = 'redis'
         REDIS_PORT               = '6379'
         ADMIN_EMAIL              = $adminEmail
