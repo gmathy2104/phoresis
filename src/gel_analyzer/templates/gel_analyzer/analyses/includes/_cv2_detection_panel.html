@@ -1,0 +1,204 @@
+{%comment%}
+CV2 Vision Band Detection panel.
+Adaptive threshold + morphological top-hat based detection.
+Compact single-column layout — no electropherogram needed since
+CV2 works directly on the 2D gel image.
+{%endcomment%}
+
+<div id="cv2-detection-backdrop" class="gv-modal-backdrop gv-detection-backdrop" style="display:none"></div>
+
+<div id="cv2-detection-panel" class="gv-detection-panel gv-cv2-panel" style="display:none" role="dialog"
+     aria-label="CV2 Band Detection">
+
+    {# ── Header ── #}
+    <div class="gv-detection-header">
+        <div class="gv-detection-title">
+            <i class="bi bi-eye"></i>
+            CV2 Vision Detection
+        </div>
+        <button id="cv2-detection-close" class="gv-detection-close" aria-label="Close">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    {# ── Body ── #}
+    <div class="gv-cv2-body">
+
+        {# ── Lane Selection Row ── #}
+        <div class="gv-cv2-lane-row">
+            <div class="gv-cv2-lane-selector">
+                <select id="cv2-detection-lane-filter" class="gv-cv2-select">
+                    <option value="all" selected>All lanes</option>
+                    <option value="sample">Sample lanes</option>
+                    <option value="ladder">Ladder lanes</option>
+                    <option value="selected">Selected lane</option>
+                </select>
+                <span id="cv2-detection-lane-count" class="gv-cv2-lane-badge"></span>
+            </div>
+            <div id="cv2-detection-lane-list" class="gv-cv2-lane-chips"></div>
+        </div>
+
+        {# ── Background type indicator ── #}
+        <div class="gv-cv2-bg-row">
+            <span class="gv-cv2-bg-label">
+                <i class="bi bi-circle-half"></i> Background
+            </span>
+            <span id="cv2-detection-bg-badge" class="gv-cv2-bg-badge" data-type="auto">
+                detecting...
+            </span>
+            <select id="cv2-detection-bg-override" class="gv-cv2-bg-select">
+                <option value="auto" selected>Auto</option>
+                <option value="dark">Dark (bright bands)</option>
+                <option value="light">Light (dark bands)</option>
+            </select>
+        </div>
+
+        {# ── Parameter Sections ── #}
+        <div class="gv-cv2-params">
+
+            {# ── Section: Sensitivity ── #}
+            <div class="gv-cv2-section">
+                <div class="gv-cv2-section-header">
+                    <i class="bi bi-sliders2"></i>
+                    Sensitivity
+                </div>
+                <p class="gv-cv2-section-desc">Controls how aggressively the detector separates bands from background. Lower bias = more sensitive.</p>
+
+                <div class="gv-cv2-param-grid">
+                    <div class="gv-cv2-param">
+                        <div class="gv-cv2-param-header">
+                            <span class="gv-cv2-param-name">Block Size</span>
+                            <span class="gv-detection-param-value" id="cv2-detection-block-size-value">35</span>
+                        </div>
+                        <input type="range" id="cv2-detection-block-size"
+                               min="3" max="99" step="2" value="35">
+                        <span class="gv-cv2-param-hint">Neighborhood size for local thresholding. Larger values smooth out small noise.</span>
+                    </div>
+                    <div class="gv-cv2-param">
+                        <div class="gv-cv2-param-header">
+                            <span class="gv-cv2-param-name">Threshold Bias (C)</span>
+                            <span class="gv-detection-param-value" id="cv2-detection-threshold-bias-value">10</span>
+                        </div>
+                        <input type="range" id="cv2-detection-threshold-bias"
+                               min="1" max="30" step="1" value="10">
+                        <span class="gv-cv2-param-hint">Offset subtracted from the local mean. Lower = more sensitive to faint bands.</span>
+                    </div>
+                </div>
+            </div>
+
+            {# ── Section: Morphology ── #}
+            <div class="gv-cv2-section">
+                <div class="gv-cv2-section-header">
+                    <i class="bi bi-bounding-box"></i>
+                    Morphology
+                </div>
+                <p class="gv-cv2-section-desc">Shape operations that clean up detected regions — closing gaps and recovering faint features.</p>
+
+                <div class="gv-cv2-param-grid">
+                    <div class="gv-cv2-param">
+                        <div class="gv-cv2-param-header">
+                            <span class="gv-cv2-param-name">Closing Kernel</span>
+                            <span class="gv-detection-param-value" id="cv2-detection-morph-kernel-value">3</span>
+                        </div>
+                        <input type="range" id="cv2-detection-morph-kernel"
+                               min="1" max="9" step="2" value="3">
+                        <span class="gv-cv2-param-hint">Fills small holes inside detected bands. Increase if bands appear fragmented.</span>
+                    </div>
+                    <div class="gv-cv2-param" id="cv2-tophat-radius-group">
+                        <div class="gv-cv2-param-header">
+                            <span class="gv-cv2-param-name">Top-Hat Radius</span>
+                            <span class="gv-detection-param-value" id="cv2-detection-tophat-radius-value">25</span>
+                        </div>
+                        <input type="range" id="cv2-detection-tophat-radius"
+                               min="5" max="75" step="5" value="25">
+                        <span class="gv-cv2-param-hint">Radius for faint band extraction. Targets bands close to background intensity.</span>
+                    </div>
+                </div>
+
+                {# Toggles #}
+                <div class="gv-cv2-toggles">
+                    <label class="gv-cv2-toggle">
+                        <input type="checkbox" id="cv2-detection-clahe" checked>
+                        <span class="gv-cv2-toggle-label">
+                            <strong>CLAHE</strong>
+                            <span>Local contrast enhancement — improves detection on uneven lighting</span>
+                        </span>
+                    </label>
+                    <label class="gv-cv2-toggle">
+                        <input type="checkbox" id="cv2-detection-faint-boost" checked>
+                        <span class="gv-cv2-toggle-label">
+                            <strong>Faint Band Boost</strong>
+                            <span>Top-hat transform to recover bands barely visible above background</span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            {# ── Section: Filtering ── #}
+            <div class="gv-cv2-section">
+                <div class="gv-cv2-section-header">
+                    <i class="bi bi-funnel"></i>
+                    Filtering
+                </div>
+                <p class="gv-cv2-section-desc">Size constraints to reject noise (too small) and artifacts (too large).</p>
+
+                <div class="gv-cv2-param-grid">
+                    <div class="gv-cv2-param">
+                        <div class="gv-cv2-param-header">
+                            <span class="gv-cv2-param-name">Min Band Area</span>
+                            <span class="gv-detection-param-value" id="cv2-detection-min-area-value">50</span>
+                        </div>
+                        <input type="range" id="cv2-detection-min-area"
+                               min="10" max="500" step="10" value="50">
+                        <span class="gv-cv2-param-hint">Minimum pixel area. Increase to ignore small noise speckles.</span>
+                    </div>
+                    <div class="gv-cv2-param">
+                        <div class="gv-cv2-param-header">
+                            <span class="gv-cv2-param-name">Max Band Area</span>
+                            <span class="gv-detection-param-value" id="cv2-detection-max-area-value">5000</span>
+                        </div>
+                        <input type="range" id="cv2-detection-max-area"
+                               min="500" max="50000" step="100" value="5000">
+                        <span class="gv-cv2-param-hint">Maximum pixel area. Decrease to reject large artifacts or smears.</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    {# ── Preview stats bar ── #}
+    <div id="cv2-detection-preview-bar" class="gv-cv2-stats-bar" style="display:none">
+        <i class="bi bi-info-circle"></i>
+        <span id="cv2-detection-preview-stats"></span>
+    </div>
+
+    {# ── Progress bar ── #}
+    <div id="cv2-detection-progress" class="gv-cv2-progress" style="display:none">
+        <div class="gv-cv2-progress-track">
+            <div id="cv2-detection-progress-fill" class="gv-cv2-progress-fill" style="width:0%"></div>
+        </div>
+        <span id="cv2-detection-progress-text" class="gv-cv2-progress-text"></span>
+    </div>
+
+    {# ── Footer ── #}
+    <div class="gv-cv2-footer">
+        <div class="gv-cv2-footer-actions">
+            <button id="cv2-detection-reset" class="gv-cv2-btn gv-cv2-btn-ghost"
+                    data-tooltip="Reset to auto-calibrated defaults">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset
+            </button>
+            <div class="gv-cv2-footer-primary">
+                <button id="cv2-detection-preview" class="gv-cv2-btn gv-cv2-btn-outline"
+                        data-tooltip="Preview detection on selected lane">
+                    <i class="bi bi-eye"></i> Preview
+                </button>
+                <button id="cv2-detection-detect" class="gv-cv2-btn gv-cv2-btn-solid"
+                        data-tooltip="Detect & save bands for all target lanes">
+                    <i class="bi bi-check2-all"></i> Detect & Save
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>

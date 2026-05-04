@@ -1,0 +1,927 @@
+{% extends "components/base.html" %}
+{% load static ui_icons %}
+
+{% block title %}Annotate - {{ analysis.name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/gel_viewer_standalone.css' %}">
+{% endblock %}
+
+{% block body %}
+<!-- Full-screen viewer container -->
+<div id="gel-viewer" class="gv-container">
+    <!-- Loading Overlay -->
+    <div class="gv-loading-overlay" id="loading-overlay">
+        <div class="gv-loading-content">
+            <div class="gv-loading-spinner"></div>
+            <p class="gv-loading-text">Processing...</p>
+        </div>
+    </div>
+
+    <!-- Action Modal (for Remove All operations) -->
+    <div class="gv-action-modal" id="action-modal">
+        <div class="gv-action-modal-content">
+            <div class="gv-action-modal-spinner"></div>
+            <p class="gv-action-modal-message" id="action-modal-message">Processing...</p>
+            <p class="gv-action-modal-submessage" id="action-modal-submessage">Please wait</p>
+        </div>
+    </div>
+
+    <!-- Mini Header -->
+    <div class="gv-header">
+        <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}" class="gv-back-link">
+            {% icon "arrow-left" size=16 %}
+            <span>Back to Analysis</span>
+        </a>
+        <div class="gv-header-center">
+            <span class="gv-header-title">{{ analysis.name|truncatechars:40 }}</span>
+        </div>
+        <div class="gv-header-right">
+            <span class="gv-status-badge gv-status-{{ analysis.status|lower }}">
+                {{ analysis.get_status_display }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Toolbar - Organized by workflow: Navigate → Detect → Annotate → Calibrate → Edit → Delete → Save -->
+    <div class="gv-toolbar">
+        <!-- GROUP 1: Navigation & View -->
+        <div class="gv-toolbar-group">
+            <button class="gv-toolbar-btn active" data-tool="select" data-tooltip="Select (V)" aria-label="Select (V)">
+                <i class="bi bi-cursor"></i>
+            </button>
+            <button class="gv-toolbar-btn" data-tool="pan" data-tooltip="Pan (H)" aria-label="Pan (H)">
+                <i class="bi bi-hand-index"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP 2: Zoom -->
+        <div class="gv-toolbar-group">
+            <button class="gv-toolbar-btn" id="zoom-out" data-tooltip="Zoom Out (-)" aria-label="Zoom Out (-)">
+                <i class="bi bi-zoom-out"></i>
+            </button>
+            <span class="gv-zoom-display">100%</span>
+            <button class="gv-toolbar-btn" id="zoom-in" data-tooltip="Zoom In (+)" aria-label="Zoom In (+)">
+                <i class="bi bi-zoom-in"></i>
+            </button>
+            <button class="gv-toolbar-btn" id="zoom-fit" data-tooltip="Fit to View (0)" aria-label="Fit to View (0)">
+                <i class="bi bi-arrows-fullscreen"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP: Image Crop -->
+        <div class="gv-toolbar-group gv-toolbar-group-crop">
+            <button class="gv-toolbar-btn gv-toolbar-btn-crop"
+                    id="btn-crop"
+                    data-tooltip="Crop Image"
+                    aria-label="Crop Image"
+                    data-requires="editable"
+                    {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-crop"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP 3: Auto-Detection (AI-powered) -->
+        <div class="gv-toolbar-group gv-toolbar-group-highlight">
+            <button class="gv-toolbar-btn gv-toolbar-btn-magic" id="btn-auto-detect" data-tooltip="Auto-Detect Lanes (D)" aria-label="Auto-Detect Lanes (D)" data-requires="editable" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-magic"></i>
+            </button>
+            {% comment %}
+            UNPLUGGED 2026-04-20: Profile Detection (d1/d2) and CV2 Vision Detection
+            replaced by Hybrid Detection (CV2 primary + d1/d2 gap-fill). The panels
+            and JS remain loaded for now; re-enabling is just a matter of
+            uncommenting the two buttons below.
+
+            <button class="gv-toolbar-btn gv-toolbar-btn-detection" id="toggle-detection" data-tooltip="Profile Detection d1/d2 (Shift+D)" aria-label="Profile Detection d1/d2 (Shift+D)" data-requires="lanes" data-disabled-tooltip="Create lanes first" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-activity"></i>
+            </button>
+            <button class="gv-toolbar-btn gv-toolbar-btn-detection"
+                    id="toggle-cv2-detection"
+                    data-tooltip="CV2 Vision Detection (Shift+V)"
+                    aria-label="CV2 Vision Detection (Shift+V)"
+                    data-requires="lanes"
+                    data-disabled-tooltip="Create lanes first"
+                    {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-eye"></i>
+            </button>
+            {% endcomment %}
+            <button class="gv-toolbar-btn gv-toolbar-btn-detection gv-hybrid-toolbar-btn"
+                    id="toggle-hybrid-detection"
+                    data-tooltip="Hybrid Detection — Recommended (Shift+H)"
+                    aria-label="Hybrid Detection — Recommended (Shift+H)"
+                    data-requires="lanes"
+                    data-disabled-tooltip="Create lanes first"
+                    {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-stars"></i>
+                <span class="gv-toolbar-badge-new" aria-hidden="true">NEW</span>
+            </button>
+            <button class="gv-toolbar-btn gv-toolbar-btn-detection gv-clc-toolbar-btn"
+                    id="toggle-cross-lane-consensus"
+                    data-tooltip="Cross-Lane Consensus — post-process (Shift+X)"
+                    aria-label="Cross-Lane Consensus — post-process (Shift+X)"
+                    data-requires="lanes"
+                    data-disabled-tooltip="Create lanes first"
+                    {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-diagram-3"></i>
+                <span class="gv-toolbar-badge-new" aria-hidden="true">NEW</span>
+            </button>
+            {% comment %} UNPLUGGED: Profile Peak Detection deprecated in favour of Auto (d1/d2) detection
+            <button class="gv-toolbar-btn gv-toolbar-btn-detection" id="toggle-profile-detection" data-tooltip="Profile Peak Detection (Shift+P)" aria-label="Profile Peak Detection (Shift+P)" data-requires="lanes" data-disabled-tooltip="Create lanes first" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-graph-up"></i>
+            </button>
+            {% endcomment %}
+            <button class="gv-toolbar-btn" id="normalize-lanes-btn" data-tooltip="Normalize Lane Heights" aria-label="Normalize Lane Heights" data-requires="lanes" data-disabled-tooltip="Create lanes first" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-distribute-vertical"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP 4: Manual Annotation Tools -->
+        <div class="gv-toolbar-group">
+            <!-- Lane Tool Dropdown -->
+            <div class="gv-tool-dropdown" {% if not analysis.is_editable %}data-disabled="true"{% endif %}>
+                <button class="gv-toolbar-btn gv-dropdown-trigger" data-tool="lane" data-tooltip="Draw Lane (L)" aria-label="Draw Lane (L)" {% if not analysis.is_editable %}disabled{% endif %}>
+                    <i class="bi bi-layout-three-columns" id="lane-tool-icon"></i>
+                    <i class="bi bi-caret-down-fill gv-dropdown-arrow"></i>
+                </button>
+                <div class="gv-dropdown-menu" id="lane-shape-menu">
+                    <button class="gv-dropdown-item active" data-lane-shape="RECTANGLE" data-tooltip="Rectangle lane - drag to draw" aria-label="Rectangle lane - drag to draw">
+                        <i class="bi bi-square"></i>
+                        <span>Rectangle</span>
+                        <kbd>L</kbd>
+                    </button>
+                    <button class="gv-dropdown-item" data-lane-shape="QUADRILATERAL" data-tooltip="Quadrilateral lane - click 4 corners" aria-label="Quadrilateral lane - click 4 corners">
+                        <i class="bi bi-diamond"></i>
+                        <span>Quadrilateral</span>
+                        <kbd>Q</kbd>
+                    </button>
+                    <button class="gv-dropdown-item" data-lane-shape="POLYGON" data-tooltip="Polygon lane - click points, Enter to finish" aria-label="Polygon lane - click points, Enter to finish">
+                        <i class="bi bi-hexagon"></i>
+                        <span>Polygon</span>
+                        <kbd>P</kbd>
+                    </button>
+                </div>
+            </div>
+            <button class="gv-toolbar-btn" data-tool="band" data-tooltip="Draw Band (B)" aria-label="Draw Band (B)" data-requires="lanes" data-disabled-tooltip="Create lanes first" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-grip-horizontal"></i>
+            </button>
+            <button class="gv-toolbar-btn" data-tool="split" data-tooltip="Split Band (S)" aria-label="Split Band (S)" data-requires="band-selected" data-disabled-tooltip="Select a band first" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-scissors"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP 5: MW Calibration -->
+        <div class="gv-toolbar-group gv-toolbar-group-calibration">
+            <button class="gv-toolbar-btn gv-toolbar-btn-calibration" id="toggle-calibration" data-tooltip="MW Calibration (C)" aria-label="MW Calibration (C)" data-requires="ladder-with-bands" data-disabled-tooltip="Add ladder lanes with bands" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-rulers"></i>
+            </button>
+            <button class="gv-toolbar-btn gv-toolbar-btn-mw-lines" id="toggle-mw-lines" data-tooltip="Toggle MW Lines (M)" aria-label="Toggle MW Lines (M)" data-requires="calibrated" data-disabled-tooltip="Run calibration first">
+                <i class="bi bi-activity"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP 6: View & Edit Panels -->
+        <div class="gv-toolbar-group">
+            <button class="gv-toolbar-btn" id="toggle-table" data-tooltip="Lane Editor (T)" aria-label="Lane Editor (T)">
+                <i class="bi bi-table"></i>
+            </button>
+            <button class="gv-toolbar-btn" id="toggle-band-table" data-tooltip="Band Editor (E)" aria-label="Band Editor (E)" data-requires="lane-selected" data-disabled-tooltip="Select a lane first">
+                <i class="bi bi-list-ul"></i>
+            </button>
+            <button class="gv-toolbar-btn" id="adjust-image" data-tooltip="Adjust Image (A)" aria-label="Adjust Image (A)">
+                <i class="bi bi-sliders2"></i>
+            </button>
+            <button class="gv-toolbar-btn" id="toggle-electropherogram" data-tooltip="Electropherogram (G)" aria-label="Electropherogram (G)" data-requires="lanes" data-disabled-tooltip="Create lanes first">
+                <i class="bi bi-graph-up"></i>
+            </button>
+        </div>
+
+        <div class="gv-toolbar-divider"></div>
+
+        <!-- GROUP 7: Delete Actions -->
+        <div class="gv-toolbar-group">
+            <button class="gv-toolbar-btn" id="delete-selected" data-tooltip="Delete Selected (Del)" aria-label="Delete Selected (Del)" data-requires="selection" data-disabled-tooltip="Select an annotation" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+
+        <!-- GROUP 8: Danger Zone (Remove All) -->
+        <div class="gv-toolbar-group gv-toolbar-group-danger">
+            <button class="gv-toolbar-btn gv-toolbar-btn-danger" id="remove-all-bands" data-tooltip="Remove All Bands" aria-label="Remove All Bands" data-requires="bands" data-disabled-tooltip="No bands to remove" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-x-circle"></i>
+            </button>
+            <button class="gv-toolbar-btn gv-toolbar-btn-danger" id="remove-all-lanes" data-tooltip="Remove All Lanes" aria-label="Remove All Lanes" data-requires="lanes" data-disabled-tooltip="No lanes to remove" {% if not analysis.is_editable %}disabled{% endif %}>
+                <i class="bi bi-trash3"></i>
+            </button>
+        </div>
+
+        <!-- Spacer -->
+        <div class="gv-toolbar-spacer"></div>
+
+        <!-- Unsaved Changes Indicator -->
+        <div class="gv-unsaved-indicator" id="unsaved-indicator" style="display: none;">
+            <i class="bi bi-circle-fill"></i>
+            <span>Unsaved changes</span>
+        </div>
+
+        <!-- Save Button -->
+        <button class="gv-action-btn gv-save-btn" id="save-btn" data-tooltip="Save All Changes (Ctrl+S)" {% if not analysis.is_editable %}disabled{% endif %}>
+            <i class="bi bi-cloud-upload"></i>
+            <span>Save</span>
+        </button>
+
+        <!-- Densitometry (dynamically enabled/disabled by _updateToolbarState) -->
+        <a id="btn-densitometry"
+           href="{% url 'gel_analyzer:analysis_densitometry' pk=analysis.pk %}"
+           class="gv-action-btn gv-densitometry-btn {% if analysis.total_bands == 0 %}gv-action-btn-disabled{% endif %}"
+           data-tooltip="Densitometry Analysis">
+            <i class="bi bi-bar-chart-line"></i>
+            <span>Densitometry</span>
+        </a>
+
+        <!-- View Results -->
+        <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}" class="gv-action-btn" data-tooltip="View Results">
+            <i class="bi bi-eye"></i>
+            <span>View Results</span>
+        </a>
+    </div>
+
+    <!-- Main Content -->
+    <div class="gv-main">
+        <!-- Viewer Area -->
+        <div class="gv-viewer-wrapper">
+            <div class="gv-viewer">
+                <div class="gv-canvas-container">
+                    {% if gel_image.display_file or gel_image.original_file %}
+                    {# Use proxy URL to avoid CORS issues with Azure Blob Storage #}
+                    <img src="{% url 'gel_analyzer:api_image_proxy' gel_image.pk %}" alt="{{ gel_image.original_filename }}"
+                         class="gv-image" id="gel-image">
+                    {% else %}
+                    <div class="gv-no-image">
+                        <i class="bi bi-image"></i>
+                        <p>No image file available</p>
+                        <small>Upload an image to get started</small>
+                    </div>
+                    {% endif %}
+                    <svg class="gv-svg-overlay"></svg>
+                </div>
+            </div>
+
+            <!-- Minimap -->
+            <div class="gv-minimap">
+                {% if gel_image.thumbnail %}
+                <img src="{{ gel_image.thumbnail.url }}" alt="Minimap" class="gv-minimap-image">
+                {% elif gel_image.display_file %}
+                <img src="{{ gel_image.display_file.url }}" alt="Minimap" class="gv-minimap-image">
+                {% endif %}
+                <div class="gv-minimap-viewport"></div>
+            </div>
+
+            <!-- Keyboard Shortcuts Hint -->
+            <div class="gv-shortcuts-hint">
+                <kbd>V</kbd> Select
+                <kbd>H</kbd> Pan
+                <kbd>L</kbd> Lane
+                <kbd>Q</kbd> Quad
+                <kbd>P</kbd> Polygon
+                <kbd>B</kbd> Band
+                <kbd>S</kbd> Split
+                <kbd>T</kbd> Lanes
+                <kbd>E</kbd> Bands
+                <kbd>A</kbd> Adjust
+                <kbd>F</kbd> Fill
+                <kbd>M</kbd> MW Lines
+                <kbd>Del</kbd> Delete
+            </div>
+
+            <!-- Data Table Panel (Lane Editor - inside viewer-wrapper for proper positioning) -->
+            <div class="gv-table-panel" id="table-panel">
+                <div class="gv-table-resize" id="table-resize"></div>
+                <div class="gv-table-header">
+                    <span class="gv-table-title">
+                        <i class="bi bi-table"></i>
+                        Lane Editor
+                    </span>
+                    <div class="gv-table-actions">
+                        <button class="gv-table-btn gv-table-btn-close" id="close-table-panel" data-tooltip="Close (T)">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="gv-table-body">
+                    <table class="gv-data-table" id="lane-data-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 55px;">#</th>
+                                <th style="width: 110px;">Type</th>
+                                <th style="width: 120px;">Condition</th>
+                                <th style="width: 100px;">Load (µg)</th>
+                                <th style="width: 115px;">Load Type</th>
+                                <th>Sample</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="gv-table-footer">
+                    <div class="gv-table-footer-info">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="table-lane-count">0 lanes</span>
+                    </div>
+                    <div class="gv-table-footer-actions">
+                        <button class="gv-table-footer-btn gv-table-footer-btn-cancel" id="cancel-table-changes">
+                            <i class="bi bi-x-lg"></i>
+                            Cancel
+                        </button>
+                        <button class="gv-table-footer-btn gv-table-footer-btn-apply" id="apply-table-changes">
+                            <i class="bi bi-check-lg"></i>
+                            Apply
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Band Table Panel (Band Editor - inside viewer-wrapper for proper positioning) -->
+            <div class="gv-band-table-panel" id="band-table-panel" style="display: none;">
+                <div class="gv-band-table-header">
+                    <div class="gv-band-table-title">
+                        <i class="bi bi-list-ul"></i>
+                        <span id="band-table-lane-title">Bands</span>
+                    </div>
+                    <button class="gv-band-table-close" id="close-band-table-btn" title="Close">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="gv-band-table-content">
+                    <table class="gv-band-table" id="band-data-table">
+                        <thead>
+                            <!-- Header populated by JavaScript based on lane type -->
+                        </thead>
+                        <tbody>
+                            <!-- Rows populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="gv-band-table-footer">
+                    <span id="band-table-count">0 bands</span>
+                    <button class="btn btn-sm btn-outline-primary" id="band-table-add-btn" title="Add band manually">
+                        <i class="bi bi-plus"></i> Add Band
+                    </button>
+                </div>
+            </div>
+
+            <!-- Band Detection Teacher Panel (inside viewer-wrapper for absolute positioning) -->
+            {% include "gel_analyzer/analyses/includes/_teacher_panel.html" %}
+        </div>
+
+        <!-- Sidebar -->
+        <div class="gv-sidebar">
+            <div class="gv-sidebar-header">
+                <h5 class="gv-sidebar-title">
+                    <i class="bi bi-sliders"></i>
+                    <span>Properties</span>
+                </h5>
+            </div>
+            <div class="gv-sidebar-body">
+                <!-- No Selection State -->
+                <div class="gv-no-selection">
+                    <i class="bi bi-cursor"></i>
+                    <p>Select a lane or band to view and edit its properties</p>
+                </div>
+
+                <!-- Properties Panel (shown when something is selected) -->
+                <div class="gv-properties">
+                    <div class="gv-properties-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Annotations List -->
+                <div class="gv-annotations-section">
+                    <h6 class="gv-section-title">
+                        <i class="bi bi-layers"></i>
+                        <span>Annotations</span>
+                    </h6>
+                    <div class="gv-annotations-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="gv-statusbar">
+        <div class="gv-statusbar-item">
+            <i class="bi bi-image"></i>
+            <span>{{ gel_image.width|default:"--" }} x {{ gel_image.height|default:"--" }}</span>
+        </div>
+        <div class="gv-statusbar-item">
+            <i class="bi bi-crosshair"></i>
+            <span class="gv-coordinates">0, 0</span>
+        </div>
+        <div class="gv-statusbar-item">
+            <i class="bi bi-layout-three-columns"></i>
+            <span id="lane-count">{{ analysis.total_lanes }} lanes</span>
+        </div>
+        <div class="gv-statusbar-item">
+            <i class="bi bi-grip-horizontal"></i>
+            <span id="band-count">{{ analysis.total_bands }} bands</span>
+        </div>
+        <div class="gv-statusbar-spacer"></div>
+        <div class="gv-statusbar-item">
+            <span class="gv-status-badge gv-status-{{ analysis.status|lower }}">
+                {{ analysis.get_status_display }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="gv-context-menu" id="context-menu">
+        <!-- Lane Context Menu -->
+        <div class="gv-context-menu-content" data-type="lane">
+            <div class="gv-context-menu-header">
+                <i class="bi bi-layout-three-columns"></i>
+                <span>Lane Options</span>
+            </div>
+            <button class="gv-context-menu-item" data-action="edit-properties">
+                <i class="bi bi-pencil"></i>
+                <span>Edit Properties</span>
+            </button>
+            <button class="gv-context-menu-item" data-action="resize">
+                <i class="bi bi-arrows-angle-expand"></i>
+                <span>Resize Lane</span>
+            </button>
+            <div class="gv-context-menu-divider"></div>
+            <div class="gv-context-menu-group">
+                <span class="gv-context-menu-label">Lane Type</span>
+                <button class="gv-context-menu-item" data-action="set-type" data-value="SAMPLE">
+                    <i class="bi bi-circle-fill" style="color: #3b82f6;"></i>
+                    <span>Sample</span>
+                </button>
+                <button class="gv-context-menu-item" data-action="set-type" data-value="LADDER">
+                    <i class="bi bi-circle-fill" style="color: #f97316;"></i>
+                    <span>Ladder/Marker</span>
+                </button>
+                <button class="gv-context-menu-item" data-action="set-type" data-value="CONTROL">
+                    <i class="bi bi-circle-fill" style="color: #22c55e;"></i>
+                    <span>Control</span>
+                </button>
+                <button class="gv-context-menu-item" data-action="set-type" data-value="EMPTY">
+                    <i class="bi bi-circle" style="color: #6b7280;"></i>
+                    <span>Empty</span>
+                </button>
+            </div>
+            <div class="gv-context-menu-divider"></div>
+            <button class="gv-context-menu-item gv-context-menu-danger" data-action="delete">
+                <i class="bi bi-trash"></i>
+                <span>Delete Lane</span>
+            </button>
+        </div>
+
+        <!-- Band Context Menu -->
+        <div class="gv-context-menu-content" data-type="band">
+            <div class="gv-context-menu-header">
+                <i class="bi bi-pentagon"></i>
+                <span>Band Options</span>
+            </div>
+            <button class="gv-context-menu-item" data-action="edit-properties">
+                <i class="bi bi-pencil"></i>
+                <span>Edit Properties</span>
+            </button>
+            <div class="gv-context-menu-divider"></div>
+            <div class="gv-context-menu-group">
+                <span class="gv-context-menu-label">Band Type</span>
+                <button class="gv-context-menu-item" data-action="set-band-type" data-value="POI">
+                    <i class="bi bi-circle-fill" style="color: #a855f7;"></i>
+                    <span>Protein of Interest</span>
+                </button>
+                <button class="gv-context-menu-item" data-action="set-band-type" data-value="MW_REFERENCE">
+                    <i class="bi bi-circle-fill" style="color: #f97316;"></i>
+                    <span>MW Reference</span>
+                </button>
+                <button class="gv-context-menu-item" data-action="set-band-type" data-value="OTHER">
+                    <i class="bi bi-circle-fill" style="color: #22c55e;"></i>
+                    <span>Other</span>
+                </button>
+            </div>
+            <div class="gv-context-menu-divider"></div>
+            <button class="gv-context-menu-item" data-action="set-mw">
+                <i class="bi bi-rulers"></i>
+                <span>Set Molecular Weight</span>
+            </button>
+            <div class="gv-context-menu-divider"></div>
+            <button class="gv-context-menu-item gv-context-menu-danger" data-action="delete">
+                <i class="bi bi-trash"></i>
+                <span>Delete Band</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Image Adjustments Panel -->
+    <div class="gv-adjustments-panel" id="adjustments-panel" style="display: none;">
+        <div class="gv-adjustments-header">
+            <span class="gv-adjustments-title">
+                <i class="bi bi-sliders2"></i>
+                Image Adjustments
+            </span>
+            <button class="gv-adjustments-close" id="adjustments-close" data-tooltip="Close (A)">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="gv-adjustments-body">
+            <!-- Brightness -->
+            <div class="gv-adjustment-row">
+                <label class="gv-adjustment-label">
+                    <i class="bi bi-brightness-high"></i>
+                    Brightness
+                </label>
+                <div class="gv-adjustment-control">
+                    <input type="range" class="gv-adjustment-slider" id="adj-brightness"
+                           min="0" max="300" value="100" step="1">
+                    <span class="gv-adjustment-value" id="adj-brightness-value">100%</span>
+                </div>
+            </div>
+            <!-- Contrast -->
+            <div class="gv-adjustment-row">
+                <label class="gv-adjustment-label">
+                    <i class="bi bi-circle-half"></i>
+                    Contrast
+                </label>
+                <div class="gv-adjustment-control">
+                    <input type="range" class="gv-adjustment-slider" id="adj-contrast"
+                           min="0" max="300" value="100" step="1">
+                    <span class="gv-adjustment-value" id="adj-contrast-value">100%</span>
+                </div>
+            </div>
+            <!-- Saturation -->
+            <div class="gv-adjustment-row">
+                <label class="gv-adjustment-label">
+                    <i class="bi bi-palette"></i>
+                    Saturation
+                </label>
+                <div class="gv-adjustment-control">
+                    <input type="range" class="gv-adjustment-slider" id="adj-saturation"
+                           min="0" max="200" value="100" step="1">
+                    <span class="gv-adjustment-value" id="adj-saturation-value">100%</span>
+                </div>
+            </div>
+            <!-- Invert -->
+            <div class="gv-adjustment-row gv-adjustment-checkbox-row">
+                <label class="gv-adjustment-checkbox-label">
+                    <input type="checkbox" class="gv-adjustment-checkbox" id="adj-invert">
+                    <i class="bi bi-circle-square"></i>
+                    Invert Colors
+                </label>
+            </div>
+        </div>
+        <div class="gv-adjustments-footer">
+            <button class="gv-adjustment-btn gv-adjustment-btn-auto" id="adj-auto-enhance" data-tooltip="Analyze image and apply optimal settings">
+                <i class="bi bi-magic"></i>
+                Auto Enhance
+            </button>
+            <button class="gv-adjustment-btn gv-adjustment-btn-reset" id="adj-reset" data-tooltip="Reset to original">
+                <i class="bi bi-arrow-counterclockwise"></i>
+                Reset
+            </button>
+        </div>
+    </div>
+
+    <!-- Sample Selector Modal -->
+    <div class="gv-sample-modal" id="sample-modal">
+        <div class="gv-sample-modal-content">
+            <div class="gv-sample-modal-header">
+                <span class="gv-sample-modal-title">
+                    <i class="bi bi-search"></i>
+                    Select Sample
+                </span>
+                <button class="gv-sample-modal-close" id="sample-modal-close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="gv-sample-modal-body">
+                <!-- Current assignment context (shown when re-assigning) -->
+                <div class="gv-sample-context" id="sample-context" style="display: none;"></div>
+                <!-- Search box -->
+                <div class="gv-sample-search">
+                    <i class="bi bi-search"></i>
+                    <input type="text" id="sample-search-input" placeholder="Search samples by ID, sheet name...">
+                </div>
+                <!-- Filters -->
+                <div class="gv-sample-filters">
+                    <div class="gv-sample-filter">
+                        <label>Drug Substance</label>
+                        <select id="sample-filter-ds">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="gv-sample-filter">
+                        <label>Process Sheet</label>
+                        <select id="sample-filter-sheet">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- Results list -->
+                <div class="gv-sample-results" id="sample-results">
+                    <div class="gv-sample-empty">
+                        <i class="bi bi-inbox"></i>
+                        <p>Search for samples or select filters</p>
+                    </div>
+                </div>
+                <!-- Custom name option -->
+                <div class="gv-sample-custom">
+                    <label>
+                        <input type="radio" name="sample-choice" value="custom">
+                        <span>Enter custom name:</span>
+                    </label>
+                    <input type="text" id="sample-custom-input" placeholder="e.g., Sample A">
+                </div>
+            </div>
+            <div class="gv-sample-modal-footer">
+                <button class="gv-sample-btn gv-sample-btn-cancel" id="sample-modal-cancel">Cancel</button>
+                <button class="gv-sample-btn gv-sample-btn-select" id="sample-modal-select">Select</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Review Panel (Phase 3: YOLO Detection Review) -->
+    {% include "gel_analyzer/analyses/includes/_review_panel.html" %}
+
+    <!-- Band Detection Panel (Phase 3: Auto d1/d2 derivative detection) -->
+    {% include "gel_analyzer/analyses/includes/_detection_panel.html" %}
+
+    <!-- CV2 Vision Band Detection Panel -->
+    {% include "gel_analyzer/analyses/includes/_cv2_detection_panel.html" %}
+
+    <!-- Profile Peak Detection Panel -->
+    {% comment %} UNPLUGGED: Profile Peak Detection panel deprecated in favour of Auto (d1/d2) detection
+    {% include "gel_analyzer/analyses/includes/_profile_detection_panel.html" %}
+    {% endcomment %}
+
+    <!-- MW Calibration Panel (Phase 3: Ladder calibration) -->
+    {% include "gel_analyzer/analyses/includes/_calibration_panel.html" %}
+
+    <!-- Electropherogram Panel (Intensity Profile Visualization) -->
+    {% include "gel_analyzer/analyses/includes/_electropherogram_panel.html" %}
+
+    <!-- Confirmation Modal (vanilla JS — no MDB5) -->
+    <div id="gv-confirm-modal" tabindex="-1" aria-hidden="true">
+        <div class="gv-confirm-backdrop"></div>
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        <span id="gv-confirm-title">Confirmation</span>
+                    </h5>
+                </div>
+                <div class="modal-body" id="gv-confirm-body">
+                    <!-- Dynamic content -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="gv-confirm-cancel">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="gv-confirm-action">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- SVG.js (vendored locally for reliability) -->
+<script src="{% static 'gel_analyzer/js/vendor/svg.min.js' %}"></script>
+
+<!-- Plotly.js for electropherogram + calibration charts -->
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+<!-- GelViewer Modular Architecture -->
+<!-- Core Infrastructure -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/event-bus.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/api-client.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/state-manager.js' %}"></script>
+
+<!-- Core Components -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/viewport.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/renderer.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/event-handler.js' %}"></script>
+
+<!-- Tools -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/tool-manager.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/select-tool.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/pan-tool.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/lane-tool.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/band-tool.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/split-tool.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/tools/crop-tool.js' %}"></script>
+
+<!-- Panels -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/properties-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/data-table-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/band-table-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/adjustments-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/context-menu.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/detection-panel-base.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/detection-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/cv2-detection-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/hybrid-detection-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/cross-lane-consensus-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/calibration-panel.js' %}"></script>
+{% comment %} UNPLUGGED: Profile Peak Detection JS deprecated in favour of Auto (d1/d2) detection
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/profile-detection-panel.js' %}"></script>
+{% endcomment %}
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/electropherogram-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/teacher-panel.js' %}"></script>
+
+<!-- Modals -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/modals/sample-selector.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/confirmation-manager.js' %}"></script>
+
+<!-- Inference (Phase 3: YOLO) -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/inference/inference-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/inference/postprocess.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/inference/inference-engine.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/inference/sam-decoder-engine.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/gel-viewer/panels/review-panel.js' %}"></script>
+
+<!-- Main Orchestrator (must be last) -->
+<script src="{% static 'gel_analyzer/js/gel-viewer/gel-viewer.js' %}"></script>
+
+<script>
+(function() {
+    'use strict';
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Check if SVG.js is loaded
+        if (typeof SVG === 'undefined') {
+            console.error('GelViewer: SVG.js library not loaded');
+            document.querySelector('.gv-viewer-wrapper').innerHTML =
+                '<div class="gv-no-image"><i class="bi bi-exclamation-triangle"></i><p>Error loading viewer library</p></div>';
+            return;
+        }
+
+        // Get image URL with fallback
+        var imageUrl = '{% if gel_image.display_file %}{{ gel_image.display_file.url|escapejs }}{% elif gel_image.original_file %}{{ gel_image.original_file.url|escapejs }}{% endif %}';
+
+        // Image proxy URL for CORS-free access (used by auto-enhance)
+        var imageProxyUrl = '{% url "gel_analyzer:api_image_proxy" pk=gel_image.pk %}';
+
+        // Create global viewer instance using modular architecture
+        window.gelViewer = new GelViewerApp({
+            containerId: 'gel-viewer',
+            analysisId: '{{ analysis.pk }}',
+            imageId: '{{ gel_image.pk }}',
+            imageUrl: imageUrl,
+            imageProxyUrl: imageProxyUrl,
+            imageWidth: {{ gel_image.width|default:800 }},
+            imageHeight: {{ gel_image.height|default:600 }},
+            csrfToken: '{{ csrf_token }}',
+            isEditable: {% if analysis.is_editable %}true{% else %}false{% endif %},
+        });
+
+        // Tool buttons
+        document.querySelectorAll('.gv-toolbar-btn[data-tool]').forEach(btn => {
+            btn.addEventListener('click', function() {
+                window.gelViewer.setTool(this.dataset.tool);
+            });
+        });
+
+        // Zoom buttons
+        document.getElementById('zoom-in')?.addEventListener('click', () => {
+            window.gelViewer.zoomIn();
+        });
+
+        document.getElementById('zoom-out')?.addEventListener('click', () => {
+            window.gelViewer.zoomOut();
+        });
+
+        document.getElementById('zoom-fit')?.addEventListener('click', () => {
+            window.gelViewer.fitToView();
+        });
+
+        // Delete button
+        document.getElementById('delete-selected')?.addEventListener('click', () => {
+            window.gelViewer._deleteSelected();
+        });
+
+        // Helper functions for action modal
+        function showActionModal(message, submessage = 'Please wait...') {
+            const modal = document.getElementById('action-modal');
+            const msgEl = document.getElementById('action-modal-message');
+            const subEl = document.getElementById('action-modal-submessage');
+            if (msgEl) msgEl.textContent = message;
+            if (subEl) subEl.textContent = submessage;
+            if (modal) modal.classList.add('visible');
+        }
+
+        function hideActionModal() {
+            const modal = document.getElementById('action-modal');
+            if (modal) modal.classList.remove('visible');
+        }
+
+        // Remove All Bands button
+        document.getElementById('remove-all-bands')?.addEventListener('click', async () => {
+            const bandCount = window.gelViewer.stateManager.getBandCount();
+            if (bandCount === 0) return;
+
+            // Use ConfirmationManager for confirmation
+            const confirmed = await window.gelViewer.confirmationManager.confirmRemoveAllBands(bandCount);
+            if (!confirmed) return;
+
+            showActionModal('Removing all bands...', `Deleting ${bandCount} bands`);
+
+            try {
+                const result = await window.gelViewer.apiClient.deleteAllBands();
+                console.log(`Removed ${result.deleted_count} bands`);
+
+                // Clear bands from state and re-render
+                window.gelViewer.stateManager.clearAllBands();
+                window.gelViewer.renderer.bandsGroup.clear();
+
+                // Emit event for UI updates
+                window.gelViewer.eventBus.emit(GelViewer.Events.DATA_RELOAD_REQUESTED);
+
+                hideActionModal();
+            } catch (error) {
+                hideActionModal();
+                console.error('Error removing all bands:', error);
+                if (window.gaToast) gaToast('Failed to remove bands: ' + error.message, 'danger'); else alert('Failed to remove bands: ' + error.message);
+            }
+        });
+
+        // Remove All Lanes button
+        document.getElementById('remove-all-lanes')?.addEventListener('click', async () => {
+            const laneCount = window.gelViewer.stateManager.getLaneCount();
+            const bandCount = window.gelViewer.stateManager.getBandCount();
+            if (laneCount === 0) return;
+
+            // Use ConfirmationManager for confirmation
+            const confirmed = await window.gelViewer.confirmationManager.confirmRemoveAllLanes(laneCount, bandCount);
+            if (!confirmed) return;
+
+            showActionModal('Removing all lanes...', `Deleting ${laneCount} lanes and their bands`);
+
+            try {
+                const result = await window.gelViewer.apiClient.deleteAllLanes();
+                console.log(`Removed ${result.deleted_count} lanes`);
+
+                // Clear everything from state and re-render
+                window.gelViewer.stateManager.clearAll();
+                window.gelViewer.renderer.clearAll();
+
+                // Emit event for UI updates
+                window.gelViewer.eventBus.emit(GelViewer.Events.DATA_RELOAD_REQUESTED);
+
+                hideActionModal();
+            } catch (error) {
+                hideActionModal();
+                console.error('Error removing all lanes:', error);
+                if (window.gaToast) gaToast('Failed to remove lanes: ' + error.message, 'danger'); else alert('Failed to remove lanes: ' + error.message);
+            }
+        });
+
+        // Save button
+        document.getElementById('save-btn')?.addEventListener('click', () => {
+            window.gelViewer.save();
+        });
+
+        // Note: Toggle lane table and band table buttons are handled by gel-viewer.js _setupUIEventListeners()
+
+        // Ctrl+S to save is handled by EventHandler
+
+        // Warn about unsaved changes before leaving (handled by orchestrator)
+
+        // Escape key to go back (with unsaved changes warning)
+        // Only trigger if no panel, modal, or popover is currently open
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && !e.target.matches('input, textarea, select')) {
+                // Check if any panel/modal is open — let those handle Escape first
+                const openPanel = document.querySelector('.gv-panel.show, .gv-panel.active, .modal.show');
+                if (openPanel) return;
+
+                if (window.gelViewer && window.gelViewer.hasUnsavedChanges()) {
+                    if (!confirm('You have unsaved changes. Are you sure you want to leave?')) {
+                        return;
+                    }
+                }
+                window.location.href = '{% url "gel_analyzer:analysis_detail" pk=analysis.pk %}';
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}

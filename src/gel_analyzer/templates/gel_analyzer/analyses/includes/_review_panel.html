@@ -1,0 +1,55 @@
+<!-- Review Panel for YOLO Detection Results -->
+<div class="gv-review-panel" id="review-panel" style="display: none;">
+    <!-- Header -->
+    <div class="gv-review-header">
+        <div class="gv-review-title">
+            <i class="bi bi-magic"></i>
+            <span>Detection Review</span>
+        </div>
+        <button class="gv-review-close" id="review-close" title="Close (Esc)">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    <!-- Summary -->
+    <div class="gv-review-summary">
+        <div class="gv-review-summary-left">
+            <span class="gv-review-summary-label">Detected Type:</span>
+            <span id="review-gel-type">-</span>
+        </div>
+        <div class="gv-review-summary-right">
+            <span id="review-count">0 lanes detected</span>
+        </div>
+    </div>
+
+    <!-- Detection List -->
+    <div class="gv-review-list" id="review-list">
+        <!-- Items populated by JavaScript -->
+        <div class="gv-review-empty">
+            <i class="bi bi-search"></i>
+            <p>No detections to review</p>
+        </div>
+    </div>
+
+    <!-- Footer Actions -->
+    <div class="gv-review-footer">
+        <div class="gv-review-footer-hint">
+            <i class="bi bi-info-circle"></i>
+            <span>Click lanes to select/deselect</span>
+        </div>
+        <div class="gv-review-footer-actions">
+            <button class="gv-review-btn gv-review-btn-reject" id="review-reject-all" title="Discard all detections">
+                <i class="bi bi-x-lg"></i>
+                <span>Reject All</span>
+            </button>
+            <button class="gv-review-btn gv-review-btn-accept-selected" id="review-accept-selected" title="Accept selected detections (Ctrl+Enter)">
+                <i class="bi bi-check"></i>
+                <span>Accept Selected (0)</span>
+            </button>
+            <button class="gv-review-btn gv-review-btn-accept-all" id="review-accept-all" title="Accept all detections">
+                <i class="bi bi-check-all"></i>
+                <span>Accept All</span>
+            </button>
+        </div>
+    </div>
+</div>

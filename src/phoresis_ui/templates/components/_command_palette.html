@@ -1,0 +1,39 @@
+{% load ui_icons %}
+<div x-show="$store.palette.open"
+     x-cloak
+     x-transition.opacity
+     class="fixed inset-0 z-50 grid place-items-start bg-black/40 p-4 pt-[10vh] backdrop-blur"
+     @click.self="$store.palette.hide()"
+     @keydown.escape.window="$store.palette.hide()">
+    <div x-show="$store.palette.open"
+         x-transition:enter="transition duration-200 ease-out"
+         x-transition:enter-start="opacity-0 -translate-y-2"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="w-full max-w-xl rounded-xl bg-surface shadow-xl ring-1 ring-border">
+        <div class="flex items-center gap-3 border-b border-border px-4 py-3">
+            {% icon "search" size=18 class_="text-text-muted" %}
+            <input x-model="$store.palette.query"
+                   x-ref="paletteInput"
+                   x-init="$watch('$store.palette.open', v => v && $nextTick(() => $refs.paletteInput.focus()))"
+                   class="w-full border-0 bg-transparent p-0 text-sm focus:outline-none focus:ring-0"
+                   placeholder="Search pages and actions…">
+            <kbd class="rounded border border-border bg-bg px-1.5 py-0.5 text-xs text-text-muted">ESC</kbd>
+        </div>
+        <ul class="max-h-[60vh] divide-y divide-border overflow-y-auto p-2">
+            <template x-for="item in $store.palette.items.filter(it => $store.palette.query === '' || it.name.toLowerCase().includes($store.palette.query.toLowerCase()))" :key="item.url">
+                <li>
+                    <a :href="item.url"
+                       @click="$store.palette.hide()"
+                       class="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-elevated">
+                        <span class="text-text-muted text-xs uppercase tracking-wide" x-text="item.type"></span>
+                        <span x-text="item.name"></span>
+                    </a>
+                </li>
+            </template>
+            <li x-show="$store.palette.items.filter(it => $store.palette.query === '' || it.name.toLowerCase().includes($store.palette.query.toLowerCase())).length === 0"
+                class="px-3 py-6 text-center text-sm text-text-muted">
+                No results.
+            </li>
+        </ul>
+    </div>
+</div>

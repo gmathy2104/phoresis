@@ -1,0 +1,51 @@
+{% extends "components/app_base.html" %}
+{% load ui_components ui_icons static %}
+
+{% block title %}Delete {{ gel_image.original_filename }} — Phoresis{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-xl space-y-6">
+    <header>
+        <h1 class="text-2xl font-semibold">Confirm Deletion</h1>
+        <p class="mt-1 text-sm text-text-muted">Review the gel image you are about to delete.</p>
+    </header>
+
+    <div class="overflow-hidden rounded-lg border border-red-200 bg-surface">
+        <div class="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {% icon "alert-triangle" size=18 %}
+            <span>Confirm Deletion</span>
+        </div>
+        <div class="px-6 py-6">
+            <div class="text-center">
+                {% if gel_image.thumbnail %}
+                    <img src="{{ gel_image.thumbnail.url }}" alt="{{ gel_image.original_filename }}"
+                         class="mx-auto mb-3 max-h-40 rounded">
+                {% else %}
+                    <div class="mx-auto mb-3 flex h-24 w-24 items-center justify-center rounded bg-surface-elevated text-text-muted">
+                        {% icon "image" size=32 %}
+                    </div>
+                {% endif %}
+                <h2 class="text-lg font-medium">{{ gel_image.original_filename }}</h2>
+                <p class="mt-1 text-sm text-text-muted">
+                    {{ gel_image.get_gel_type_display }} · {{ gel_image.width }} × {{ gel_image.height }} px
+                </p>
+            </div>
+
+            <div class="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                <strong>Warning:</strong> This action cannot be undone.
+                {% if gel_image.analyses.count > 0 %}
+                    <p class="mt-2">
+                        This image has <strong>{{ gel_image.analyses.count }}</strong> linked analysis(es) that will also be deleted.
+                    </p>
+                {% endif %}
+            </div>
+
+            <form method="post" class="mt-6 flex justify-between gap-2">
+                {% csrf_token %}
+                {% btn "Cancel" href="/images/"|add:gel_image.id|stringformat:"s"|add:"/" variant="secondary" icon="arrow-left" %}
+                {% btn "Delete Image" type_="submit" variant="danger" icon="trash-2" %}
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

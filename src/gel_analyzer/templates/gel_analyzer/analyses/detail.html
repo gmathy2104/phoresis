@@ -1,0 +1,121 @@
+{% extends "components/app_base.html" %}
+{% load ui_components ui_icons static %}
+
+{% block title %}{{ analysis.name|default:"Analysis" }} — Phoresis{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <header class="flex items-end justify-between gap-4">
+        <div class="min-w-0">
+            <h1 class="text-2xl font-semibold">{{ analysis.name|default:"(unnamed)" }}</h1>
+            <p class="mt-1 text-sm text-text-muted">
+                Gel
+                <a class="hover:underline" href="{% url 'gel_analyzer:image_detail' pk=analysis.gel_image.pk %}">{{ analysis.gel_image.original_filename }}</a>
+                ·
+                {% badge analysis.get_status_display variant="muted" %}
+                · created {{ analysis.created_at|date:"M j, Y" }}
+                by {{ analysis.created_by|default:"—" }}
+            </p>
+        </div>
+        <div class="flex flex-shrink-0 gap-2">
+            {% if analysis.is_editable %}
+                {% btn "Annotate" href="/analyses/"|add:analysis.id|stringformat:"s"|add:"/annotate/" icon="edit" %}
+            {% endif %}
+            {% if analysis.total_bands > 0 %}
+                {% btn "Densitometry" href="/analyses/"|add:analysis.id|stringformat:"s"|add:"/densitometry/" variant="secondary" icon="trending-up" %}
+            {% endif %}
+        </div>
+    </header>
+
+    {# Status workflow alerts #}
+    {% if analysis.status == 'REJECTED' %}
+        <div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <strong>Rejected:</strong> {{ analysis.rejection_reason }}
+        </div>
+    {% endif %}
+
+    {# Data quality warnings #}
+    {% if warnings %}
+        <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            <div class="flex items-center gap-2 font-medium">
+                {% icon "alert-triangle" size=16 %}
+                <span>{{ warnings|length }} data quality issue{{ warnings|length|pluralize }}</span>
+            </div>
+            <ul class="mt-2 list-disc pl-6 text-xs text-amber-700/80">
+                {% for warning in warnings|slice:":10" %}
+                    <li>{{ warning.message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
+        {% kpi "Lanes" analysis.total_lanes icon="layers" %}
+        {% kpi "Bands" analysis.total_bands icon="band" %}
+        {% kpi "Calibration" calibration_info.ladder_count|default:0 icon="ladder" accent="success" %}
+        {% kpi "POI purity" densitometry_info.average_purity|default:"—" icon="trending-up" accent="band" %}
+    </section>
+
+    {# Lanes overview #}
+    <section class="rounded-lg border border-border bg-surface">
+        <div class="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">
+                {% if lane_data %}{{ lane_data|length }} sample lane{{ lane_data|length|pluralize }}{% else %}Lanes{% endif %}
+            </h2>
+        </div>
+        {% if lane_data %}
+            <div class="divide-y divide-border">
+                {% for ld in lane_data %}
+                    <div class="flex items-center gap-3 px-4 py-3 hover:bg-surface-elevated">
+                        <span class="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-accent-600 text-xs font-bold text-white">
+                            {{ ld.lane.lane_number }}
+                        </span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-medium">
+                                {% if ld.lane.process_sample %}
+                                    {{ ld.lane.process_sample.sample_id }}
+                                {% elif ld.lane.sample_name %}
+                                    {{ ld.lane.sample_name }}
+                                {% else %}
+                                    <span class="italic text-text-muted">No sample</span>
+                                {% endif %}
+                            </div>
+                            <div class="mt-0.5 flex flex-wrap gap-1 text-xs text-text-muted">
+                                {% if ld.lane.lane_type == 'CONTROL' %}{% badge "Control" variant="primary" %}{% endif %}
+                                {% if ld.lane.is_reduced is not None %}
+                                    {% if ld.lane.is_reduced %}{% badge "Reduced" variant="info" %}{% else %}{% badge "Non-reduced" variant="muted" %}{% endif %}
+                                {% endif %}
+                                {% if ld.lane.protein_load_ug %}
+                                    <span>{{ ld.lane.protein_load_ug|floatformat:1 }} μg</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-6 text-center text-xs">
+                            <div>
+                                <div class="text-base font-semibold text-accent-600">{{ ld.band_count }}</div>
+                                <div class="text-text-muted">Bands</div>
+                            </div>
+                            <div>
+                                <div class="text-base font-semibold {% if ld.poi_kda %}{% else %}text-text-muted{% endif %}">{% if ld.poi_kda %}{{ ld.poi_kda|floatformat:0 }}{% else %}—{% endif %}</div>
+                                <div class="text-text-muted">POI kDa</div>
+                            </div>
+                            <div>
+                                <div class="text-base font-semibold {% if ld.purity is not None %}{% if ld.purity >= 90 %}text-emerald-600{% elif ld.purity >= 70 %}text-amber-600{% else %}text-red-600{% endif %}{% else %}text-text-muted{% endif %}">{% if ld.purity is not None %}{{ ld.purity|floatformat:1 }}%{% else %}—{% endif %}</div>
+                                <div class="text-text-muted">Purity</div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="px-4 py-8 text-center text-sm text-text-muted">
+                No lanes annotated yet.
+                {% if analysis.is_editable %}
+                    <a class="ml-2 text-accent-600 hover:underline" href="/analyses/{{ analysis.id }}/annotate/">Add annotations →</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </section>
+</div>
+{% csrf_token %}
+{% endblock %}

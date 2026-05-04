@@ -1,0 +1,1838 @@
+/**
+ * GelAnalyzer CSS Styles
+ *
+ * Prefix: .ga-* for all GelAnalyzer-specific styles
+ * Following DS-Hub conventions for consistency
+ */
+
+/* ==========================================================================
+   CSS Variables
+   ========================================================================== */
+
+:root {
+    /* Primary colors */
+    --ga-primary: #3B71CA;
+    --ga-secondary: #6B7280;
+    --ga-success: #14A44D;
+    --ga-warning: #E4A11B;
+    --ga-danger: #DC4C64;
+    --ga-info: #54B4D3;
+
+    /* Gel type colors */
+    --ga-sds-page-color: #3B71CA;
+    --ga-dot-blot-color: #14A44D;
+    --ga-western-blot-color: #E4A11B;
+    --ga-unknown-color: #6B7280;
+
+    /* Detection source colors */
+    --ga-manual-color: #3B71CA;
+    --ga-yolo-color: #14A44D;
+    --ga-sam-color: #8B5CF6;
+
+    /* Annotation colors */
+    --ga-band-fill: rgba(0, 255, 0, 0.3);
+    --ga-band-stroke: #00FF00;
+    --ga-lane-fill: rgba(0, 102, 255, 0.1);
+    --ga-lane-stroke: #0066FF;
+    --ga-selected-stroke: #FF0000;
+    --ga-ladder-stroke: #E4A11B;
+
+    /* Spacing */
+    --ga-spacing-xs: 4px;
+    --ga-spacing-sm: 8px;
+    --ga-spacing-md: 16px;
+    --ga-spacing-lg: 24px;
+    --ga-spacing-xl: 32px;
+
+    /* Border radius */
+    --ga-border-radius-sm: 4px;
+    --ga-border-radius-md: 8px;
+    --ga-border-radius-lg: 12px;
+
+    /* Shadows */
+    --ga-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --ga-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --ga-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================================================
+   Status Badges
+   ========================================================================== */
+
+.ga-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--ga-border-radius-sm);
+    font-size: 11px;
+    font-weight: 500;
+    color: white;
+}
+
+.ga-status-badge--draft {
+    background-color: var(--ga-secondary);
+}
+
+.ga-status-badge--in-progress {
+    background-color: var(--ga-warning);
+}
+
+.ga-status-badge--completed {
+    background-color: var(--ga-success);
+}
+
+.ga-status-badge--approved {
+    background-color: var(--ga-primary);
+}
+
+.ga-status-badge--rejected {
+    background-color: var(--ga-danger);
+}
+
+/* ==========================================================================
+   Gel Type Badges
+   ========================================================================== */
+
+.ga-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--ga-border-radius-sm);
+    font-size: 11px;
+    font-weight: 500;
+    color: white;
+}
+
+.ga-type-badge--sds-page {
+    background-color: var(--ga-sds-page-color);
+}
+
+.ga-type-badge--dot-blot {
+    background-color: var(--ga-dot-blot-color);
+}
+
+.ga-type-badge--western-blot {
+    background-color: var(--ga-western-blot-color);
+}
+
+.ga-type-badge--unknown {
+    background-color: var(--ga-unknown-color);
+}
+
+/* ==========================================================================
+   Detection Source Badges
+   ========================================================================== */
+
+.ga-source-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--ga-border-radius-sm);
+    font-size: 11px;
+    font-weight: 500;
+    color: white;
+}
+
+.ga-source-badge--manual {
+    background-color: var(--ga-manual-color);
+}
+
+.ga-source-badge--yolo {
+    background-color: var(--ga-yolo-color);
+}
+
+.ga-source-badge--sam {
+    background-color: var(--ga-sam-color);
+}
+
+/* ==========================================================================
+   Image Thumbnails
+   ========================================================================== */
+
+.ga-thumbnail {
+    border-radius: var(--ga-border-radius-sm);
+    box-shadow: var(--ga-shadow-sm);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ga-thumbnail:hover {
+    transform: scale(1.05);
+    box-shadow: var(--ga-shadow-md);
+}
+
+.ga-thumbnail-container {
+    position: relative;
+    display: inline-block;
+}
+
+.ga-thumbnail-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    border-radius: var(--ga-border-radius-sm);
+}
+
+.ga-thumbnail-container:hover .ga-thumbnail-overlay {
+    opacity: 1;
+}
+
+/* ==========================================================================
+   Cards
+   ========================================================================== */
+
+.ga-card {
+    border-radius: var(--ga-border-radius-md);
+    box-shadow: var(--ga-shadow-sm);
+    transition: box-shadow 0.2s ease;
+}
+
+.ga-card:hover {
+    box-shadow: var(--ga-shadow-md);
+}
+
+.ga-card-header {
+    padding: var(--ga-spacing-md);
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.ga-card-body {
+    padding: var(--ga-spacing-md);
+}
+
+.ga-card-footer {
+    padding: var(--ga-spacing-md);
+    border-top: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+}
+
+/* ==========================================================================
+   KPI Cards (for dashboard)
+   ========================================================================== */
+
+.ga-kpi-card {
+    background: white;
+    border-radius: var(--ga-border-radius-md);
+    padding: var(--ga-spacing-lg);
+    box-shadow: var(--ga-shadow-sm);
+    text-align: center;
+}
+
+.ga-kpi-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #333;
+}
+
+.ga-kpi-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #666;
+    margin-top: 0.125rem;
+}
+
+.ga-kpi-icon {
+    font-size: 1.5rem;
+    color: var(--ga-primary);
+    opacity: 0.7;
+    margin-bottom: var(--ga-spacing-sm);
+}
+
+/* ==========================================================================
+   Image Viewer (Phase 2)
+   ========================================================================== */
+
+.ga-viewer-container {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    background: #1a1a1a;
+    border-radius: var(--ga-border-radius-md);
+    overflow: hidden;
+}
+
+.ga-viewer-toolbar {
+    position: absolute;
+    top: var(--ga-spacing-md);
+    left: var(--ga-spacing-md);
+    z-index: 100;
+    display: flex;
+    gap: var(--ga-spacing-xs);
+}
+
+.ga-viewer-toolbar .btn {
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    padding: var(--ga-spacing-sm);
+    border-radius: var(--ga-border-radius-sm);
+}
+
+.ga-viewer-toolbar .btn:hover {
+    background: white;
+}
+
+.ga-viewer-minimap {
+    position: absolute;
+    bottom: var(--ga-spacing-md);
+    right: var(--ga-spacing-md);
+    width: 150px;
+    height: 100px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: var(--ga-border-radius-sm);
+}
+
+/* ==========================================================================
+   Annotation Layers (Phase 2)
+   ========================================================================== */
+
+.ga-annotation-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.ga-annotation-layer--interactive {
+    pointer-events: auto;
+}
+
+/* ==========================================================================
+   Densitometry Chart (Phase 4)
+   ========================================================================== */
+
+.ga-densitometry-container {
+    background: white;
+    border-radius: var(--ga-border-radius-md);
+    padding: var(--ga-spacing-md);
+    box-shadow: var(--ga-shadow-sm);
+}
+
+.ga-densitometry-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ga-spacing-md);
+    margin-top: var(--ga-spacing-md);
+}
+
+.ga-densitometry-legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--ga-spacing-xs);
+}
+
+.ga-densitometry-legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.ga-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.ga-table th,
+.ga-table td {
+    padding: var(--ga-spacing-sm) var(--ga-spacing-md);
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.ga-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    color: var(--ga-secondary);
+}
+
+.ga-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+.ga-form-section {
+    margin-bottom: var(--ga-spacing-xl);
+}
+
+.ga-form-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: var(--ga-spacing-md);
+    padding-bottom: var(--ga-spacing-sm);
+    border-bottom: 2px solid var(--ga-primary);
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+.ga-text-muted {
+    color: var(--ga-secondary);
+}
+
+.ga-text-primary {
+    color: var(--ga-primary);
+}
+
+.ga-text-success {
+    color: var(--ga-success);
+}
+
+.ga-text-warning {
+    color: var(--ga-warning);
+}
+
+.ga-text-danger {
+    color: var(--ga-danger);
+}
+
+.ga-mt-0 { margin-top: 0; }
+.ga-mt-1 { margin-top: var(--ga-spacing-xs); }
+.ga-mt-2 { margin-top: var(--ga-spacing-sm); }
+.ga-mt-3 { margin-top: var(--ga-spacing-md); }
+.ga-mt-4 { margin-top: var(--ga-spacing-lg); }
+.ga-mt-5 { margin-top: var(--ga-spacing-xl); }
+
+.ga-mb-0 { margin-bottom: 0; }
+.ga-mb-1 { margin-bottom: var(--ga-spacing-xs); }
+.ga-mb-2 { margin-bottom: var(--ga-spacing-sm); }
+.ga-mb-3 { margin-bottom: var(--ga-spacing-md); }
+.ga-mb-4 { margin-bottom: var(--ga-spacing-lg); }
+.ga-mb-5 { margin-bottom: var(--ga-spacing-xl); }
+
+/* ==========================================================================
+   Page Header
+   ========================================================================== */
+
+.ga-page-header {
+    background: white;
+    padding: 1.5rem;
+    border-radius: var(--ga-border-radius-lg);
+    box-shadow: var(--ga-shadow-sm);
+    border: 1px solid #e9ecef;
+}
+
+.ga-page-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: var(--ga-spacing-xs);
+}
+
+.ga-page-subtitle {
+    color: var(--ga-secondary);
+    margin-bottom: 0;
+}
+
+/* ==========================================================================
+   KPI Cards (analytics-aligned horizontal layout)
+   ========================================================================== */
+
+.ga-kpi-card {
+    background: white;
+    border-radius: var(--ga-border-radius-md);
+    padding: 1.25rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ga-kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.ga-kpi-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.ga-kpi-content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+/* KPI Icon colors */
+.ga-kpi-card .ga-kpi-icon.primary,
+div.ga-kpi-icon.primary {
+    background: rgba(59, 113, 202, 0.1) !important;
+    color: #3B71CA !important;
+}
+.ga-kpi-card .ga-kpi-icon.success,
+div.ga-kpi-icon.success {
+    background: rgba(20, 164, 77, 0.1) !important;
+    color: #14A44D !important;
+}
+.ga-kpi-card .ga-kpi-icon.warning,
+div.ga-kpi-icon.warning {
+    background: rgba(228, 161, 27, 0.1) !important;
+    color: #E4A11B !important;
+}
+.ga-kpi-card .ga-kpi-icon.info,
+div.ga-kpi-icon.info {
+    background: rgba(84, 180, 211, 0.1) !important;
+    color: #54B4D3 !important;
+}
+.ga-kpi-card .ga-kpi-icon.secondary,
+div.ga-kpi-icon.secondary {
+    background: rgba(107, 114, 128, 0.1) !important;
+    color: #6B7280 !important;
+}
+.ga-kpi-card .ga-kpi-icon.danger,
+div.ga-kpi-icon.danger {
+    background: rgba(220, 76, 100, 0.1) !important;
+    color: #DC4C64 !important;
+}
+
+/* ==========================================================================
+   Image Cards (for recent images grid)
+   ========================================================================== */
+
+.ga-image-card {
+    background: white;
+    border-radius: var(--ga-border-radius-md);
+    overflow: hidden;
+    box-shadow: var(--ga-shadow-sm);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ga-image-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ga-shadow-md);
+}
+
+.ga-image-card .ga-thumbnail {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 0;
+}
+
+.ga-thumbnail-placeholder {
+    width: 100%;
+    height: 120px;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ccc;
+    font-size: 2rem;
+}
+
+.ga-image-card-body {
+    padding: var(--ga-spacing-sm);
+}
+
+.ga-image-title {
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-bottom: var(--ga-spacing-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   Status/Type Badge Modifiers (lowercase for Django template filters)
+   ========================================================================== */
+
+/* Status badges with lowercase (Django |lower filter output) */
+.ga-status-badge--in_progress { background-color: var(--ga-warning); }
+
+/* Type badges with underscore (Django |lower filter output) */
+.ga-type-badge--sds_page { background-color: var(--ga-sds-page-color); }
+.ga-type-badge--dot_blot { background-color: var(--ga-dot-blot-color); }
+.ga-type-badge--western_blot { background-color: var(--ga-western-blot-color); }
+
+/* ==========================================================================
+   Sidenav Divider
+   ========================================================================== */
+
+.sidenav-divider {
+    margin: var(--ga-spacing-md) 0;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ==========================================================================
+   Analysis Detail - Read-only Annotations (SVG)
+   ========================================================================== */
+
+/* Lane annotations */
+.ga-lane {
+    fill: rgba(59, 130, 246, 0.08);
+    stroke: rgba(59, 130, 246, 0.5);
+    stroke-width: 1;
+}
+
+.ga-lane--sample {
+    fill: rgba(59, 130, 246, 0.08);
+    stroke: rgba(59, 130, 246, 0.5);
+}
+
+.ga-lane--ladder {
+    fill: rgba(249, 115, 22, 0.08);
+    stroke: rgba(249, 115, 22, 0.5);
+}
+
+.ga-lane--control {
+    fill: rgba(34, 197, 94, 0.08);
+    stroke: rgba(34, 197, 94, 0.5);
+}
+
+.ga-lane--empty {
+    fill: transparent;
+    stroke: rgba(107, 114, 128, 0.4);
+    stroke-dasharray: 4 2;
+}
+
+.ga-lane--dot {
+    fill: rgba(168, 85, 247, 0.08);
+    stroke: rgba(168, 85, 247, 0.5);
+}
+
+/* Band annotations */
+.ga-band {
+    fill: rgba(34, 197, 94, 0.12);
+    stroke: rgba(34, 197, 94, 0.5);
+    stroke-width: 0.5;
+}
+
+.ga-band--other {
+    fill: rgba(34, 197, 94, 0.12);
+    stroke: rgba(34, 197, 94, 0.5);
+}
+
+.ga-band--poi {
+    fill: rgba(168, 85, 247, 0.12);
+    stroke: rgba(168, 85, 247, 0.5);
+}
+
+.ga-band--mw_reference {
+    fill: rgba(249, 115, 22, 0.12);
+    stroke: rgba(249, 115, 22, 0.5);
+}
+
+/* Lane number labels */
+.ga-lane-label {
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    fill: rgba(59, 130, 246, 0.9);
+    text-anchor: middle;
+}
+
+/* ==========================================================================
+   Enhanced Page Header (inspired by process_development)
+   ========================================================================== */
+
+.ga-page-header-enhanced {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.ga-page-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.ga-page-icon i {
+    color: white;
+}
+
+/* Page Icon gradient colors (analytics-aligned) */
+.ga-page-header .ga-page-icon.primary,
+div.ga-page-icon.primary {
+    background: linear-gradient(135deg, #3B71CA, #2b5aa8) !important;
+    box-shadow: 0 4px 8px rgba(59, 113, 202, 0.3);
+}
+.ga-page-header .ga-page-icon.success,
+div.ga-page-icon.success {
+    background: linear-gradient(135deg, #14A44D, #0d8a3d) !important;
+    box-shadow: 0 4px 8px rgba(20, 164, 77, 0.3);
+}
+.ga-page-header .ga-page-icon.warning,
+div.ga-page-icon.warning {
+    background: linear-gradient(135deg, #E4A11B, #c98c0f) !important;
+    box-shadow: 0 4px 8px rgba(228, 161, 27, 0.3);
+}
+.ga-page-header .ga-page-icon.info,
+div.ga-page-icon.info {
+    background: linear-gradient(135deg, #54B4D3, #3a9fc2) !important;
+    box-shadow: 0 4px 8px rgba(84, 180, 211, 0.3);
+}
+.ga-page-header .ga-page-icon.secondary,
+div.ga-page-icon.secondary {
+    background: linear-gradient(135deg, #6B7280, #565d66) !important;
+    box-shadow: 0 4px 8px rgba(107, 114, 128, 0.3);
+}
+
+/* ==========================================================================
+   Filter Cards (horizontal clickable filters)
+   ========================================================================== */
+
+.ga-filter-section {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.ga-filter-card {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s ease;
+    background: white;
+}
+
+.ga-filter-card:hover {
+    border-color: var(--ga-primary);
+    transform: translateY(-1px);
+    text-decoration: none;
+    color: inherit;
+}
+
+.ga-filter-card.active {
+    border-color: var(--ga-primary);
+    background: rgba(59, 113, 202, 0.15);
+    font-weight: 600;
+}
+
+.ga-filter-card.active.success {
+    border-color: var(--ga-success);
+    background: rgba(20, 164, 77, 0.15);
+}
+
+.ga-filter-card.active.warning {
+    border-color: var(--ga-warning);
+    background: rgba(228, 161, 27, 0.15);
+}
+
+.ga-filter-card.active.info {
+    border-color: var(--ga-info);
+    background: rgba(84, 180, 211, 0.15);
+}
+
+.ga-filter-card.active.secondary {
+    border-color: var(--ga-secondary);
+    background: rgba(107, 114, 128, 0.15);
+}
+
+.ga-filter-label {
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.ga-filter-count {
+    background: #e9ecef;
+    padding: 0.15rem 0.6rem;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+}
+
+/* ==========================================================================
+   Search Box (styled with icon overlay)
+   ========================================================================== */
+
+.ga-search-box {
+    position: relative;
+    max-width: 300px;
+}
+
+.ga-search-box i {
+    position: absolute;
+    left: 0.875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #6c757d;
+    pointer-events: none;
+}
+
+.ga-search-box input {
+    padding-left: 2.5rem;
+    border-radius: 8px;
+}
+
+/* ==========================================================================
+   Table Card (analytics-aligned container)
+   ========================================================================== */
+
+.ga-table-card {
+    background: white;
+    border-radius: var(--ga-border-radius-lg);
+    box-shadow: var(--ga-shadow-sm);
+    border: 1px solid #e9ecef;
+    overflow: hidden;
+}
+
+.ga-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.ga-table-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 1rem;
+    color: #212529;
+}
+
+.ga-table-title i {
+    color: var(--ga-primary);
+}
+
+.ga-table-body {
+    padding: 0;
+}
+
+.ga-table-footer {
+    padding: 0.75rem 1.25rem;
+    background: #f8f9fa;
+    border-top: 1px solid #e9ecef;
+    text-align: center;
+}
+
+/* Section Header (icon + title row) */
+.ga-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.ga-section-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+}
+
+.ga-section-icon.primary {
+    background: rgba(59, 113, 202, 0.1);
+    color: #3B71CA;
+}
+
+.ga-section-icon.success {
+    background: rgba(20, 164, 77, 0.1);
+    color: #14A44D;
+}
+
+.ga-section-icon.info {
+    background: rgba(84, 180, 211, 0.1);
+    color: #54B4D3;
+}
+
+.ga-section-icon.warning {
+    background: rgba(228, 161, 27, 0.1);
+    color: #E4A11B;
+}
+
+.ga-section-title {
+    font-weight: 600;
+    font-size: 1rem;
+    margin: 0;
+    color: #212529;
+}
+
+/* Badge (analytics-aligned) */
+.ga-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.ga-badge-primary { background: #cfe2ff; color: #084298; }
+.ga-badge-success { background: #d1e7dd; color: #0f5132; }
+.ga-badge-warning { background: #fff3cd; color: #664d03; }
+.ga-badge-info { background: #cff4fc; color: #055160; }
+.ga-badge-secondary { background: #e2e3e5; color: #41464b; }
+.ga-badge-danger { background: #f8d7da; color: #842029; }
+
+/* Actions (button row) */
+.ga-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+/* Images Grid (responsive) */
+.ga-images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+}
+
+/* Image Status Overlay */
+.ga-image-status-overlay {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+
+.ga-image-card-link {
+    position: relative;
+    display: block;
+}
+
+.ga-image-card-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
+    color: #6c757d;
+}
+
+/* View Toggle (analytics-aligned) */
+.ga-view-toggle {
+    display: inline-flex;
+    background: #f0f0f0;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+.ga-view-toggle a,
+.ga-view-toggle button {
+    padding: 0.375rem 0.75rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font-size: 0.85rem;
+    color: #666;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ga-view-toggle a.active,
+.ga-view-toggle button.active {
+    background: white;
+    color: var(--ga-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    font-weight: 500;
+}
+
+/* Quick Actions */
+.ga-quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Empty State */
+.ga-empty-state {
+    text-align: center;
+    padding: 3rem 1.5rem;
+}
+
+.ga-empty-state i {
+    font-size: 3rem;
+    opacity: 0.3;
+    margin-bottom: 1rem;
+}
+
+/* ==========================================================================
+   Entity Cards (rich cards with icon, metadata, hover)
+   ========================================================================== */
+
+.ga-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.ga-entity-card {
+    display: block;
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    padding: 1.25rem;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: inherit;
+}
+
+.ga-entity-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--ga-primary);
+    text-decoration: none;
+    color: inherit;
+}
+
+.ga-entity-card .ga-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    padding: 0;
+    border-bottom: none;
+}
+
+.ga-card-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+/* Card Icon colors - high specificity to override MDB5 */
+.ga-entity-card .ga-card-icon.analysis,
+div.ga-card-icon.analysis {
+    background: rgba(59, 113, 202, 0.25) !important;
+    color: #3B71CA !important;
+    border: 2px solid rgba(59, 113, 202, 0.4) !important;
+}
+.ga-entity-card .ga-card-icon.image,
+div.ga-card-icon.image {
+    background: rgba(20, 164, 77, 0.25) !important;
+    color: #14A44D !important;
+    border: 2px solid rgba(20, 164, 77, 0.4) !important;
+}
+
+.ga-card-title {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+    color: #212529;
+}
+
+.ga-card-subtitle {
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-bottom: 0.75rem;
+}
+
+.ga-card-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-bottom: 0.75rem;
+}
+
+.ga-card-meta i {
+    margin-right: 0.25rem;
+}
+
+.ga-entity-card .ga-card-footer {
+    border-top: 1px solid #f0f0f0;
+    padding-top: 0.75rem;
+    margin-top: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: transparent;
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 0;
+}
+
+/* ==========================================================================
+   Enhanced Status Badges (light background with dark text)
+   ========================================================================== */
+
+.ga-status-badge--draft {
+    background: rgba(108, 117, 125, 0.15) !important;
+    color: #5c636a !important;
+}
+
+.ga-status-badge--in-progress,
+.ga-status-badge--in_progress {
+    background: rgba(228, 161, 27, 0.15) !important;
+    color: #b8860b !important;
+}
+
+.ga-status-badge--completed {
+    background: rgba(20, 164, 77, 0.15) !important;
+    color: #0d7a3a !important;
+}
+
+.ga-status-badge--approved {
+    background: rgba(59, 113, 202, 0.15) !important;
+    color: #2c5aa0 !important;
+}
+
+.ga-status-badge--rejected {
+    background: rgba(220, 76, 100, 0.15) !important;
+    color: #a32841 !important;
+}
+
+/* ==========================================================================
+   View Toggle (cards/table switcher)
+   ========================================================================== */
+
+.ga-view-toggle {
+    display: inline-flex;
+    background: #f0f0f0;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.ga-view-toggle a {
+    background: transparent;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    color: #6c757d;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.ga-view-toggle a:hover {
+    color: var(--ga-primary);
+    text-decoration: none;
+}
+
+.ga-view-toggle a.active {
+    background: white;
+    color: var(--ga-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================================================
+   Recent Section Headers
+   ========================================================================== */
+
+.ga-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.ga-section-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+}
+
+/* Section Icon colors - high specificity to override MDB5 */
+.ga-section-header .ga-section-icon.primary,
+div.ga-section-icon.primary {
+    background: rgba(59, 113, 202, 0.25) !important;
+    color: #3B71CA !important;
+    border: 2px solid rgba(59, 113, 202, 0.4) !important;
+}
+.ga-section-header .ga-section-icon.success,
+div.ga-section-icon.success {
+    background: rgba(20, 164, 77, 0.25) !important;
+    color: #14A44D !important;
+    border: 2px solid rgba(20, 164, 77, 0.4) !important;
+}
+.ga-section-header .ga-section-icon.warning,
+div.ga-section-icon.warning {
+    background: rgba(228, 161, 27, 0.25) !important;
+    color: #E4A11B !important;
+    border: 2px solid rgba(228, 161, 27, 0.4) !important;
+}
+.ga-section-header .ga-section-icon.info,
+div.ga-section-icon.info {
+    background: rgba(84, 180, 211, 0.25) !important;
+    color: #54B4D3 !important;
+    border: 2px solid rgba(84, 180, 211, 0.4) !important;
+}
+
+.ga-section-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+/* ==========================================================================
+   Images Grid (for home page recent images)
+   ========================================================================== */
+
+.ga-images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1rem;
+}
+
+.ga-image-card {
+    border: 1px solid #e9ecef;
+}
+
+.ga-image-card:hover {
+    border-color: var(--ga-primary);
+}
+
+/* ==========================================================================
+   Analysis Detail - Context Cards
+   ========================================================================== */
+
+.ga-context-card {
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: box-shadow 0.2s ease;
+    border-radius: var(--ga-border-radius-md);
+}
+
+.ga-context-card:hover {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.ga-context-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--ga-border-radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.ga-context-icon.success {
+    background: rgba(20, 164, 77, 0.1);
+    color: var(--ga-success);
+}
+
+.ga-context-icon.warning {
+    background: rgba(228, 161, 27, 0.15);
+    color: #856404;
+}
+
+.ga-context-icon.muted {
+    background: rgba(108, 117, 125, 0.1);
+    color: var(--ga-secondary);
+}
+
+.ga-context-icon.info {
+    background: rgba(84, 180, 211, 0.1);
+    color: var(--ga-info);
+}
+
+/* ==========================================================================
+   Analysis Detail - Workflow Progress
+   ========================================================================== */
+
+.ga-workflow-progress {
+    background: #f8f9fa;
+    padding: 1rem 1.5rem;
+    border-radius: var(--ga-border-radius-md);
+}
+
+.ga-workflow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 80px;
+}
+
+.ga-workflow-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    background: #e9ecef;
+    color: #6c757d;
+    transition: all 0.3s ease;
+}
+
+.ga-workflow-step.completed .ga-workflow-icon {
+    background: var(--ga-success);
+    color: white;
+}
+
+.ga-workflow-step.current .ga-workflow-icon {
+    background: var(--ga-primary);
+    color: white;
+    animation: ga-pulse 2s infinite;
+}
+
+.ga-workflow-step.pending .ga-workflow-icon {
+    background: #e9ecef;
+    color: #adb5bd;
+}
+
+.ga-workflow-step span {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #495057;
+}
+
+.ga-workflow-step small {
+    font-size: 0.65rem;
+    color: #6c757d;
+}
+
+.ga-workflow-step.completed span {
+    color: var(--ga-success);
+}
+
+.ga-workflow-step.current span {
+    color: var(--ga-primary);
+}
+
+.ga-workflow-step.pending span {
+    color: #adb5bd;
+}
+
+.ga-workflow-connector {
+    flex: 1;
+    height: 2px;
+    background: #e9ecef;
+    margin-top: 18px;
+    min-width: 20px;
+}
+
+.ga-workflow-connector.completed {
+    background: var(--ga-success);
+}
+
+@keyframes ga-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+}
+
+/* ==========================================================================
+   Analysis Detail - Sample Link Box
+   ========================================================================== */
+
+.ga-sample-link {
+    background: rgba(59, 113, 202, 0.05);
+    border-left: 3px solid var(--ga-primary);
+    padding: 0.75rem;
+    border-radius: 0 var(--ga-border-radius-sm) var(--ga-border-radius-sm) 0;
+}
+
+.ga-sample-link .table {
+    margin-bottom: 0;
+    font-size: 0.875rem;
+}
+
+.ga-sample-link .table th {
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border: none;
+}
+
+.ga-sample-link .table td {
+    padding: 0.25rem 0.5rem;
+    border: none;
+}
+
+/* ==========================================================================
+   Analysis Detail - Purity Badge
+   ========================================================================== */
+
+.ga-purity-badge .badge {
+    font-weight: 500;
+}
+
+/* ==========================================================================
+   Analysis Detail - Status Hints
+   ========================================================================== */
+
+.ga-status-hint {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.ga-status-hint i {
+    font-size: 0.9rem;
+}
+
+/* ==========================================================================
+   Analysis Detail - Disabled Button Tooltip
+   ========================================================================== */
+
+.ga-btn-disabled-wrapper {
+    display: inline-block;
+    cursor: not-allowed;
+}
+
+.ga-btn-disabled-wrapper .btn:disabled {
+    pointer-events: none;
+}
+
+/* ==========================================================================
+   Analysis Detail - Lane Cards
+   ========================================================================== */
+
+.ga-lane-card {
+    border: 1px solid #e9ecef;
+    border-radius: var(--ga-border-radius-md);
+    transition: all 0.2s ease;
+    border-left: 3px solid var(--ga-primary);
+}
+
+.ga-lane-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+}
+
+.ga-lane-card--ladder {
+    border-left-color: var(--ga-warning);
+}
+
+.ga-lane-card--control {
+    border-left-color: var(--ga-success);
+}
+
+.ga-lane-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--ga-primary);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.ga-lane-card--ladder .ga-lane-number {
+    background: var(--ga-warning);
+    color: #212529;
+}
+
+.ga-lane-card--control .ga-lane-number {
+    background: var(--ga-success);
+}
+
+.ga-lane-name {
+    font-weight: 500;
+    font-size: 0.95rem;
+    color: #212529;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ga-lane-name a {
+    color: var(--ga-primary);
+}
+
+.ga-lane-name a:hover {
+    text-decoration: underline !important;
+}
+
+.ga-lane-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    color: #6c757d;
+    background: #f8f9fa;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+}
+
+.ga-lane-metric i {
+    font-size: 0.75rem;
+}
+
+.ga-lane-metric--purity {
+    background: rgba(59, 113, 202, 0.1);
+    color: var(--ga-primary);
+    font-weight: 500;
+}
+
+.ga-lane-bands {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.ga-lane-bands .badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+/* ==========================================================================
+   Image Card - Status Overlay & Footer
+   ========================================================================== */
+
+.ga-image-card-link {
+    display: block;
+    position: relative;
+}
+
+.ga-image-status-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 6px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent);
+    display: flex;
+    justify-content: flex-start;
+}
+
+.ga-image-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid #f0f0f0;
+}
+
+/* Pending status badge */
+.ga-status-badge--pending {
+    background: rgba(220, 76, 100, 0.15) !important;
+    color: #a32841 !important;
+}
+
+/* KPI card danger color */
+.ga-kpi-card .ga-kpi-icon.danger,
+div.ga-kpi-icon.danger {
+    background: rgba(220, 76, 100, 0.25) !important;
+    color: #DC4C64 !important;
+    border: 2px solid rgba(220, 76, 100, 0.4) !important;
+}
+
+/* KPI card active/clickable state */
+.ga-kpi-card.active {
+    border: 2px solid var(--ga-danger);
+    background: rgba(220, 76, 100, 0.05);
+}
+
+/* ==========================================================================
+   Entity Card with Thumbnail (for Analysis list)
+   ========================================================================== */
+
+.ga-entity-card--with-thumbnail {
+    display: flex;
+    flex-direction: row;
+    gap: 1rem;
+}
+
+.ga-card-thumbnail {
+    flex-shrink: 0;
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f0f0f0;
+}
+
+.ga-analysis-thumbnail {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.2s ease;
+}
+
+.ga-analysis-thumbnail:hover {
+    transform: scale(1.05);
+}
+
+.ga-thumbnail-placeholder-sm {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #adb5bd;
+    font-size: 1.5rem;
+}
+
+.ga-card-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Adjust card footer for thumbnail cards */
+.ga-entity-card--with-thumbnail .ga-card-footer {
+    margin-top: auto;
+}
+
+/* ==========================================================================
+   Analysis Stats Grid (Detail Page)
+   ========================================================================== */
+
+.ga-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+@media (max-width: 992px) {
+    .ga-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 576px) {
+    .ga-stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ga-stat-card {
+    background: #fff;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border-left: 3px solid var(--ga-secondary);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ga-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+
+.ga-stat-card.completed {
+    border-left-color: var(--ga-success);
+}
+
+.ga-stat-icon {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 0.5rem;
+    background: rgba(107, 114, 128, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.125rem;
+    color: var(--ga-secondary);
+    flex-shrink: 0;
+}
+
+.ga-stat-card.completed .ga-stat-icon {
+    background: rgba(20, 164, 77, 0.1);
+    color: var(--ga-success);
+}
+
+.ga-stat-check {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 16px;
+    height: 16px;
+    background: var(--ga-success);
+    color: white;
+    border-radius: 50%;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ga-stat-content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.ga-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #333;
+}
+
+.ga-stat-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ga-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+/* ==========================================================================
+   Quality Panel (Collapsible Warnings)
+   ========================================================================== */
+
+.ga-quality-panel {
+    background: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.ga-quality-toggle {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: none;
+    background: none;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.ga-quality-toggle:hover {
+    background: rgba(0,0,0,0.02);
+}
+
+.ga-quality-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.ga-quality-badge.warning {
+    background: rgba(228, 161, 27, 0.1);
+    color: var(--ga-warning);
+}
+
+.ga-quality-badge.danger {
+    background: rgba(220, 76, 100, 0.1);
+    color: var(--ga-danger);
+}
+
+.ga-quality-badge.success {
+    background: rgba(20, 164, 77, 0.1);
+    color: var(--ga-success);
+}
+
+.ga-quality-action {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--ga-secondary);
+    font-size: 0.875rem;
+}
+
+.ga-quality-action i {
+    transition: transform 0.2s ease;
+}
+
+.ga-quality-toggle:not(.collapsed) .ga-quality-action i {
+    transform: rotate(180deg);
+}
+
+.ga-quality-toggle.collapsed .hide-text,
+.ga-quality-toggle:not(.collapsed) .show-text {
+    display: none;
+}
+
+.ga-quality-content {
+    padding: 0 1rem 1rem;
+    border-top: 1px solid #eee;
+}
+
+.ga-warning-group {
+    padding-top: 0.75rem;
+}
+
+.ga-warning-group ul {
+    margin-top: 0.25rem;
+}
+
+/* ==========================================================================
+   View Toggle Buttons (used for card/table switching)
+   ========================================================================== */
+
+.ga-view-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    background: white;
+    color: #6c757d;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ga-view-toggle-btn:hover {
+    border-color: var(--ga-primary);
+    color: var(--ga-primary);
+}
+
+.ga-view-toggle-btn.active {
+    background: var(--ga-primary);
+    border-color: var(--ga-primary);
+    color: white;
+}
+
+/* ==========================================================================
+   Lane Card Enhancements (Analysis Detail)
+   ========================================================================== */
+
+.ga-lane-card .card-header {
+    background: transparent;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.ga-lane-card .card-body {
+    padding: 0.75rem;
+}
+
+.ga-edit-sample-btn {
+    opacity: 0.5;
+    transition: opacity 0.15s ease;
+}
+
+.ga-edit-sample-btn:hover {
+    opacity: 1;
+    color: var(--ga-primary) !important;
+}

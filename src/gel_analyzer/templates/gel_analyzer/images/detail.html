@@ -1,0 +1,49 @@
+{% extends 'components/app_base.html' %}
+{% load ui_components ui_icons %}
+
+{% block title %}{{ gel_image.original_filename }} — Phoresis{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <header class="flex items-end justify-between">
+        <div>
+            <h1 class="text-2xl font-semibold">{{ gel_image.original_filename }}</h1>
+            <p class="mt-1 text-sm text-text-muted">
+                Uploaded {{ gel_image.uploaded_at|date:"M j, Y" }} by {{ gel_image.uploaded_by|default:"—" }}
+                · {{ gel_image.dimensions_str }} · {{ gel_image.get_file_format_display }}
+            </p>
+        </div>
+        <div class="flex gap-2">
+            {% btn "New analysis" href="/images/"|add:gel_image.id|stringformat:'s'|add:"/analyses/create/" icon="plus" %}
+            {% btn "Delete" variant="danger" icon="trash-2" %}
+        </div>
+    </header>
+
+    <div class="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <div class="rounded-lg border border-border bg-surface p-4">
+            {% if gel_image.display_file %}
+                <img src="{{ gel_image.display_file.url }}" alt="" class="w-full rounded-md">
+            {% else %}
+                <div class="aspect-video grid place-items-center text-text-muted">{% icon "image" size=48 %}</div>
+            {% endif %}
+        </div>
+        <aside class="space-y-4">
+            <div class="rounded-lg border border-border bg-surface p-4">
+                <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-text-muted">Analyses</h3>
+                {% if analyses %}
+                    <ul class="space-y-2 text-sm">
+                        {% for a in analyses %}
+                            <li class="flex items-center justify-between">
+                                <a href="/analyses/{{ a.id }}/" class="hover:underline">{{ a.name|default:"(unnamed)" }}</a>
+                                {% badge a.get_status_display variant="muted" %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-sm text-text-muted">No analyses yet.</p>
+                {% endif %}
+            </div>
+        </aside>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,65 @@
+# Phoresis dev override — bind-mount the source tree into the running web/worker
+# containers so changing a `.py` or template file is reflected without rebuilding
+# the image. Use:
+#
+#   docker compose \
+#     -f docker/docker-compose.yml \
+#     -f docker/compose.dev.yml \
+#     up
+#
+# Pair with `npm run watch:css` on the host so Tailwind output.css regenerates
+# in src/phoresis_ui/static/phoresis_ui/css/ — the bind mount surfaces it
+# instantly inside the containers.
+#
+# Notes:
+# - Web swaps gunicorn for `manage.py runserver` (Django auto-reloads on .py changes).
+# - Worker uses `celery worker --autoreload` if available, falling back to a hot-add
+#   pattern via the watchdog package; at minimum, restart the worker manually after
+#   changing task code (`docker compose restart worker`).
+# - Static + media volumes still mounted, so collectstatic/uploads keep working.
+# - The venv is NOT bind-mounted — it comes from the image, so deps are stable.
+
+name: phoresis
+
+services:
+
+  web:
+    image: ${PHORESIS_WEB_IMAGE:-ghcr.io/gmathy2104/phoresis-web:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.dev
+      DJANGO_DEBUG: "true"
+      SKIP_COLLECTSTATIC: "1"   # we collect via npm watch on the host instead
+    volumes:
+      - ../src:/app/src
+      - ../manage.py:/app/manage.py
+      - ../conftest.py:/app/conftest.py
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+  worker:
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.dev
+      SKIP_COLLECTSTATIC: "1"
+      SKIP_SEEDS: "1"
+    volumes:
+      - ../src:/app/src
+      - ../manage.py:/app/manage.py
+    # Celery doesn't auto-reload by default — use --pool=solo + manual restart on
+    # task code changes, OR run `docker compose restart worker`.
+    command:
+      - celery
+      - -A
+      - phoresis_core.celery_app
+      - worker
+      - --loglevel=debug
+      - -Q
+      - default,heavy
+      - --pool=solo
+
+  scheduler:
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.dev
+      SKIP_COLLECTSTATIC: "1"
+      SKIP_SEEDS: "1"
+    volumes:
+      - ../src:/app/src
+      - ../manage.py:/app/manage.py

@@ -1,0 +1,141 @@
+"""Tests for phoresis_ui templatetags — icons and components."""
+
+from django.template import Context, Template
+
+# --- icons ---
+
+
+def test_icon_lucide_renders_use_ref() -> None:
+    rendered = Template('{% load ui_icons %}{% icon "home" %}').render(Context({}))
+    assert "use href" in rendered or "<use " in rendered
+    assert "lucide-home" in rendered
+
+
+def test_icon_custom_inlines_svg() -> None:
+    rendered = Template('{% load ui_icons %}{% icon "gel" %}').render(Context({}))
+    # Custom icons are inlined → expect path/line elements, not <use>
+    assert "<svg" in rendered
+    assert "use href" not in rendered
+
+
+def test_icon_size_param_overrides_default() -> None:
+    rendered = Template('{% load ui_icons %}{% icon "home" size=32 %}').render(Context({}))
+    assert "32px" in rendered
+
+
+def test_icon_class_param_added() -> None:
+    rendered = Template('{% load ui_icons %}{% icon "home" class_="text-danger" %}').render(Context({}))
+    assert "text-danger" in rendered
+
+
+# --- components ---
+
+
+def test_btn_renders_button_element() -> None:
+    rendered = Template('{% load ui_components %}{% btn "Save" %}').render(Context({}))
+    assert "<button" in rendered and "Save" in rendered
+    assert "bg-accent-600" in rendered  # primary variant
+
+
+def test_btn_with_href_renders_anchor() -> None:
+    rendered = Template('{% load ui_components %}{% btn "Open" href="/x/" %}').render(Context({}))
+    assert '<a href="/x/"' in rendered
+
+
+def test_btn_loading_includes_spinner() -> None:
+    rendered = Template('{% load ui_components %}{% btn "Save" loading=True %}').render(Context({}))
+    assert "animate-spin" in rendered
+
+
+def test_badge_variants() -> None:
+    for variant, expected in [("primary", "text-accent-700"), ("danger", "text-danger")]:
+        rendered = Template(f'{{% load ui_components %}}{{% badge "TEST" variant="{variant}" %}}').render(Context({}))
+        assert expected in rendered
+
+
+def test_skeleton_includes_shimmer_class() -> None:
+    rendered = Template("{% load ui_components %}{% skeleton %}").render(Context({}))
+    assert "ui-shimmer" in rendered
+
+
+def test_empty_state_renders_title_and_message() -> None:
+    rendered = Template('{% load ui_components %}{% empty_state "No gels" message="Upload one." %}').render(Context({}))
+    assert "No gels" in rendered
+    assert "Upload one." in rendered
+
+
+def test_kpi_renders_value_with_countup_attr() -> None:
+    rendered = Template('{% load ui_components %}{% kpi "Total" 42 icon="image" %}').render(Context({}))
+    assert "Total" in rendered
+    assert 'data-countup="42"' in rendered
+
+
+def test_modal_chrome_renders_close_button() -> None:
+    rendered = Template('{% load ui_components %}{% modal_chrome id_="m1" title="Edit" %}').render(Context({}))
+    assert "x-show=\"$store.modal.open === 'm1'\"" in rendered
+    assert "Edit" in rendered
+
+
+def test_confirm_renders_buttons() -> None:
+    rendered = Template(
+        '{% load ui_components %}{% confirm id_="c1" title="Delete?" message="Are you sure?" %}'
+    ).render(Context({}))
+    assert "Delete?" in rendered
+    assert "Are you sure?" in rendered
+    assert "Cancel" in rendered  # default cancel_label
+
+
+# --- security regressions ---
+
+
+def test_btn_escapes_label_to_prevent_xss() -> None:
+    """Caller-supplied label must be HTML-escaped (no script injection)."""
+    rendered = Template("{% load ui_components %}{% btn payload %}").render(
+        Context({"payload": "<script>alert(1)</script>"})
+    )
+    assert "<script>" not in rendered
+    assert "&lt;script&gt;" in rendered
+
+
+def test_badge_escapes_label_to_prevent_xss() -> None:
+    rendered = Template("{% load ui_components %}{% badge payload %}").render(Context({"payload": "<img onerror=x>"}))
+    assert "<img" not in rendered
+    assert "&lt;img" in rendered
+
+
+# --- confirm modal cancel handler ---
+
+
+def test_confirm_renders_alpine_close_handler_on_cancel() -> None:
+    """The Cancel button must wire `@click="$store.modal.close()"` (regression for the
+    broken `class_=` injection in the original plan)."""
+    rendered = Template('{% load ui_components %}{% confirm id_="c1" title="Delete?" message="Sure?" %}').render(
+        Context({})
+    )
+    assert '@click="$store.modal.close()"' in rendered
+
+
+def test_nav_palette_items_json_serializes_dashboard() -> None:
+    """The dashboard nav.py registers its app in Phase 1 — palette JSON should include it."""
+    rendered = Template("{% load ui_components %}{% nav_palette_items_json %}").render(Context({}))
+    assert "Dashboard" in rendered
+    assert "Home" in rendered
+
+
+def test_nav_palette_items_json_escapes_script_tag(monkeypatch) -> None:
+    """A `</script>` literal in a nav item must not break out of the inline <script>."""
+    from phoresis_core.navigation import nav_registry
+
+    fake_items = [{"name": "Pwn </script><script>alert(1)</script>", "url": "/x/", "type": "page", "icon": "image"}]
+    monkeypatch.setattr(nav_registry, "get_flat_items", lambda: fake_items)
+
+    rendered = Template("{% load ui_components %}{% nav_palette_items_json %}").render(Context({}))
+    assert "</script>" not in rendered
+    assert "\\u003c/script\\u003e" in rendered or "\\u003c\\/script\\u003e" in rendered
+
+
+def test_btn_disabled_anchor_is_aria_disabled() -> None:
+    """{% btn disabled=True href=... %} must produce an a11y-correct disabled anchor."""
+    rendered = Template('{% load ui_components %}{% btn "Open" href="/x/" disabled=True %}').render(Context({}))
+    assert 'aria-disabled="true"' in rendered
+    assert "pointer-events-none" in rendered

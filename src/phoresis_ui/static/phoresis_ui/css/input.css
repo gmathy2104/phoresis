@@ -1,0 +1,200 @@
+@config "../../../../../tailwind.config.js";
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-elevated: var(--color-surface-elevated);
+  --color-border: var(--color-border);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+
+  --color-accent-50: var(--color-accent-50);
+  --color-accent-500: var(--color-accent-500);
+  --color-accent-600: var(--color-accent-600);
+  --color-accent-700: var(--color-accent-700);
+
+  --color-band: var(--color-band);
+  --color-poi: var(--color-poi);
+  --color-mw-ref: var(--color-mw-ref);
+  --color-other: var(--color-other);
+
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+}
+
+@layer base {
+  html, body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    transition: background-color var(--duration) var(--ease-out),
+                color var(--duration) var(--ease-out);
+  }
+
+  /* Smooth focus rings using accent token */
+  *:focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+
+  /* Light text-balance for headings */
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  /* Shimmer for skeleton loaders */
+  .ui-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-border);
+  }
+  .ui-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,.4) 50%,
+      transparent 100%
+    );
+    animation: ui-shimmer-anim 2s infinite;
+  }
+  [data-theme="dark"] .ui-shimmer::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,.06) 50%,
+      transparent 100%
+    );
+  }
+  @keyframes ui-shimmer-anim {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+  }
+}
+
+@layer components {
+  /* Ripple effect for buttons (data-ripple in btn templatetag) */
+  .ui-ripple-host {
+    position: relative;
+    overflow: hidden;
+  }
+  .ui-ripple-host > .ui-ripple {
+    position: absolute;
+    border-radius: 9999px;
+    transform: scale(0);
+    animation: ui-ripple-anim 600ms var(--ease-out);
+    background: currentColor;
+    opacity: 0.25;
+    pointer-events: none;
+  }
+  @keyframes ui-ripple-anim {
+    to { transform: scale(4); opacity: 0; }
+  }
+
+  /* HTMX top progress bar */
+  .ui-htmx-progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 3px;
+    width: 0;
+    background: var(--color-accent-500);
+    z-index: 100;
+    transition: width 250ms var(--ease-out), opacity 200ms var(--ease-out) 50ms;
+    box-shadow: 0 0 8px rgb(from var(--color-accent-500) r g b / 0.5);
+    pointer-events: none;
+    opacity: 0;
+  }
+  .ui-htmx-progress[data-state="loading"] { opacity: 1; width: 70%; }
+  .ui-htmx-progress[data-state="done"]    { opacity: 0; width: 100%; }
+
+  /* Dropzone pulse */
+  .ui-dropzone {
+    transition: transform 150ms var(--ease-out),
+                background-color 150ms var(--ease-out),
+                border-color 150ms var(--ease-out);
+  }
+  .ui-dropzone[data-active="true"] {
+    transform: scale(1.02);
+    background-color: var(--color-accent-50);
+    border-color: var(--color-accent-500);
+    animation: ui-dropzone-pulse 1.4s var(--ease-out) infinite;
+  }
+  @keyframes ui-dropzone-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(from var(--color-accent-500) r g b / 0.3); }
+    50%      { box-shadow: 0 0 0 12px rgb(from var(--color-accent-500) r g b / 0); }
+  }
+
+  /* Floating labels (opt-in via .ui-float wrapper) */
+  .ui-float {
+    position: relative;
+  }
+  .ui-float > input,
+  .ui-float > textarea {
+    padding-top: 1.25rem;
+    padding-bottom: 0.5rem;
+  }
+  .ui-float > label {
+    position: absolute;
+    top: 0.6rem;
+    left: 0.75rem;
+    pointer-events: none;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    transform-origin: 0 0;
+    transition: transform 150ms var(--ease-out), color 150ms var(--ease-out);
+  }
+  .ui-float > input:focus + label,
+  .ui-float > input:not(:placeholder-shown) + label,
+  .ui-float > textarea:focus + label,
+  .ui-float > textarea:not(:placeholder-shown) + label {
+    transform: translateY(-0.4rem) scale(0.85);
+    color: var(--color-accent-600);
+  }
+}
+
+/* ============================================================================
+ * Respect prefers-reduced-motion (a11y: WCAG 2.3.3)
+ *
+ * For users who set "Reduce motion" in their OS, neutralize decorative
+ * animations and long transitions. The app still works exactly the same —
+ * just without the ripple/shimmer/pulse/scale flourishes.
+ *
+ * Notes:
+ * - Skeleton shimmer overlay hidden (pure decoration).
+ * - Dropzone pulse replaced by a steady accent ring (still conveys "drop here").
+ * - Ripple element hidden entirely.
+ * - Theme toggle, modal scale-in, sidebar icon scale all collapse to
+ *   instant via the universal selector below.
+ * ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .ui-shimmer::after { display: none; }
+  .ui-dropzone[data-active="true"] {
+    box-shadow: 0 0 0 4px rgb(from var(--color-accent-500) r g b / 0.3);
+  }
+  .ui-ripple { display: none; }
+}

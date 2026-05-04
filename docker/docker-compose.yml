@@ -1,0 +1,156 @@
+# Phoresis — local laptop deployment stack (Phase 5).
+#
+# Postgres is intentionally NOT in here — it stays native on the Windows host
+# (per spec §9.1) so `docker compose down -v` can never wipe user data.
+# Containers reach it via host.docker.internal:5432.
+
+name: phoresis
+
+services:
+
+  # ────────────────────── reverse proxy + TLS ──────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - phoresis_staticfiles:/srv/staticfiles:ro
+      - ${PHORESIS_MEDIA_DIR:-./_phoresis_data/media}:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [phoresis_net]
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"   # Caddy not auto-updated by Watchtower
+
+  # ────────────────────── Django web ──────────────────────
+  # Default: public GHCR image (no docker login required).
+  # For private-image deployments:
+  #   1. Set the GHCR package visibility to Private in GitHub Packages.
+  #   2. On every Phoresis machine, run: docker login ghcr.io -u <gh-user> -p <PAT>
+  #      where <PAT> has read:packages scope only.
+  #   3. Add WATCHTOWER_AUTH_USERNAME + WATCHTOWER_AUTH_PASSWORD env vars to the
+  #      watchtower service below (or mount ~/.docker/config.json read-only).
+  web:
+    image: ${PHORESIS_WEB_IMAGE:-ghcr.io/gmathy2104/phoresis-web:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.prod
+      DB_HOST: host.docker.internal
+      REDIS_HOST: redis
+      GUNICORN_WORKERS: 4
+    volumes:
+      - phoresis_staticfiles:/srv/staticfiles
+      - ${PHORESIS_MEDIA_DIR:-./_phoresis_data/media}:/srv/media
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [phoresis_net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/live/', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # ────────────────────── Celery worker ──────────────────────
+  worker:
+    image: ${PHORESIS_WORKER_IMAGE:-ghcr.io/gmathy2104/phoresis-worker:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.prod
+      DB_HOST: host.docker.internal
+      REDIS_HOST: redis
+      SKIP_COLLECTSTATIC: "1"
+      SKIP_SEEDS: "1"
+    volumes:
+      - ${PHORESIS_MEDIA_DIR:-./_phoresis_data/media}:/srv/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy   # ensures migrations are done before worker starts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [phoresis_net]
+    command: ["celery", "-A", "phoresis_core.celery_app", "worker", "--loglevel=info", "-Q", "default,heavy", "--concurrency=2"]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # ────────────────────── Celery beat (scheduler) ──────────────────────
+  scheduler:
+    image: ${PHORESIS_WORKER_IMAGE:-ghcr.io/gmathy2104/phoresis-worker:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.prod
+      DB_HOST: host.docker.internal
+      REDIS_HOST: redis
+      SKIP_COLLECTSTATIC: "1"
+      SKIP_SEEDS: "1"
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [phoresis_net]
+    command: ["celery", "-A", "phoresis_core.celery_app", "beat", "--loglevel=info"]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # ────────────────────── Redis (broker + cache) ──────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - phoresis_redis:/data
+    networks: [phoresis_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+
+  # ────────────────────── Watchtower (auto-update) ──────────────────────
+  # Per spec §10.2 — pulls new images at 03:00 daily and restarts only the
+  # containers labelled `watchtower.enable=true` (web, worker, scheduler).
+  # Phase 6 will harden the credentials story and the notification URL.
+  watchtower:
+    image: containrrr/watchtower:1.7
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"           # remove old images
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_SCHEDULE: "0 0 3 * * *"   # 03:00 daily
+      WATCHTOWER_NOTIFICATION_URL: "${WATCHTOWER_NOTIFICATION_URL:-}"
+      TZ: "${TZ:-Europe/Brussels}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [phoresis_net]
+
+networks:
+  phoresis_net:
+    driver: bridge
+
+volumes:
+  phoresis_staticfiles:
+  phoresis_redis:
+  caddy_data:
+  caddy_config:

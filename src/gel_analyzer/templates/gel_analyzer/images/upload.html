@@ -1,0 +1,57 @@
+{% extends 'components/app_base.html' %}
+{% load ui_components ui_icons %}
+
+{% block title %}Upload gel — Phoresis{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-2xl space-y-6">
+    <header>
+        <h1 class="text-2xl font-semibold">Upload gel image</h1>
+        <p class="mt-1 text-sm text-text-muted">Supported formats: .gel, .scn, .tiff, .tif, .png, .jpg, .jpeg.</p>
+    </header>
+
+    {% card_open %}
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        <div>
+            <label class="mb-1.5 block text-sm font-medium">File</label>
+            <div class="ui-dropzone rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center"
+                 x-data="{ active: false }"
+                 :data-active="active"
+                 @dragenter.prevent="active = true"
+                 @dragleave.prevent="active = false"
+                 @dragover.prevent
+                 @drop.prevent="active = false; $refs.fileInput.files = $event.dataTransfer.files; $refs.fileInput.dispatchEvent(new Event('change', {bubbles:true}))">
+                <div class="text-text-muted">
+                    {% icon "upload" size=32 class_="mx-auto mb-2" %}
+                    <p class="text-sm">Drop a gel image here or
+                        <label for="id_original_file" class="cursor-pointer text-accent-600 hover:underline">browse files</label>.
+                    </p>
+                </div>
+                <input id="id_original_file" type="file" name="original_file" required accept=".gel,.scn,.tiff,.tif,.png,.jpg,.jpeg"
+                       x-ref="fileInput"
+                       class="sr-only">
+            </div>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-sm font-medium">Gel type</label>
+            <select name="gel_type" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">
+                <option value="">— Select —</option>
+                <option value="SDS_PAGE">SDS-PAGE</option>
+                <option value="DOT_BLOT">Dot Blot</option>
+                <option value="WESTERN_BLOT">Western Blot</option>
+                <option value="UNKNOWN">Unknown</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-sm font-medium">Description</label>
+            <textarea name="description" rows="3" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" placeholder="Optional notes…"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+            {% btn "Cancel" href="/images/" variant="ghost" %}
+            {% btn "Upload" type_="submit" variant="primary" icon="upload" %}
+        </div>
+    </form>
+    {% card_close %}
+</div>
+{% endblock %}

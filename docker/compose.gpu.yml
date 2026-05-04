@@ -1,0 +1,33 @@
+# Phoresis — GPU override.
+#
+# Activate with:
+#   docker compose -f docker/docker-compose.yml -f docker/compose.gpu.yml up -d
+#
+# Requirements:
+# - Docker Desktop >= 4.16 (Windows)
+# - WSL2 backend
+# - NVIDIA Container Toolkit installed in WSL2 distro
+# - PHORESIS_IMAGE_VARIANT=cuda set in .env so the *-cuda image tags are pulled
+#
+# `runtime: nvidia` and `deploy.resources.reservations.devices` are equivalent
+# in modern Compose; we use the latter (Compose Spec 2024).
+
+services:
+
+  web:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1                # all visible GPUs; or `count: all`
+              capabilities: ["gpu"]
+
+  worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]

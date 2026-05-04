@@ -1,0 +1,58 @@
+{% extends 'components/app_base.html' %}
+{% load ui_components ui_icons %}
+
+{% block title %}Analyses — Phoresis{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <header class="flex items-end justify-between">
+        <div>
+            <h1 class="text-2xl font-semibold">Analyses</h1>
+            <p class="mt-1 text-sm text-text-muted">All gel analyses you can access.</p>
+        </div>
+    </header>
+
+    <form method="get" class="flex flex-wrap gap-2">
+        <input type="search" name="q" value="{{ search_query }}" placeholder="Search by name or gel filename…"
+               class="flex-1 min-w-[240px] rounded-md border border-border bg-surface px-3 py-2 text-sm">
+        <select name="status" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
+            <option value="">All statuses</option>
+            {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if value == status_filter %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        {% btn "Filter" type_="submit" variant="secondary" %}
+    </form>
+
+    {% if analyses %}
+        <div class="overflow-hidden rounded-lg border border-border bg-surface">
+            <table class="w-full text-sm">
+                <thead class="bg-surface-elevated text-left text-xs uppercase tracking-wide text-text-muted">
+                    <tr>
+                        <th class="px-4 py-3">Name</th>
+                        <th class="px-4 py-3">Gel</th>
+                        <th class="px-4 py-3">Status</th>
+                        <th class="px-4 py-3">Lanes</th>
+                        <th class="px-4 py-3">Bands</th>
+                        <th class="px-4 py-3">Created</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                    {% for a in analyses %}
+                        <tr class="hover:bg-surface-elevated">
+                            <td class="px-4 py-3"><a href="/analyses/{{ a.id }}/" class="font-medium hover:underline">{{ a.name|default:"(unnamed)" }}</a></td>
+                            <td class="px-4 py-3 text-text-muted">{{ a.gel_image.original_filename|truncatechars:32 }}</td>
+                            <td class="px-4 py-3">{% badge a.get_status_display variant="muted" %}</td>
+                            <td class="px-4 py-3">{{ a.total_lanes }}</td>
+                            <td class="px-4 py-3">{{ a.total_bands }}</td>
+                            <td class="px-4 py-3 text-text-muted">{{ a.created_at|date:"M j, Y" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        {% empty_state "No analyses yet" message="Open a gel image to create your first analysis." icon="layers" cta_label="Browse gels" cta_href="/images/" %}
+    {% endif %}
+</div>
+{% endblock %}

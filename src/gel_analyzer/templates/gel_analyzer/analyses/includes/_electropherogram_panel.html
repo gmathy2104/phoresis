@@ -1,0 +1,119 @@
+<!-- Electropherogram Panel - Intensity Profile Visualization -->
+<div class="gv-electropherogram-panel" id="electropherogram-panel" style="display: none;">
+    <!-- Header -->
+    <div class="gv-electropherogram-header">
+        <div class="gv-electropherogram-title">
+            <i class="bi bi-graph-up"></i>
+            <span>Electropherogram</span>
+            <span class="gv-electropherogram-lane-info" id="electropherogram-lane-info"></span>
+        </div>
+        <div class="gv-electropherogram-actions">
+            <button class="gv-electropherogram-btn" id="electropherogram-toggle-raw"
+                    title="Toggle raw/processed profile" data-active="false">
+                <i class="bi bi-activity"></i>
+            </button>
+            <button class="gv-electropherogram-btn" id="electropherogram-toggle-bands"
+                    title="Toggle band highlights" data-active="true">
+                <i class="bi bi-layers"></i>
+            </button>
+            <button class="gv-electropherogram-btn" id="electropherogram-toggle-background"
+                    title="Toggle background" data-active="false">
+                <i class="bi bi-subtract"></i>
+            </button>
+            <button class="gv-electropherogram-btn" id="electropherogram-toggle-valleys"
+                    title="Toggle legacy valley markers (off by default — hybrid bands are the source of truth)"
+                    data-active="false">
+                <i class="bi bi-chevron-bar-down"></i>
+            </button>
+            <button class="gv-electropherogram-btn" id="electropherogram-toggle-threshold"
+                    title="Toggle threshold line" data-active="true">
+                <i class="bi bi-rulers"></i>
+            </button>
+            <div class="gv-electropherogram-help-wrapper">
+                <button class="gv-electropherogram-btn" id="electropherogram-help-btn"
+                        title="Keyboard shortcuts" aria-expanded="false" aria-haspopup="true">
+                    <i class="bi bi-question-circle"></i>
+                </button>
+                <div class="gv-electropherogram-help-popover" id="electropherogram-help-popover"
+                     role="tooltip" hidden>
+                    <div class="gv-epgram-help-title">Keyboard shortcuts</div>
+                    <dl class="gv-epgram-help-list">
+                        <dt><kbd>Ctrl</kbd> + click (empty area)</dt>
+                        <dd>Create band at clicked Y</dd>
+                        <dt><kbd>Ctrl</kbd> + click (inside a band)</dt>
+                        <dd>Split that band at clicked Y (upper + lower)</dd>
+                        <dt><kbd>Shift</kbd> + click &amp; drag</dt>
+                        <dd>Create band spanning a range</dd>
+                        <dt>Click on band</dt>
+                        <dd>Select band</dd>
+                        <dt><kbd>Esc</kbd></dt>
+                        <dd>Close / cancel drag</dd>
+                    </dl>
+                </div>
+            </div>
+            <button class="gv-electropherogram-btn gv-electropherogram-close" id="electropherogram-close"
+                    title="Close (Esc)">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Chart Toolbar (replaces Plotly modebar) -->
+    <div class="gv-electropherogram-toolbar" id="electropherogram-toolbar">
+        <div class="gv-epgram-toolbar-group">
+            <button class="gv-epgram-tool-btn active" id="electropherogram-mode-zoom"
+                    title="Zoom mode (drag to zoom)">
+                <i class="bi bi-zoom-in"></i>
+            </button>
+            <button class="gv-epgram-tool-btn" id="electropherogram-mode-pan"
+                    title="Pan mode (drag to pan)">
+                <i class="bi bi-arrows-move"></i>
+            </button>
+        </div>
+        <div class="gv-epgram-toolbar-group">
+            <button class="gv-epgram-tool-btn" id="electropherogram-reset-zoom"
+                    title="Reset zoom">
+                <i class="bi bi-arrows-angle-expand"></i>
+            </button>
+            <button class="gv-epgram-tool-btn" id="electropherogram-download"
+                    title="Download as PNG">
+                <i class="bi bi-download"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Chart Container -->
+    <div class="gv-electropherogram-content">
+        <div class="gv-electropherogram-chart" id="electropherogram-chart">
+            <!-- Placeholder when no lane selected -->
+            <div class="gv-electropherogram-placeholder" id="electropherogram-placeholder">
+                <i class="bi bi-arrow-left-circle"></i>
+                <span>Select a lane to view intensity profile</span>
+            </div>
+            <!-- Loading indicator -->
+            <div class="gv-electropherogram-loading" id="electropherogram-loading" style="display: none;">
+                <div class="gv-electropherogram-spinner"></div>
+                <span>Loading profile...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer with stats -->
+    <div class="gv-electropherogram-footer" id="electropherogram-footer" style="display: none;">
+        <div class="gv-electropherogram-stat">
+            <span class="gv-electropherogram-stat-label">Bands:</span>
+            <span class="gv-electropherogram-stat-value" id="electropherogram-band-count">0</span>
+        </div>
+        <div class="gv-electropherogram-stat">
+            <span class="gv-electropherogram-stat-label">Peak:</span>
+            <span class="gv-electropherogram-stat-value" id="electropherogram-peak-intensity">-</span>
+        </div>
+        <div class="gv-electropherogram-stat">
+            <span class="gv-electropherogram-stat-label">Range:</span>
+            <span class="gv-electropherogram-stat-value" id="electropherogram-y-range">-</span>
+        </div>
+    </div>
+
+    <!-- Resize handle (bottom-left) -->
+    <div class="gv-electropherogram-resize-handle" id="electropherogram-resize-handle"></div>
+</div>

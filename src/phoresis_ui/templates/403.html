@@ -1,0 +1,26 @@
+{% extends 'components/base.html' %}
+{% load ui_components ui_icons %}
+
+{% block title %}Access denied — Phoresis{% endblock %}
+
+{% block content %}
+<div class="mx-auto grid min-h-[calc(100vh-4rem)] max-w-md place-items-center text-center">
+    <div>
+        <div class="mb-6 inline-grid h-20 w-20 place-items-center rounded-2xl bg-red-50 text-red-700">
+            {% icon "alert-circle" size=40 %}
+        </div>
+        <h1 class="mb-2 text-3xl font-semibold">Access denied</h1>
+        <p class="mb-2 text-sm text-text-muted">
+            You don't have permission to access <span class="font-mono">{{ path }}</span>.
+        </p>
+        <p class="mb-8 text-xs text-text-muted">
+            If this is unexpected, your session may have expired — try signing in again.
+            CSRF token mismatches also land here.
+        </p>
+        <div class="flex justify-center gap-2">
+            {% btn "Back to dashboard" href="/" variant="primary" icon="layout-dashboard" %}
+            {% btn "Sign in" href="/accounts/login/" variant="secondary" icon="log-in" %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,372 @@
+<!-- Profile Detection Panel (d1/d2 derivative) - Centered Modal -->
+<div class="gv-modal-backdrop" id="detection-backdrop" style="display: none;"></div>
+<div class="gv-detection-panel" id="detection-panel" style="display: none;">
+    <!-- Header -->
+    <div class="gv-detection-header">
+        <div class="gv-detection-title">
+            <i class="bi bi-activity"></i>
+            <span>Profile Detection (d1/d2)</span>
+        </div>
+        <button class="gv-detection-close" id="detection-close" title="Close (Esc)">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    <!-- Body: 2-column layout (sidebar + chart) -->
+    <div class="gv-detection-body">
+        <!-- Left Sidebar: Lanes + Parameters -->
+        <div class="gv-detection-sidebar">
+            <!-- Lane Selection -->
+            <div class="gv-detection-sidebar-section">
+                <div class="gv-detection-section-title">
+                    <i class="bi bi-layers"></i>
+                    <span>Target Lanes</span>
+                </div>
+                <div class="gv-detection-lane-selector">
+                    <select id="detection-lane-filter" class="form-select form-select-sm">
+                        <option value="all">All Lanes</option>
+                        <option value="ladder">Ladder Lanes Only</option>
+                        <option value="sample">Sample Lanes Only</option>
+                        <option value="selected">Selected Lane</option>
+                    </select>
+                    <div class="gv-detection-lane-count" id="detection-lane-count">
+                        <span class="count">0</span> lanes
+                    </div>
+                </div>
+                <div class="gv-detection-lane-list" id="detection-lane-list">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Detection Parameters -->
+            <div class="gv-detection-sidebar-section">
+
+                <!-- Section: Peak Detection -->
+                <div class="gv-chrm-section">
+                    <div class="gv-chrm-section-header">
+                        <i class="bi bi-activity"></i> Peak Detection
+                    </div>
+                    <p class="gv-chrm-section-desc">Controls for the derivative-based peak finder. Adjusts how peaks are identified in the 1D intensity profile.</p>
+
+                    <div class="gv-detection-params-grid">
+                        <!-- Curvature Strictness (d2 significance) -->
+                        <div class="gv-detection-param" id="detection-d2-significance-row">
+                            <label for="detection-d2-significance">
+                                Curvature Strictness
+                                <span class="gv-detection-param-value" id="detection-d2-significance-value">1.5</span>
+                            </label>
+                            <input type="range" id="detection-d2-significance"
+                                   min="1.0" max="8.0" step="0.1" value="1.5"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">How sharp a peak must be (2nd derivative). Higher = only well-defined peaks.</span>
+                        </div>
+
+                        <!-- Slope Threshold -->
+                        <div class="gv-detection-param" id="detection-slope-threshold-row">
+                            <label for="detection-slope-threshold">
+                                Slope Threshold
+                                <span class="gv-detection-param-value" id="detection-slope-threshold-value">1.0</span>
+                            </label>
+                            <input type="range" id="detection-slope-threshold"
+                                   min="0.5" max="5.0" step="0.1" value="1.0"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Min slope at peak entry. Filters flat crossings that are not real peaks.</span>
+                        </div>
+
+                        <!-- Valley Depth Factor -->
+                        <div class="gv-detection-param">
+                            <label for="detection-valley-depth">
+                                Valley Depth Factor
+                                <span class="gv-detection-param-value" id="detection-valley-depth-value">1.0</span>
+                            </label>
+                            <input type="range" id="detection-valley-depth"
+                                   min="0.5" max="5.0" step="0.1" value="1.0"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Min valley depth between peaks. Higher = fewer splits, more merged bands.</span>
+                        </div>
+
+                        <!-- Min SNR -->
+                        <div class="gv-detection-param">
+                            <label for="detection-min-snr">
+                                Min SNR
+                                <span class="gv-detection-param-value" id="detection-min-snr-value">1.0</span>
+                            </label>
+                            <input type="range" id="detection-min-snr"
+                                   min="0.5" max="10.0" step="0.1" value="1.0"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Signal-to-noise ratio. Lower = accepts faint bands. Higher = strong only.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section: Preprocessing -->
+                <div class="gv-chrm-section">
+                    <div class="gv-chrm-section-header">
+                        <i class="bi bi-sliders"></i> Preprocessing
+                    </div>
+                    <p class="gv-chrm-section-desc">Signal processing applied to the intensity profile before peak detection.</p>
+
+                    <div class="gv-detection-params-grid">
+                        <!-- Smoothing Window -->
+                        <div class="gv-detection-param">
+                            <label for="detection-smoothing">
+                                Smoothing Window
+                                <span class="gv-detection-param-value" id="detection-smoothing-value">7</span>
+                            </label>
+                            <input type="range" id="detection-smoothing"
+                                   min="3" max="31" step="2" value="7"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Savitzky-Golay window. Larger = smoother, may merge close bands.</span>
+                        </div>
+                    </div>
+
+                    <!-- Toggles -->
+                    <div class="gv-chrm-toggles">
+                        <label class="gv-chrm-toggle">
+                            <input type="checkbox" id="detection-clahe" class="gv-detection-checkbox" checked>
+                            <span class="gv-chrm-toggle-label">
+                                <strong><i class="bi bi-brightness-high"></i> CLAHE</strong>
+                                <span>Adaptive contrast enhancement — improves faint band detection</span>
+                            </span>
+                        </label>
+                        <label class="gv-chrm-toggle">
+                            <input type="checkbox" id="detection-show-derivatives" class="gv-detection-checkbox">
+                            <span class="gv-chrm-toggle-label">
+                                <strong><i class="bi bi-graph-down"></i> Show Derivatives</strong>
+                                <span>Display d1/d2 curves below the profile for debugging</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="gv-detection-derivative-options" id="detection-derivative-options" style="display: none;">
+                        <div class="gv-detection-param gv-detection-checkbox-row">
+                            <label for="detection-show-d1" class="gv-detection-checkbox-label">
+                                <input type="checkbox" id="detection-show-d1" class="gv-detection-checkbox" checked>
+                                <span class="gv-detection-color-swatch" style="background: #10b981;"></span>
+                                1st Derivative (dy/dx)
+                            </label>
+                        </div>
+                        <div class="gv-detection-param gv-detection-checkbox-row">
+                            <label for="detection-show-d2" class="gv-detection-checkbox-label">
+                                <input type="checkbox" id="detection-show-d2" class="gv-detection-checkbox" checked>
+                                <span class="gv-detection-color-swatch" style="background: #8b5cf6;"></span>
+                                2nd Derivative (d&sup2;y/dx&sup2;)
+                            </label>
+                        </div>
+                        <div class="gv-detection-param gv-detection-checkbox-row">
+                            <label for="detection-show-markers" class="gv-detection-checkbox-label">
+                                <input type="checkbox" id="detection-show-markers" class="gv-detection-checkbox" checked>
+                                <i class="bi bi-geo-alt"></i>
+                                Zero-crossing Markers
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Invert Profile -->
+                    <div class="gv-chrm-invert-row">
+                        <label for="detection-invert">
+                            <i class="bi bi-arrow-down-up"></i>
+                            Invert Profile
+                        </label>
+                        <select id="detection-invert" class="gv-detection-invert-select">
+                            <option value="auto">Auto</option>
+                            <option value="always">Always (dark bands)</option>
+                            <option value="never">Never (bright bands)</option>
+                        </select>
+                        <span id="detection-polarity-badge" class="gv-detection-polarity-badge" style="display: none;"></span>
+                    </div>
+                </div>
+
+                <!-- Advanced Options (collapsed) -->
+                <details class="gv-detection-advanced">
+                    <summary>
+                        <i class="bi bi-gear"></i>
+                        Advanced Options
+                    </summary>
+                    <div class="gv-detection-params-grid">
+                        <!-- Threshold Factor (auto mode) -->
+                        <div class="gv-detection-param" id="detection-threshold-factor-row">
+                            <label for="detection-threshold-factor">
+                                Threshold Factor
+                                <span class="gv-detection-param-value" id="detection-threshold-factor-value">1.5</span>
+                            </label>
+                            <input type="range" id="detection-threshold-factor"
+                                   min="0.5" max="10.0" step="0.1" value="1.5"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Noise multiplier for auto-threshold. Higher = fewer bands.</span>
+                        </div>
+
+                        <!-- Manual Threshold (when auto is off) -->
+                        <div class="gv-detection-param" id="detection-manual-threshold-row" style="display: none;">
+                            <label for="detection-manual-threshold">
+                                Manual Threshold
+                                <span class="gv-detection-param-value" id="detection-manual-threshold-value">0</span>
+                            </label>
+                            <input type="number" id="detection-manual-threshold"
+                                   min="0" step="1" value="0"
+                                   class="form-control form-control-sm"
+                                   style="width: 80px; display: inline-block;">
+                            <span class="gv-detection-param-hint">Fixed threshold. Peaks below this are ignored.</span>
+                        </div>
+
+                        <!-- Auto-threshold checkbox -->
+                        <div class="gv-detection-param gv-detection-checkbox-row" id="detection-auto-threshold-row">
+                            <label for="detection-auto-threshold" class="gv-detection-checkbox-label">
+                                <input type="checkbox" id="detection-auto-threshold" class="gv-detection-checkbox" checked>
+                                <i class="bi bi-magic"></i>
+                                Auto threshold
+                            </label>
+                        </div>
+
+                        <!-- Derivative Window -->
+                        <div class="gv-detection-param" id="detection-derivative-window-row">
+                            <label for="detection-derivative-window">
+                                Derivative Window
+                                <span class="gv-detection-param-value" id="detection-derivative-window-value">15</span>
+                            </label>
+                            <input type="range" id="detection-derivative-window"
+                                   min="7" max="31" step="2" value="15"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Window for d1/d2 computation. Wider = fewer spurious crossings.</span>
+                        </div>
+
+                        <!-- Sub-pixel refinement checkbox -->
+                        <div class="gv-detection-checkbox gv-detection-checkbox-inline">
+                            <input type="checkbox" id="detection-refine-peaks" checked>
+                            <label for="detection-refine-peaks">Sub-pixel refinement</label>
+                        </div>
+
+                        <!-- Min Band Width -->
+                        <div class="gv-detection-param">
+                            <label for="detection-min-width">
+                                Min Width (px)
+                                <span class="gv-detection-param-value" id="detection-min-width-value">3</span>
+                            </label>
+                            <input type="range" id="detection-min-width"
+                                   min="1" max="20" step="1" value="3"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Bands narrower than this are filtered as noise.</span>
+                        </div>
+
+                        <!-- Max Band Width -->
+                        <div class="gv-detection-param">
+                            <label for="detection-max-width">
+                                Max Width (px)
+                                <span class="gv-detection-param-value" id="detection-max-width-value">120</span>
+                            </label>
+                            <input type="range" id="detection-max-width"
+                                   min="20" max="300" step="5" value="120"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Bands wider than this are rejected as smears.</span>
+                        </div>
+
+                        <!-- Background Method -->
+                        <div class="gv-detection-param">
+                            <label for="detection-bg-method">
+                                Background Method
+                            </label>
+                            <select id="detection-bg-method" class="form-select form-select-sm">
+                                <option value="rolling_ball">Rolling Ball</option>
+                                <option value="morphological">Morphological</option>
+                                <option value="top_hat">Top Hat</option>
+                                <option value="linear_baseline">Linear Baseline</option>
+                                <option value="none">None</option>
+                            </select>
+                            <span class="gv-detection-param-hint">Background subtraction algorithm. Rolling ball works best for most gels.</span>
+                        </div>
+
+                        <!-- Rolling Ball Radius -->
+                        <div class="gv-detection-param">
+                            <label for="detection-rolling-radius">
+                                Rolling Ball Radius
+                                <span class="gv-detection-param-value" id="detection-rolling-radius-value">50</span>
+                            </label>
+                            <input type="range" id="detection-rolling-radius"
+                                   min="10" max="150" step="5" value="50"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Larger = follows broader background trends.</span>
+                        </div>
+
+                        <!-- Profile Width Percent -->
+                        <div class="gv-detection-param">
+                            <label for="detection-profile-width">
+                                Profile Width (%)
+                                <span class="gv-detection-param-value" id="detection-profile-width-value">50</span>
+                            </label>
+                            <input type="range" id="detection-profile-width"
+                                   min="10" max="100" step="5" value="50"
+                                   class="form-range">
+                            <span class="gv-detection-param-hint">Lane width used for profile extraction. Lower reduces edge effects.</span>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </div>
+
+        <!-- Right Main: Electropherogram Chart + Stats -->
+        <div class="gv-detection-main">
+            <div class="gv-detection-chart-host" id="detection-chart-host">
+                <!-- Electropherogram panel DOM gets reparented here when modal opens -->
+                <div class="gv-detection-chart-placeholder" id="detection-chart-placeholder">
+                    <i class="bi bi-activity"></i>
+                    <p>Select a lane to view its intensity profile</p>
+                </div>
+            </div>
+            <!-- Preview stats bar -->
+            <div class="gv-detection-preview-bar" id="detection-preview-bar" style="display: none;">
+                <div class="gv-detection-stat">
+                    <span class="gv-detection-stat-label">Bands</span>
+                    <span class="gv-detection-stat-value" id="detection-preview-total">0</span>
+                </div>
+                <div class="gv-detection-stat">
+                    <span class="gv-detection-stat-label">Peak</span>
+                    <span class="gv-detection-stat-value" id="detection-preview-lanes">0</span>
+                </div>
+                <div class="gv-detection-stat">
+                    <span class="gv-detection-stat-label">Range</span>
+                    <span class="gv-detection-stat-value" id="detection-preview-avg">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Bar (for async operations) -->
+    <div class="gv-detection-progress" id="detection-progress" style="display: none;">
+        <div class="gv-detection-progress-bar">
+            <div class="gv-detection-progress-fill" id="detection-progress-fill" style="width: 0%;"></div>
+        </div>
+        <div class="gv-detection-progress-text" id="detection-progress-text">
+            Processing lane 0/0...
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="gv-detection-footer">
+        <div class="gv-detection-footer-hint">
+            <i class="bi bi-info-circle"></i>
+            <span>Preview shows dashed outlines. Detect & Save creates permanent bands.</span>
+        </div>
+        <div class="gv-detection-footer-actions">
+            <button class="gv-detection-btn gv-detection-btn-teach" id="detection-teach" title="Teach the system with examples">
+                <i class="bi bi-mortarboard"></i>
+                <span>Teach</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-reset" id="detection-diagnose" title="Run diagnostic parameter sweep (results in browser console F12)">
+                <i class="bi bi-bug"></i>
+                <span>Diagnose</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-reset" id="detection-reset" title="Reset to defaults">
+                <i class="bi bi-arrow-counterclockwise"></i>
+                <span>Reset</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-preview" id="detection-preview" title="Preview detection">
+                <i class="bi bi-eye"></i>
+                <span>Preview</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-detect" id="detection-detect" title="Detect and save bands">
+                <i class="bi bi-check-lg"></i>
+                <span>Detect & Save</span>
+            </button>
+        </div>
+    </div>
+</div>

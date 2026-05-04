@@ -1,0 +1,150 @@
+# syntax=docker/dockerfile:1.7
+###############################################################################
+# Phoresis web container — multi-stage build with CPU/CUDA variants.
+#
+# Build args:
+#   TORCH_VARIANT  cpu (default) | cuda
+#   PYTHON_VERSION 3.12
+#
+# CPU build:
+#   docker build -f docker/Dockerfile.web --build-arg TORCH_VARIANT=cpu  -t phoresis-web:cpu  .
+# CUDA build:
+#   docker build -f docker/Dockerfile.web --build-arg TORCH_VARIANT=cuda -t phoresis-web:cuda .
+###############################################################################
+
+ARG TORCH_VARIANT=cpu
+ARG PYTHON_VERSION=3.12
+
+# ============================================================================
+# Stage 1: Frontend builder — compile Tailwind CSS bundle.
+# ============================================================================
+FROM node:20-bookworm-slim AS frontend
+WORKDIR /build
+
+COPY package.json tailwind.config.js postcss.config.js ./
+# Tailwind CLI lives in devDependencies, so install full deps here.
+RUN npm install --include=dev
+
+COPY src/ ./src/
+RUN npm run build:css
+
+# ============================================================================
+# Stage 2A: Python deps (CPU variant).
+# ============================================================================
+FROM python:${PYTHON_VERSION}-slim-bookworm AS python-cpu
+WORKDIR /app
+ENV UV_LINK_MODE=copy
+
+# apt cache mount keeps the package archive between builds — when the apt
+# package list above doesn't change, this layer re-uses the cached debs.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libpq-dev libjpeg-dev zlib1g-dev libtiff-dev \
+        libfreetype6-dev liblcms2-dev libwebp-dev libopenjp2-7-dev \
+        libgl1 libglib2.0-0 \
+        curl ca-certificates
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv
+
+COPY pyproject.toml uv.lock ./
+# uv cache mount: when pyproject.toml or uv.lock change marginally (e.g. add
+# one dep), uv reuses already-downloaded wheels for the unchanged deps. Drops
+# rebuild from ~5 min to ~20 s for a minor lockfile bump.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv /opt/venv && \
+    . /opt/venv/bin/activate && \
+    uv sync --no-dev --no-install-project --frozen
+
+# ============================================================================
+# Stage 2B: Python deps (CUDA variant).
+# CUDA 12.8 + cu128 PyTorch wheel for Blackwell (sm_120, RTX 50-series) support.
+# Ubuntu 24.04 ships Python 3.12 natively — no deadsnakes PPA required.
+# ============================================================================
+FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
+WORKDIR /app
+ENV UV_LINK_MODE=copy DEBIAN_FRONTEND=noninteractive
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3.12-dev \
+        build-essential libpq-dev libjpeg-dev zlib1g-dev libtiff-dev \
+        libfreetype6-dev liblcms2-dev libwebp-dev libopenjp2-7-dev \
+        libgl1 libglib2.0-0 \
+        curl ca-certificates \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python3
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv
+
+COPY pyproject.toml uv.lock ./
+# Step order matters here:
+# 1. `uv sync --frozen` installs ALL deps from the lockfile (CPU torch from PyPI ~700 MB).
+#    The lockfile has `torch==X.Y.Z` (no local version tag) — must run first so the
+#    venv state matches the lockfile exactly, otherwise --frozen rejects the mismatch.
+# 2. `uv pip install --reinstall-package torch --reinstall-package torchvision` then
+#    swaps both packages for their cu128 builds (~3 GB). Sub-deps (nvidia-cublas etc.)
+#    pull from the cu128 index automatically.
+# Net cost: ~700 MB of redundant CPU torch download. Tradeoff: lockfile remains the
+# single source of truth for the rest of the dep tree.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv --python 3.12 /opt/venv && \
+    . /opt/venv/bin/activate && \
+    uv sync --no-dev --no-install-project --frozen && \
+    uv pip install --reinstall-package torch --reinstall-package torchvision \
+        --extra-index-url https://download.pytorch.org/whl/cu128 \
+        torch torchvision
+
+# ============================================================================
+# Stage 3: Variant selector.
+# ============================================================================
+FROM python-${TORCH_VARIANT} AS python-base
+
+# ============================================================================
+# Stage 4: Final runtime image.
+# ============================================================================
+FROM python-base AS runtime
+
+# Re-declare so this stage can reference the global build arg in ENV below.
+ARG TORCH_VARIANT=cpu
+
+ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH=/opt/venv/bin:$PATH \
+    PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT}
+
+# Non-root user
+RUN useradd --create-home --shell /bin/bash --uid 1000 phoresis
+WORKDIR /app
+
+# App code
+COPY --chown=phoresis:phoresis manage.py conftest.py ./
+COPY --chown=phoresis:phoresis src/ ./src/
+COPY --chown=phoresis:phoresis docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=phoresis:phoresis docker/gunicorn.conf.py /etc/gunicorn.conf.py
+
+# Built CSS from Stage 1
+COPY --from=frontend --chown=phoresis:phoresis \
+    /build/src/phoresis_ui/static/phoresis_ui/css/output.css \
+    /app/src/phoresis_ui/static/phoresis_ui/css/output.css
+
+# Static + media volume mountpoints
+RUN mkdir -p /srv/staticfiles /srv/media && \
+    chown -R phoresis:phoresis /srv/staticfiles /srv/media && \
+    chmod +x /usr/local/bin/entrypoint.sh
+
+# Caddy serves static from this path; collectstatic in entrypoint writes here.
+ENV STATIC_ROOT=/srv/staticfiles MEDIA_ROOT=/srv/media
+
+USER phoresis
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/live/', timeout=3).status == 200 else 1)"
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["gunicorn", "-c", "/etc/gunicorn.conf.py", "phoresis.wsgi:application"]

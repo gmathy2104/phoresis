@@ -1,0 +1,192 @@
+<!-- Profile Peak Detection Panel - Centered Modal for profile-based peak detection -->
+<div class="gv-modal-backdrop" id="profile-detection-backdrop" style="display: none;"></div>
+<div class="gv-detection-panel" id="profile-detection-panel" style="display: none;">
+    <!-- Header -->
+    <div class="gv-detection-header">
+        <div class="gv-detection-title">
+            <i class="bi bi-graph-up"></i>
+            <span>Profile Peak Detection</span>
+        </div>
+        <button class="gv-detection-close" id="profile-detection-close" title="Close (Esc)">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    <!-- Body -->
+    <div class="gv-detection-body">
+        <!-- Left: Lane Selection -->
+        <div class="gv-detection-section gv-detection-lanes">
+            <div class="gv-detection-section-title">
+                <i class="bi bi-layers"></i>
+                <span>Target Lanes</span>
+            </div>
+            <div class="gv-detection-lane-selector">
+                <select id="profile-detection-lane-filter" class="form-select form-select-sm">
+                    <option value="all">All Lanes</option>
+                    <option value="sample">Sample Lanes Only</option>
+                    <option value="selected">Selected Lane</option>
+                </select>
+                <div class="gv-detection-lane-count" id="profile-detection-lane-count">
+                    <span class="count">0</span> lanes
+                </div>
+            </div>
+            <div class="gv-detection-lane-list" id="profile-detection-lane-list">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Center: Parameters -->
+        <div class="gv-detection-section gv-detection-params">
+            <div class="gv-detection-section-title">
+                <i class="bi bi-sliders"></i>
+                <span>Detection Parameters</span>
+            </div>
+            <div class="gv-detection-params-grid">
+                <!-- Sensitivity -->
+                <div class="gv-detection-param">
+                    <label for="profile-detection-sensitivity"
+                           data-tooltip="Peak detection sensitivity (0.5-1.0). Higher values detect more peaks including faint ones.">
+                        Sensitivity
+                        <span class="gv-detection-param-value" id="profile-detection-sensitivity-value">0.85</span>
+                    </label>
+                    <input type="range" id="profile-detection-sensitivity"
+                           min="0.5" max="1.0" step="0.05" value="0.85"
+                           class="form-range">
+                </div>
+
+                <!-- Min Peak Distance -->
+                <div class="gv-detection-param">
+                    <label for="profile-detection-min-distance"
+                           data-tooltip="Minimum distance between peaks in pixels. Prevents detecting the same peak twice.">
+                        Min Peak Distance (px)
+                        <span class="gv-detection-param-value" id="profile-detection-min-distance-value">10</span>
+                    </label>
+                    <input type="range" id="profile-detection-min-distance"
+                           min="3" max="50" step="1" value="10"
+                           class="form-range">
+                </div>
+
+                <!-- Match Tolerance -->
+                <div class="gv-detection-param">
+                    <label for="profile-detection-match-tolerance"
+                           data-tooltip="Tolerance for matching detected peaks to existing bands (pixels). Peaks within this range of an existing band are marked as matched.">
+                        Match Tolerance (px)
+                        <span class="gv-detection-param-value" id="profile-detection-match-tolerance-value">15</span>
+                    </label>
+                    <input type="range" id="profile-detection-match-tolerance"
+                           min="5" max="50" step="1" value="15"
+                           class="form-range">
+                </div>
+
+                <!-- Smoothing Window -->
+                <div class="gv-detection-param">
+                    <label for="profile-detection-smoothing"
+                           data-tooltip="Smoothing window size. Larger values smooth out noise but may merge close peaks.">
+                        Smoothing Window
+                        <span class="gv-detection-param-value" id="profile-detection-smoothing-value">11</span>
+                    </label>
+                    <input type="range" id="profile-detection-smoothing"
+                           min="3" max="31" step="2" value="11"
+                           class="form-range">
+                </div>
+            </div>
+
+            <!-- Advanced Options (collapsed) -->
+            <details class="gv-detection-advanced">
+                <summary>
+                    <i class="bi bi-gear"></i>
+                    Advanced Options
+                </summary>
+                <div class="gv-detection-params-grid">
+                    <!-- Enable Deconvolution -->
+                    <div class="gv-detection-param gv-detection-param-checkbox">
+                        <label for="profile-detection-deconv">
+                            <input type="checkbox" id="profile-detection-deconv">
+                            Enable Deconvolution
+                        </label>
+                        <span class="gv-detection-param-hint">
+                            Separate overlapping peaks using multi-Gaussian fitting
+                        </span>
+                    </div>
+
+                    <!-- Enable Shoulder Detection -->
+                    <div class="gv-detection-param gv-detection-param-checkbox">
+                        <label for="profile-detection-shoulder">
+                            <input type="checkbox" id="profile-detection-shoulder" checked>
+                            Detect Shoulder Peaks
+                        </label>
+                        <span class="gv-detection-param-hint">
+                            Detect asymmetric shoulders on main peaks
+                        </span>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Right: Electropherogram + Preview Stats -->
+        <div class="gv-detection-section gv-detection-chart-section">
+            <div class="gv-detection-section-title">
+                <i class="bi bi-graph-up"></i>
+                <span>Electropherogram</span>
+            </div>
+            <!-- Chart host: electropherogram panel gets reparented here -->
+            <div class="gv-detection-chart-host" id="profile-detection-chart-host">
+                <div class="gv-detection-chart-placeholder" id="profile-detection-chart-placeholder">
+                    <i class="bi bi-activity"></i>
+                    <p>Select a lane to view its intensity profile</p>
+                </div>
+            </div>
+            <!-- Preview stats (shown after preview run) -->
+            <div class="gv-detection-preview-stats" id="profile-detection-preview-stats" style="display: none;">
+                <div class="gv-detection-stat">
+                    <span class="gv-detection-stat-value" id="profile-detection-preview-total">0</span>
+                    <span class="gv-detection-stat-label">Total Peaks</span>
+                </div>
+                <div class="gv-detection-stat">
+                    <span class="gv-detection-stat-value" id="profile-detection-preview-orphans">0</span>
+                    <span class="gv-detection-stat-label">New (Orphan)</span>
+                </div>
+                <div class="gv-detection-stat">
+                    <span class="gv-detection-stat-value" id="profile-detection-preview-matched">0</span>
+                    <span class="gv-detection-stat-label">Matched</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Bar (for async operations) -->
+    <div class="gv-detection-progress" id="profile-detection-progress" style="display: none;">
+        <div class="gv-detection-progress-bar">
+            <div class="gv-detection-progress-fill" id="profile-detection-progress-fill" style="width: 0%;"></div>
+        </div>
+        <div class="gv-detection-progress-text" id="profile-detection-progress-text">
+            Processing lane 0/0...
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="gv-detection-footer">
+        <div class="gv-detection-footer-hint">
+            <i class="bi bi-info-circle"></i>
+            <span>Peaks are detected from lane intensity profiles. Only orphan peaks (not matching existing bands) will create new bands.</span>
+        </div>
+        <div class="gv-detection-footer-actions">
+            <button class="gv-detection-btn gv-detection-btn-teach" id="profile-detection-teach" title="Teach the system with examples">
+                <i class="bi bi-mortarboard"></i>
+                <span>Teach</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-reset" id="profile-detection-reset" title="Reset to defaults">
+                <i class="bi bi-arrow-counterclockwise"></i>
+                <span>Reset</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-preview" id="profile-detection-preview" title="Preview detection">
+                <i class="bi bi-eye"></i>
+                <span>Preview</span>
+            </button>
+            <button class="gv-detection-btn gv-detection-btn-detect" id="profile-detection-detect" title="Detect and save bands">
+                <i class="bi bi-check-lg"></i>
+                <span>Detect & Save</span>
+            </button>
+        </div>
+    </div>
+</div>

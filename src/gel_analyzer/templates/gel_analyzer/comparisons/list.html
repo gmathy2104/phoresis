@@ -1,0 +1,303 @@
+{% extends "components/app_base.html" %}
+{% load ui_components ui_icons static %}
+
+{% block title %}Sample Comparison — Phoresis{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <header class="flex items-end justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold">Sample Comparison</h1>
+            <p class="mt-1 text-sm text-text-muted">Compare gel densitometry results across multiple samples or lanes.</p>
+        </div>
+        <div class="flex flex-shrink-0 gap-2">
+            {% btn "Start New Comparison" href="/gel-analyzer/comparisons/new/" icon="plus-circle" %}
+        </div>
+    </header>
+
+    {# Feature highlights — compact info cards #}
+    <section class="grid gap-4 md:grid-cols-3">
+        <div class="rounded-lg border border-border bg-surface p-4">
+            <div class="flex items-start gap-3">
+                <div class="rounded-md bg-accent-50 p-2 text-accent-700">
+                    {% icon "trending-up" size=20 %}
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium">Electropherogram Overlay</h3>
+                    <p class="mt-1 text-xs text-text-muted">Superpose intensity profiles with MW-aligned X-axis for accurate comparison.</p>
+                </div>
+            </div>
+        </div>
+        <div class="rounded-lg border border-border bg-surface p-4">
+            <div class="flex items-start gap-3">
+                <div class="rounded-md bg-emerald-50 p-2 text-emerald-700">
+                    {% icon "columns" size=20 %}
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium">Side-by-Side Lanes</h3>
+                    <p class="mt-1 text-xs text-text-muted">Visual band comparison with shared MW scale.</p>
+                </div>
+            </div>
+        </div>
+        <div class="rounded-lg border border-border bg-surface p-4">
+            <div class="flex items-start gap-3">
+                <div class="rounded-md bg-amber-50 p-2 text-amber-700">
+                    {% icon "table" size=20 %}
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium">Band Matching Table</h3>
+                    <p class="mt-1 text-xs text-text-muted">MW-aligned band comparison with % difference calculations.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {# Saved comparisons #}
+    <section class="rounded-lg border border-border bg-surface">
+        <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">Saved Comparisons</h2>
+            <input type="search" id="comparison-search" placeholder="Search…"
+                   class="rounded-md border border-border bg-bg px-3 py-1.5 text-sm">
+        </div>
+        <div class="border-b border-border px-4 pt-3">
+            <nav class="flex gap-2" id="comparison-filter-tabs">
+                <button type="button" data-filter="mine"
+                        class="rounded-t-md border-b-2 border-accent-600 px-3 py-2 text-sm font-medium text-accent-700">
+                    My Comparisons
+                </button>
+                <button type="button" data-filter="all"
+                        class="rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-text-muted hover:text-text">
+                    All Comparisons
+                </button>
+            </nav>
+        </div>
+        <div class="p-4">
+            <div id="comparison-cards-container" class="grid gap-3 md:grid-cols-2 lg:grid-cols-3"></div>
+            <div id="comparison-empty" class="hidden py-8 text-center text-sm text-text-muted">
+                <span id="comparison-empty-text">No saved comparisons yet. Start a comparison and save it.</span>
+            </div>
+            <div id="comparison-loading" class="hidden py-6 text-center text-sm text-text-muted">Loading…</div>
+        </div>
+    </section>
+
+    {# Recent analyses with densitometry #}
+    <section class="rounded-lg border border-border bg-surface">
+        <div class="border-b border-border px-4 py-3">
+            <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">Recent Analyses with Densitometry</h2>
+        </div>
+        {% if recent_analyses %}
+            <table class="w-full text-sm">
+                <thead class="bg-surface-elevated text-left text-xs uppercase tracking-wide text-text-muted">
+                    <tr>
+                        <th class="px-4 py-3">Analysis</th>
+                        <th class="px-4 py-3">Gel Type</th>
+                        <th class="px-4 py-3">Lanes</th>
+                        <th class="px-4 py-3">Created</th>
+                        <th class="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                    {% for analysis in recent_analyses %}
+                        <tr class="hover:bg-surface-elevated">
+                            <td class="px-4 py-3">
+                                <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}" class="font-medium hover:underline">
+                                    {{ analysis.name|default:"Unnamed Analysis" }}
+                                </a>
+                            </td>
+                            <td class="px-4 py-3">{% badge analysis.gel_type variant="muted" %}</td>
+                            <td class="px-4 py-3">{{ analysis.lanes.count }} lanes</td>
+                            <td class="px-4 py-3 text-text-muted">{{ analysis.created_at|date:"M d, Y H:i" }}</td>
+                            <td class="px-4 py-3 text-right">
+                                <a href="{% url 'gel_analyzer:sample_comparison' %}?lanes={% for lane in analysis.lanes.all %}{{ lane.pk }}{% if not forloop.last %}&lanes={% endif %}{% endfor %}"
+                                   class="inline-flex items-center gap-1 text-sm text-accent-600 hover:underline">
+                                    Compare lanes →
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            {% empty_state "No analyses with densitometry yet" message="Run densitometry on an analysis to enable comparisons." icon="inbox" cta_label="View All Analyses" cta_href="/analyses/" %}
+        {% endif %}
+    </section>
+</div>
+
+{% csrf_token %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const API_URL = '{% url "gel_analyzer:api_saved_comparisons" %}';
+    const COMPARE_URL = '{% url "gel_analyzer:sample_comparison" %}';
+    const CURRENT_USER_ID = {{ current_user_id }};
+
+    const container = document.getElementById('comparison-cards-container');
+    const emptyEl = document.getElementById('comparison-empty');
+    const emptyTextEl = document.getElementById('comparison-empty-text');
+    const loadingEl = document.getElementById('comparison-loading');
+    const searchInput = document.getElementById('comparison-search');
+    const filterTabs = document.querySelectorAll('#comparison-filter-tabs button');
+
+    let currentFilter = 'mine';
+    let searchTimeout = null;
+
+    const GEL_TYPE_LABELS = {
+        'SDS_PAGE': 'SDS-PAGE',
+        'WESTERN_BLOT': 'Western Blot',
+        'DOT_BLOT': 'Dot Blot',
+    };
+
+    function timeAgo(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 30) return `${diffDays}d ago`;
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function escapeHtml(s) {
+        return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function renderCard(comp) {
+        const isOwner = comp.created_by?.id === CURRENT_USER_ID;
+        const gelTypeBadges = (comp.gel_types || []).map(gt => {
+            const label = GEL_TYPE_LABELS[gt] || gt;
+            return `<span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">${escapeHtml(label)}</span>`;
+        }).join('');
+
+        const calibrationHtml = comp.lane_count > 0
+            ? `<span class="text-xs text-text-muted">${comp.calibrated_count}/${comp.lane_count} calibrated</span>`
+            : '';
+
+        const publicBadge = comp.is_public
+            ? '<span class="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs">Public</span>'
+            : '<span class="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs">Private</span>';
+
+        const deleteBtn = isOwner
+            ? `<button type="button" class="comp-delete-btn absolute right-2 top-2 rounded-md p-1 text-text-muted hover:bg-red-50 hover:text-red-600" data-comp-id="${comp.id}" aria-label="Delete">×</button>`
+            : '';
+
+        const creatorName = escapeHtml(comp.created_by?.display_name || comp.created_by?.username || 'Unknown');
+
+        return `
+            <div class="relative cursor-pointer rounded-lg border border-border bg-surface p-4 transition hover:-translate-y-px hover:shadow-md" data-comp-id="${comp.id}">
+                ${deleteBtn}
+                <div class="truncate pr-6 text-sm font-semibold" title="${escapeHtml(comp.name)}">${escapeHtml(comp.name)}</div>
+                <div class="mt-1 text-xs text-text-muted">by ${creatorName} · ${timeAgo(comp.updated_at)}</div>
+                <div class="mt-2 flex flex-wrap items-center gap-1">
+                    <span class="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">${comp.lane_count} lane${comp.lane_count !== 1 ? 's' : ''}</span>
+                    ${gelTypeBadges}
+                    ${calibrationHtml}
+                    ${publicBadge}
+                </div>
+                ${comp.description ? `<div class="mt-2 truncate text-xs text-text-muted">${escapeHtml(comp.description)}</div>` : ''}
+            </div>
+        `;
+    }
+
+    function renderComparisons(comparisons) {
+        if (!comparisons || comparisons.length === 0) {
+            container.innerHTML = '';
+            container.classList.add('hidden');
+            emptyEl.classList.remove('hidden');
+            emptyTextEl.textContent = currentFilter === 'mine'
+                ? 'No saved comparisons yet. Start a comparison and save it.'
+                : 'No comparisons found matching your criteria.';
+            return;
+        }
+
+        container.classList.remove('hidden');
+        emptyEl.classList.add('hidden');
+        container.innerHTML = comparisons.map(renderCard).join('');
+
+        container.querySelectorAll('[data-comp-id]').forEach(card => {
+            card.addEventListener('click', function(e) {
+                if (e.target.closest('.comp-delete-btn')) return;
+                const compId = this.dataset.compId;
+                window.location.href = `${COMPARE_URL}?comparison=${compId}`;
+            });
+        });
+
+        container.querySelectorAll('.comp-delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const compId = this.dataset.compId;
+                if (confirm('Delete this comparison?')) {
+                    deleteComparison(compId);
+                }
+            });
+        });
+    }
+
+    async function loadComparisons() {
+        loadingEl.classList.remove('hidden');
+        container.classList.add('hidden');
+        emptyEl.classList.add('hidden');
+
+        const search = searchInput.value.trim();
+        const params = new URLSearchParams({ filter: currentFilter });
+        if (search) params.set('search', search);
+
+        try {
+            const response = await fetch(`${API_URL}?${params.toString()}`);
+            const data = await response.json();
+            renderComparisons(data.results);
+        } catch (err) {
+            console.error('Failed to load comparisons:', err);
+            container.innerHTML = '<div class="col-span-full text-center text-sm text-red-600 py-3">Failed to load comparisons.</div>';
+            container.classList.remove('hidden');
+        } finally {
+            loadingEl.classList.add('hidden');
+        }
+    }
+
+    async function deleteComparison(compId) {
+        try {
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+                || document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('csrftoken='))?.split('=')[1];
+
+            const response = await fetch(`${API_URL}${compId}/`, {
+                method: 'DELETE',
+                headers: { 'X-CSRFToken': csrfToken },
+            });
+            if (response.ok) {
+                loadComparisons();
+            }
+        } catch (err) {
+            console.error('Failed to delete comparison:', err);
+        }
+    }
+
+    filterTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            filterTabs.forEach(t => {
+                t.classList.remove('border-accent-600', 'text-accent-700');
+                t.classList.add('border-transparent', 'text-text-muted');
+            });
+            this.classList.remove('border-transparent', 'text-text-muted');
+            this.classList.add('border-accent-600', 'text-accent-700');
+            currentFilter = this.dataset.filter;
+            loadComparisons();
+        });
+    });
+
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(loadComparisons, 300);
+    });
+
+    loadComparisons();
+});
+</script>
+{% endblock %}

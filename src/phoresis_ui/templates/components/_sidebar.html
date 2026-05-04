@@ -1,0 +1,51 @@
+{% load ui_icons %}
+<aside x-data="{ pinned: localStorage.getItem('phoresis_sidebar_pinned') === '1' }"
+       :class="pinned ? 'w-60' : 'w-[72px] hover:w-60'"
+       class="group sticky top-0 h-screen overflow-hidden border-r border-border bg-surface transition-[width] duration-200 ease-out">
+    <div class="flex h-15 items-center px-4">
+        <a href="{% url 'dashboard:home' %}" class="flex items-center gap-2 text-text">
+            {% icon "flask-conical" size=24 class_="text-accent-600" %}
+            <span class="origin-left whitespace-nowrap font-semibold text-base transition-opacity"
+                  :class="pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'">
+                Phoresis
+            </span>
+        </a>
+    </div>
+
+    <nav class="px-2 py-2 space-y-1">
+        <a href="{% url 'dashboard:home' %}"
+           class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.namespace == 'dashboard' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
+            <span class="transition-transform group-hover:scale-110">
+                {% icon "layout-dashboard" %}
+            </span>
+            <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Dashboard</span>
+        </a>
+        <a href="{% url 'gel_analyzer:image_list' %}"
+           class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.url_name == 'image_list' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
+            <span class="transition-transform group-hover:scale-110">
+                {% icon "image" %}
+            </span>
+            <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Gel Images</span>
+        </a>
+        <a href="{% url 'gel_analyzer:analysis_list' %}"
+           class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.url_name == 'analysis_list' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
+            <span class="transition-transform group-hover:scale-110">
+                {% icon "layers" %}
+            </span>
+            <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Analyses</span>
+        </a>
+        <a href="{% url 'gel_analyzer:comparison_list' %}"
+           class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-muted hover:bg-surface-elevated hover:text-text transition-colors {% if request.resolver_match.url_name == 'comparison_list' %}bg-accent-50 text-accent-700 font-medium{% endif %}">
+            <span class="transition-transform group-hover:scale-110">
+                {% icon "grid-2x2" %}
+            </span>
+            <span class="whitespace-nowrap" :class="pinned ? '' : 'hidden group-hover:inline'">Comparisons</span>
+        </a>
+    </nav>
+
+    <button class="absolute bottom-4 right-3 rounded-md p-1 text-text-muted hover:bg-surface-elevated"
+            @click="pinned = !pinned; localStorage.setItem('phoresis_sidebar_pinned', pinned ? '1' : '0')"
+            :title="pinned ? 'Unpin sidebar' : 'Pin sidebar'">
+        {% icon "chevron-left" %}
+    </button>
+</aside>

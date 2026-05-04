@@ -1,0 +1,47 @@
+{% extends 'components/app_base.html' %}
+{% load ui_components ui_icons %}
+
+{% block title %}Profile — Phoresis{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl space-y-6">
+    <header class="flex items-center gap-4">
+        {% if request.user.profile.avatar %}
+            <img src="{{ request.user.profile.avatar.url }}" alt="" class="h-16 w-16 rounded-full object-cover">
+        {% else %}
+            <span class="grid h-16 w-16 place-items-center rounded-full bg-accent-50 text-2xl font-semibold text-accent-700">
+                {{ request.user.username|first|upper }}
+            </span>
+        {% endif %}
+        <div>
+            <h1 class="text-2xl font-semibold">{{ request.user }}</h1>
+            <p class="text-sm text-text-muted">{{ request.user.email }}</p>
+        </div>
+    </header>
+
+    {% card_open %}
+    <h2 class="mb-4 text-lg font-semibold">Appearance</h2>
+    <p class="mb-3 text-sm text-text-muted">Choose how Phoresis looks. Your preference syncs across devices.</p>
+    <div x-data class="flex gap-2">
+        <button @click="$store.theme.set('light')" :class="$store.theme.user === 'light' ? 'border-accent-500 bg-accent-50 text-accent-700' : 'border-border bg-surface'" class="flex flex-1 flex-col items-center gap-2 rounded-lg border p-4 transition-colors">
+            {% icon "sun" %}<span class="text-sm font-medium">Light</span>
+        </button>
+        <button @click="$store.theme.set('auto')" :class="$store.theme.user === 'auto' ? 'border-accent-500 bg-accent-50 text-accent-700' : 'border-border bg-surface'" class="flex flex-1 flex-col items-center gap-2 rounded-lg border p-4 transition-colors">
+            {% icon "monitor" %}<span class="text-sm font-medium">Auto</span>
+        </button>
+        <button @click="$store.theme.set('dark')" :class="$store.theme.user === 'dark' ? 'border-accent-500 bg-accent-50 text-accent-700' : 'border-border bg-surface'" class="flex flex-1 flex-col items-center gap-2 rounded-lg border p-4 transition-colors">
+            {% icon "moon" %}<span class="text-sm font-medium">Dark</span>
+        </button>
+    </div>
+    {% card_close %}
+
+    {% card_open %}
+    <h2 class="mb-4 text-lg font-semibold">Account details</h2>
+    <dl class="grid grid-cols-2 gap-4 text-sm">
+        <dt class="text-text-muted">Username</dt><dd>{{ request.user.username }}</dd>
+        <dt class="text-text-muted">Email</dt><dd>{{ request.user.email }}</dd>
+        <dt class="text-text-muted">Language</dt><dd>{{ request.user.profile.get_language_display }}</dd>
+    </dl>
+    {% card_close %}
+</div>
+{% endblock %}
