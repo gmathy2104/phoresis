@@ -35,34 +35,22 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
 
-  # ───────────────────────── build + push (4-variant matrix) ─────────────────────────
+  # ───────────────────────── build + push (CPU only) ─────────────────────────
+  # Ship pre-built CPU images via GHCR. CUDA images are NOT built in CI by design:
+  # GPU users build them locally during `install.ps1` (the build is fast enough on
+  # a workstation with a real GPU, and avoids GitHub-runner disk-space/build-time
+  # ceilings + matrix complexity). See `docs/INSTALL.md` for the user-side flow.
   build-and-push:
-    name: ${{ matrix.image }}-${{ matrix.variant }}
+    name: ${{ matrix.image }}-cpu
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        image:   [web, worker]
-        variant: [cpu, cuda]
+        image: [web, worker]
     steps:
       - uses: actions/checkout@v5
         with: { lfs: true }
-
-      # CUDA images (~6-8 GB of nvidia-* wheels + CUDA base ~3 GB) overflow
-      # the default ubuntu-24.04 runner's ~14 GB of free disk. Free ~28 GB by
-      # removing preinstalled toolchains we don't need.
-      - name: Free disk space (CUDA only)
-        if: matrix.variant == 'cuda'
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: false
-          docker-images: false
-          swap-storage: false
 
       - name: Resolve tag (push event vs manual dispatch)
         id: tag
@@ -81,18 +69,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push phoresis-${{ matrix.image }}:{tag,latest}-${{ matrix.variant }}
+      - name: Build + push phoresis-${{ matrix.image }}:{tag,latest}-cpu
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.image }}
-          build-args: TORCH_VARIANT=${{ matrix.variant }}
+          build-args: TORCH_VARIANT=cpu
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:${{ steps.tag.outputs.value }}-${{ matrix.variant }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:latest-${{ matrix.variant }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:buildcache-${{ matrix.variant }}
-          cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:buildcache-${{ matrix.variant }},mode=max
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:${{ steps.tag.outputs.value }}-cpu
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:latest-cpu
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:buildcache-cpu
+          cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:buildcache-cpu,mode=max
           provenance: true
           sbom: true
 

@@ -20,14 +20,93 @@ Phoresis is a Django-based lab application for SDS-PAGE, Dot Blot, and Western B
 - **Dark / light auto** — full parity, smooth transitions, designed for long lab sessions.
 - **Local install + auto-update** — no cloud, no telemetry. Watchtower pulls new images at 03:00 daily.
 
-## Quick start (end-user)
+## Installation (Windows 11)
+
+Step-by-step. First run takes 10–25 minutes depending on whether you have a GPU.
+
+### 1. Clone the repository
 
 ```powershell
-# Run as Administrator
+git clone https://github.com/gmathy2104/phoresis.git
+cd phoresis
+git lfs pull
+```
+
+The `git lfs pull` step downloads the bundled ML models (~108 MB: YOLO + MobileSAM ONNX). Skip it and the app will start but band detection won't work.
+
+### 2. Run the installer (one command, as Administrator)
+
+Right-click PowerShell → "Run as Administrator", then:
+
+```powershell
 .\scripts\install.ps1
 ```
 
-Five minutes later (warm cache; 10–20 minutes cold), `https://phoresis/` opens in your browser. See [docs/INSTALL.md](docs/INSTALL.md) for the full walkthrough.
+The script is **idempotent** — re-runnable safely if anything is interrupted. It does, in order:
+
+| Step | What | Notes |
+|---|---|---|
+| 1 | Verifies Windows 10/11 + admin elevation | exits early if not |
+| 2 | Installs Docker Desktop via `winget` if missing | needs sign-out/sign-in for WSL2; script asks you to re-run |
+| 3 | Installs PostgreSQL 17 via `winget` if missing | you set the `postgres` superuser password during install |
+| 4 | Provisions the `phoresis` DB + user (asks for `postgres` password once) | idempotent — does nothing if already created |
+| 5 | Detects your GPU via `nvidia-smi` | sm_75+ → CUDA variant; otherwise CPU. Override with `-Variant cpu` or `-Variant cuda` |
+| 6 | Adds `127.0.0.1 phoresis` to your hosts file | for `https://phoresis/` |
+| 7 | Creates `%USERPROFILE%\Phoresis-Data\media\` (host bind-mount) | overridable with `-DataDir D:\Phoresis-Data` |
+| 8 | Migrates from a legacy `phoresis_media` Docker volume if present | one-shot |
+| 9 | Generates `.env` (asks: admin email/password, primary lab user email/password/name) | only on first run; delete `.env` to regenerate |
+| 10 | **CPU**: pulls `ghcr.io/gmathy2104/phoresis-{web,worker}:latest-cpu` from GHCR<br>**CUDA**: builds the images locally with `docker compose build` (~15-25 min one-time, fast on subsequent updates thanks to layer cache) | CUDA images are NOT shipped via CI by design — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §"CI/CD flow" |
+| 11 | `docker compose up -d` brings up Caddy + Django + Celery worker + Celery beat + Redis + Watchtower | |
+| 12 | Waits for `https://phoresis/healthz/live/` to return 200 | up to 90 s |
+| 13 | Trusts Caddy's self-signed root CA so the browser accepts `https://phoresis/` | |
+| 14 | Creates a `Phoresis.lnk` desktop shortcut wired to `start.ps1` | |
+| 15 | Opens `https://phoresis/` in your default browser | |
+
+### 3. First-time database setup happens automatically
+
+Inside the running web container, the entrypoint runs:
+
+```bash
+python manage.py migrate              # applies all migrations
+python manage.py seed_groups          # creates the 3 default groups (Lab User / Reviewer / Admin)
+python manage.py seed_ladder_templates # seeds standard MW ladders
+python manage.py create_initial_users --from-env --skip-existing
+                                      # creates admin + primary lab user from .env values
+python manage.py collectstatic --noinput  # bakes static files
+```
+
+You don't have to run any of these by hand. Sign in with the **primary lab user** credentials you entered in step 9.
+
+### 4. Daily use
+
+Double-click the **Phoresis** desktop shortcut, or run:
+
+```powershell
+.\scripts\start.ps1     # bring the stack up + open the browser
+.\scripts\stop.ps1      # stop the stack (volumes preserved; cannot wipe user data)
+```
+
+### 5. Updating the application
+
+```powershell
+.\scripts\update.ps1            # pull or rebuild images, run migrations, restart
+.\scripts\update.ps1 -Rollback v1.0.0   # roll back to a specific tag
+```
+
+CPU users get auto-updates from Watchtower at 03:00 daily (pulls latest GHCR image, runs migrations on container restart). GPU users update manually via `update.ps1`, which rebuilds the CUDA images locally.
+
+### 6. Backups
+
+```powershell
+.\scripts\backup.ps1    # pg_dump + media tar to %USERPROFILE%\Phoresis-Backups\YYYY-MM-DD_HHmmss
+.\scripts\restore.ps1   # interactive snapshot picker
+```
+
+Schedule daily backups via Windows Task Scheduler — see [CONTRIBUTING.md](CONTRIBUTING.md) §"Scheduled backups".
+
+### Troubleshooting
+
+If anything in step 2 misbehaves, see [docs/INSTALL.md](docs/INSTALL.md) for screenshots and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §"Common troubleshooting".
 
 ## Screenshots
 

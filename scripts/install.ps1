@@ -249,15 +249,32 @@ if (Test-Path $envPath) {
     Write-Ok ".env written with $resolvedVariant variant"
 }
 
-# --- 6. docker compose pull + up ---
-Write-Step "Pulling Phoresis images from ghcr.io"
+# --- 6. Get the images ---
+# CPU images are pulled from ghcr.io (built by release.yml CI).
+# CUDA images are NOT shipped via CI (avoids GitHub-runner disk/time ceilings);
+# they're built locally on the user's GPU machine — fast on a workstation
+# with a real GPU, and the cache mounts in the Dockerfiles make rebuilds cheap.
 $composeArgs = Get-ComposeArgs -WithGpu:($resolvedVariant -eq 'cuda')
-& docker compose @composeArgs pull
-if ($LASTEXITCODE -ne 0) {
-    Write-Err "docker compose pull failed (exit $LASTEXITCODE)"
-    exit $LASTEXITCODE
+if ($resolvedVariant -eq 'cuda') {
+    Write-Step "Building CUDA images locally (one-time, ~15-25 min on first run)"
+    Write-Sub "GPU users build locally so we can ship cu128 + Blackwell support"
+    Write-Sub "without overflowing GitHub-hosted runner disks. Subsequent rebuilds"
+    Write-Sub "(after a phoresis update) are much faster thanks to the layer cache."
+    & docker compose @composeArgs build --build-arg TORCH_VARIANT=cuda
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "docker compose build (cuda) failed (exit $LASTEXITCODE)"
+        exit $LASTEXITCODE
+    }
+    Write-Ok "CUDA images built"
+} else {
+    Write-Step "Pulling Phoresis CPU images from ghcr.io"
+    & docker compose @composeArgs pull
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "docker compose pull failed (exit $LASTEXITCODE)"
+        exit $LASTEXITCODE
+    }
+    Write-Ok "Images pulled"
 }
-Write-Ok "Images pulled"
 
 Write-Step "Starting the stack"
 & docker compose @composeArgs up -d

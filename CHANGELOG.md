@@ -9,6 +9,16 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.7] - 2026-05-04
+
+### CI simplification + dev workflow improvements
+
+- **`release.yml` ships CPU images only** (descope CUDA matrix). CUDA users build locally during `install.ps1` — fast on a real GPU machine, avoids GitHub-runner disk/time ceilings, eliminates matrix complexity. Drops 2 of 4 jobs from the release pipeline; CPU build now reliable in ~10 min.
+- **`install.ps1` + `update.ps1`** branch on `PHORESIS_IMAGE_VARIANT`: CPU pulls from GHCR, CUDA does `docker compose build --build-arg TORCH_VARIANT=cuda` locally. One-time ~15-25 min build; subsequent rebuilds cheap thanks to the new cache mounts.
+- **Dockerfile cache mounts**: added `--mount=type=cache,target=/root/.cache/uv` and `--mount=type=cache,target=/var/cache/apt` to all 4 deps stages (Dockerfile.web + Dockerfile.worker × CPU + CUDA). Marginal pyproject.toml/uv.lock changes now skip re-downloading the unchanged 90% of wheels — local rebuild ~5 min → ~20 s.
+- **`docker/compose.dev.yml`**: new dev override that bind-mounts `./src`, `./manage.py`, `./conftest.py` into web + worker + scheduler containers, swaps gunicorn for `manage.py runserver` (Django auto-reloads), and switches `DJANGO_SETTINGS_MODULE` to `dev`. Pair with `npm run watch:css` on the host. Use: `docker compose -f docker/docker-compose.yml -f docker/compose.dev.yml up`.
+- **README.md installation section**: rewrote with clear step-by-step (clone → `install.ps1` → first-boot DB setup → daily use → updates → backups → troubleshooting). Documents the auto-run migrations / `seed_groups` / `seed_ladder_templates` / `create_initial_users` flow.
+
 ## [1.0.6] - 2026-05-04
 
 ### CUDA build runner disk space fix
