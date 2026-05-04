@@ -142,7 +142,8 @@ $pgPassword = Read-Host "Postgres superuser ('postgres') password (port $DBPort)
 $pgPasswordPlain = ConvertFrom-SecureToPlain -Secure $pgPassword
 
 $env:PGPASSWORD = $pgPasswordPlain
-$initSql = @"
+# 1. Role (idempotent via DO block)
+$roleSql = @"
 DO `$`$
 BEGIN
    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'phoresis') THEN
@@ -150,11 +151,14 @@ BEGIN
    END IF;
 END
 `$`$;
-SELECT 'created' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'phoresis')
-\gexec
-CREATE DATABASE phoresis OWNER phoresis;
 "@
-$initSql | psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres
+$roleSql | psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres
+
+# 2. Database (CREATE DATABASE can't run inside a DO block — check then create)
+$dbExists = & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='phoresis'"
+if ($dbExists -ne '1') {
+    & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -c "CREATE DATABASE phoresis OWNER phoresis"
+}
 $env:PGPASSWORD = $null
 Write-Ok "phoresis DB + user ready on port $DBPort"
 
@@ -229,8 +233,10 @@ if ($drive) {
     }
 }
 
-# Migrate from a previous named-volume install if it exists
-$oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null).Trim()
+# Migrate from a previous named-volume install if it exists.
+# `docker volume ls -q --filter` returns $null (not '') when no match — pipe
+# through Out-String so .Trim() is always callable under Set-StrictMode.
+$oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null | Out-String).Trim()
 if ($oldVolume) {
     Write-Warn "Detected legacy phoresis_media named volume - migrating contents to $mediaDir"
     $mediaDirForward = $mediaDir -replace '\\', '/'

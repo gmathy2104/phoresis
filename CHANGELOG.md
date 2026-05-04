@@ -9,6 +9,13 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.11] - 2026-05-04
+
+### install.ps1 fresh-install crash + SQL syntax fixes
+
+- **`.Trim() on $null` crash** when no legacy `phoresis_media` Docker volume is present (the common case for fresh installs). `docker volume ls -q --filter "name=..."` returns `$null` rather than an empty string when there's no match, and `.Trim()` on `$null` raises `Impossible d'appeler une méthode dans une expression Null` under `Set-StrictMode`. Pipe through `Out-String` so the result is always a string.
+- **SQL syntax error** in the DB-provisioning block: the `\gexec` pattern was using `SELECT 'created' WHERE NOT EXISTS ...` which has psql try to execute the literal string `created` as SQL, producing `erreur de syntaxe sur ou près de « created »` on every fresh install. Replaced with two clean steps: `DO $$ ... $$;` for the role (idempotent), then a separate `psql -tAc` existence check followed by a conditional `CREATE DATABASE`. Fixes both the spurious error message and the latent "double-create" bug when re-running on a host where the role already existed.
+
 ## [1.0.10] - 2026-05-04
 
 ### install.ps1: support coexisting Postgres versions
