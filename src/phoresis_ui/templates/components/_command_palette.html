@@ -1,5 +1,10 @@
 {% load ui_icons %}
-<div x-show="$store.palette.open"
+{# x-data (empty) creates an Alpine scope so x-ref/$refs/$watch work below.
+   Without it, `$refs.paletteInput.focus()` crashes with `_x_refs` undefined,
+   which kills the entire alpine:init cascade and breaks every $store.* on the
+   page. #}
+<div x-data
+     x-show="$store.palette.open"
      x-cloak
      x-transition.opacity
      class="fixed inset-0 z-50 grid place-items-start bg-black/40 p-4 pt-[10vh] backdrop-blur"
