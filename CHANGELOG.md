@@ -9,6 +9,14 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.2] - 2026-05-04
+
+### Build pipeline fixes
+
+- **Dockerfile uv sync**: COPY `uv.lock` alongside `pyproject.toml` and use `uv sync --no-dev --no-install-project --frozen`. Previously the build tried to install the local `phoresis` package during the deps stage and failed with `OSError: Readme file does not exist: README.md` (only `pyproject.toml` was COPY'd at that point). The local package isn't needed during deps install — source is COPY'd later in the runtime stage. Affects all 4 image variants.
+- **CUDA base image**: switched from `nvidia/cuda:12.1.1-runtime-ubuntu22.04` + deadsnakes PPA + `python3.12` apt-install (fragile, recently breaking) to `nvidia/cuda:12.1.1-runtime-ubuntu24.04` which ships Python 3.12 natively. Drops `software-properties-common`, `gnupg`, `add-apt-repository` from the CUDA stage.
+- **GitHub Actions versions bumped** to clear Node.js 20 deprecation warnings: `actions/checkout@v4 → v5`, `actions/setup-node@v4 → v5`, `astral-sh/setup-uv@v3 → v6`, `codecov/codecov-action@v4 → v5`, `aquasecurity/trivy-action@0.28.0 → 0.30.0`. Docker actions (`setup-buildx-action`, `build-push-action`, `login-action`) stay on v3/v6 — their maintainers will publish Node 24 versions before the June 2026 cutoff.
+
 ## [1.0.1] - 2026-05-04
 
 ### Post-v1 hardening pass
