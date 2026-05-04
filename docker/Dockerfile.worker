@@ -12,7 +12,10 @@ ARG PYTHON_VERSION=3.12
 # ============================================================================
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-cpu
 WORKDIR /app
-ENV UV_LINK_MODE=copy
+# UV_PROJECT_ENVIRONMENT: see Dockerfile.web's python-cpu stage for why this
+# is required (uv sync ignores VIRTUAL_ENV; without this it installs into
+# /app/.venv instead of /opt/venv).
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -27,8 +30,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/venv && \
-    . /opt/venv/bin/activate && \
-    uv sync --no-dev --no-install-project --frozen
+    uv sync --no-dev --no-install-project --frozen && \
+    /opt/venv/bin/python -c "import django, celery; print('django', django.__version__, '/ celery', celery.__version__, 'OK')"
 
 # ============================================================================
 # Stage B: Python deps (CUDA). Same as Dockerfile.web's python-cuda.
@@ -37,7 +40,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
 WORKDIR /app
-ENV UV_LINK_MODE=copy DEBIAN_FRONTEND=noninteractive
+# UV_PROJECT_ENVIRONMENT: see python-cpu stage above.
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -57,11 +61,12 @@ COPY pyproject.toml uv.lock ./
 # Same two-step ordering as Dockerfile.web's python-cuda — see comment there.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --python 3.12 /opt/venv && \
-    . /opt/venv/bin/activate && \
     uv sync --no-dev --no-install-project --frozen && \
-    uv pip install --reinstall-package torch --reinstall-package torchvision \
+    uv pip install --python /opt/venv/bin/python \
+        --reinstall-package torch --reinstall-package torchvision \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
-        torch torchvision
+        torch torchvision && \
+    /opt/venv/bin/python -c "import django, celery, torch; print('django', django.__version__, '/ celery', celery.__version__, '/ torch', torch.__version__)"
 
 # ============================================================================
 # Stage selector + runtime

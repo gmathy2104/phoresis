@@ -33,7 +33,11 @@ RUN npm run build:css
 # ============================================================================
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-cpu
 WORKDIR /app
-ENV UV_LINK_MODE=copy
+# UV_PROJECT_ENVIRONMENT pins `uv sync` to /opt/venv. Without it, uv sync
+# silently creates `.venv` in the project root and installs deps there,
+# leaving /opt/venv empty (even when the venv is activated -- uv sync ignores
+# VIRTUAL_ENV in favour of its own project-discovery logic).
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv
 
 # apt cache mount keeps the package archive between builds — when the apt
 # package list above doesn't change, this layer re-uses the cached debs.
@@ -54,8 +58,8 @@ COPY pyproject.toml uv.lock ./
 # rebuild from ~5 min to ~20 s for a minor lockfile bump.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/venv && \
-    . /opt/venv/bin/activate && \
-    uv sync --no-dev --no-install-project --frozen
+    uv sync --no-dev --no-install-project --frozen && \
+    /opt/venv/bin/python -c "import django; print('django', django.__version__, 'OK')"
 
 # ============================================================================
 # Stage 2B: Python deps (CUDA variant).
@@ -64,7 +68,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
 WORKDIR /app
-ENV UV_LINK_MODE=copy DEBIAN_FRONTEND=noninteractive
+# UV_PROJECT_ENVIRONMENT: see python-cpu stage above for why this is required.
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -92,11 +97,12 @@ COPY pyproject.toml uv.lock ./
 # single source of truth for the rest of the dep tree.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --python 3.12 /opt/venv && \
-    . /opt/venv/bin/activate && \
     uv sync --no-dev --no-install-project --frozen && \
-    uv pip install --reinstall-package torch --reinstall-package torchvision \
+    uv pip install --python /opt/venv/bin/python \
+        --reinstall-package torch --reinstall-package torchvision \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
-        torch torchvision
+        torch torchvision && \
+    /opt/venv/bin/python -c "import django, torch; print('django', django.__version__, '/ torch', torch.__version__, '(cuda)' if torch.cuda.is_available() else '(no cuda runtime in builder)')"
 
 # ============================================================================
 # Stage 3: Variant selector.
