@@ -102,7 +102,7 @@ Write-Ok "Docker daemon reachable"
 # --- 2. PostgreSQL 17 ---
 Write-Step "PostgreSQL 17"
 $psql = Get-Command psql -ErrorAction SilentlyContinue
-# If psql isn't on PATH, also probe the standard install location — Postgres
+# If psql isn't on PATH, also probe the standard install location -- Postgres
 # 17's installer adds bin to PATH at install time but only takes effect in
 # new shells. A re-run within the same shell would otherwise loop.
 if (-not $psql) {
@@ -136,7 +136,7 @@ Write-Ok "psql present ($(psql --version))"
 # Create phoresis DB + user (idempotent)
 Write-Sub "Provisioning 'phoresis' database + user on port $DBPort"
 if ($DBPort -ne 5432) {
-    Write-Sub "Non-default port detected — make sure Postgres 17 is reachable at 127.0.0.1:$DBPort"
+    Write-Sub "Non-default port detected -- make sure Postgres 17 is reachable at 127.0.0.1:$DBPort"
 }
 $pgPassword = Read-Host "Postgres superuser ('postgres') password (port $DBPort)" -AsSecureString
 $pgPasswordPlain = ConvertFrom-SecureToPlain -Secure $pgPassword
@@ -154,7 +154,7 @@ END
 "@
 $roleSql | psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres
 
-# 2. Database (CREATE DATABASE can't run inside a DO block — check then create)
+# 2. Database (CREATE DATABASE can't run inside a DO block -- check then create)
 $dbExists = & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='phoresis'"
 if ($dbExists -ne '1') {
     & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -c "CREATE DATABASE phoresis OWNER phoresis"
@@ -234,7 +234,7 @@ if ($drive) {
 }
 
 # Migrate from a previous named-volume install if it exists.
-# `docker volume ls -q --filter` returns $null (not '') when no match — pipe
+# `docker volume ls -q --filter` returns $null (not '') when no match -- pipe
 # through Out-String so .Trim() is always callable under Set-StrictMode.
 $oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null | Out-String).Trim()
 if ($oldVolume) {
@@ -295,7 +295,7 @@ if (Test-Path $envPath) {
 # --- 6. Get the images ---
 # CPU images are pulled from ghcr.io (built by release.yml CI).
 # CUDA images are NOT shipped via CI (avoids GitHub-runner disk/time ceilings);
-# they're built locally on the user's GPU machine — fast on a workstation
+# they're built locally on the user's GPU machine -- fast on a workstation
 # with a real GPU, and the cache mounts in the Dockerfiles make rebuilds cheap.
 $composeArgs = Get-ComposeArgs -WithGpu:($resolvedVariant -eq 'cuda')
 if ($resolvedVariant -eq 'cuda') {

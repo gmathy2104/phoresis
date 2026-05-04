@@ -50,9 +50,9 @@ if ($Rollback) {
 $composeArgs = Get-ComposeArgs -WithGpu:($variant -eq 'cuda')
 
 # CPU images are pulled from ghcr.io. CUDA images are built locally
-# (GPU machines build their own — see install.ps1 step 6 + docs/INSTALL.md).
+# (GPU machines build their own -- see install.ps1 step 6 + docs/INSTALL.md).
 if ($variant -eq 'cuda') {
-    Write-Step "docker compose build (cuda — local rebuild)"
+    Write-Step "docker compose build (cuda -- local rebuild)"
     & docker compose @composeArgs build --build-arg TORCH_VARIANT=cuda
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Build failed (exit $LASTEXITCODE)"
