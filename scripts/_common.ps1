@@ -127,6 +127,26 @@ function Wait-HttpOk {
     return $false
 }
 
+# ---------- winget resolver ----------
+
+function Resolve-Winget {
+    <#
+    .SYNOPSIS
+        Find the winget executable, even when it's not on the PATH of an
+        elevated session.
+    .DESCRIPTION
+        winget ships under %LOCALAPPDATA%\Microsoft\WindowsApps which is on the
+        USER PATH but admin/elevated sessions sometimes inherit only the
+        SYSTEM PATH. This helper falls back to the well-known install location.
+        Returns the full path to winget.exe or $null if not found anywhere.
+    #>
+    $w = Get-Command winget -ErrorAction SilentlyContinue
+    if ($w) { return $w.Source }
+    $fallback = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\winget.exe'
+    if (Test-Path $fallback) { return $fallback }
+    return $null
+}
+
 # ---------- storage paths ----------
 
 function Get-MediaDir {

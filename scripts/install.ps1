@@ -67,8 +67,15 @@ Write-Ok "$($os.Caption)"
 Write-Step "Docker Desktop"
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $docker) {
+    $winget = Resolve-Winget
+    if (-not $winget) {
+        Write-Err "winget is not available on this elevated session."
+        Write-Sub "Install Docker Desktop manually: https://www.docker.com/products/docker-desktop/"
+        Write-Sub "Then re-run this script."
+        exit 1
+    }
     Write-Sub "Installing Docker Desktop via winget..."
-    winget install --silent --accept-package-agreements --accept-source-agreements Docker.DockerDesktop
+    & $winget install --silent --accept-package-agreements --accept-source-agreements Docker.DockerDesktop
     Write-Warn "Docker Desktop installed. You may need to sign out and back in for WSL2 integration to settle."
     Write-Warn "Re-run this script after that. Exiting now."
     exit 0
@@ -90,11 +97,33 @@ Write-Ok "Docker daemon reachable"
 # --- 2. PostgreSQL 17 ---
 Write-Step "PostgreSQL 17"
 $psql = Get-Command psql -ErrorAction SilentlyContinue
+# If psql isn't on PATH, also probe the standard install location — Postgres
+# 17's installer adds bin to PATH at install time but only takes effect in
+# new shells. A re-run within the same shell would otherwise loop.
 if (-not $psql) {
+    $stdPath = "C:\Program Files\PostgreSQL\17\bin\psql.exe"
+    if (Test-Path $stdPath) {
+        Write-Warn "psql found at $stdPath but not on PATH. Adding it for this session."
+        $env:PATH = "C:\Program Files\PostgreSQL\17\bin;" + $env:PATH
+        $psql = Get-Command psql -ErrorAction SilentlyContinue
+    }
+}
+if (-not $psql) {
+    $winget = Resolve-Winget
+    if (-not $winget) {
+        Write-Err "PostgreSQL 17 is not installed and winget is not available."
+        Write-Sub "Install Postgres 17 manually:"
+        Write-Sub "  1. Download: https://www.postgresql.org/download/windows/"
+        Write-Sub "  2. Run the EDB installer; remember the 'postgres' superuser password."
+        Write-Sub "  3. Either tick 'Add to PATH' at end of install, or add"
+        Write-Sub "     'C:\Program Files\PostgreSQL\17\bin' to your system PATH."
+        Write-Sub "  4. Open a fresh admin PowerShell and re-run this script."
+        exit 1
+    }
     Write-Sub "Installing PostgreSQL 17 via winget..."
-    winget install --silent --accept-package-agreements --accept-source-agreements PostgreSQL.PostgreSQL.17
+    & $winget install --silent --accept-package-agreements --accept-source-agreements PostgreSQL.PostgreSQL.17
     Write-Warn "Postgres installed. Set the 'postgres' user password during install if prompted."
-    Write-Warn "Re-run this script after Postgres is configured."
+    Write-Warn "Open a fresh admin PowerShell and re-run this script (PATH refresh)."
     exit 0
 }
 Write-Ok "psql present ($(psql --version))"

@@ -9,6 +9,13 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.9] - 2026-05-04
+
+### install.ps1 robustness fix
+
+- **`winget` resolution in elevated sessions**: `winget.exe` lives under `%LOCALAPPDATA%\Microsoft\WindowsApps` (USER PATH) but admin/elevated PowerShell sessions sometimes inherit only the SYSTEM PATH, leaving `winget` "not found" even when installed. Added `Resolve-Winget` helper in `_common.ps1` that falls back to the well-known location, plus actionable error messages pointing to the manual install URL when winget is genuinely absent.
+- **Postgres 17 detection**: also probes `C:\Program Files\PostgreSQL\17\bin\psql.exe` and prepends to `$env:PATH` for the current session if found. Removes the "install Postgres → restart PowerShell → re-run install.ps1" loop when the installer was just run but the new shell hasn't been opened.
+
 ## [1.0.8] - 2026-05-04
 
 ### CI frontend cache fix
