@@ -1,8 +1,29 @@
 /* Alpine.js 3 stores — theme, toast, modal, palette. */
+
+// localStorage helpers that are safe under Edge "Tracking Prevention" /
+// Safari "Lockdown Mode" / Firefox "Strict" / private windows. Some of those
+// modes throw SecurityError on read or write; if any localStorage access
+// throws inside `alpine:init`, the whole listener aborts and EVERY store
+// fails to register, cascading into "$store.theme is undefined" everywhere.
+function safeLocalGet(key, fallback) {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function safeLocalSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* silently drop -- the in-memory `user` field is still authoritative */
+  }
+}
+
 document.addEventListener("alpine:init", () => {
   // ---- theme ----
   Alpine.store("theme", {
-    user: localStorage.getItem("phoresis_theme") || "auto",  // 'auto' | 'light' | 'dark'
+    user: safeLocalGet("phoresis_theme", "auto"),  // 'auto' | 'light' | 'dark'
 
     init() {
       this.apply();
@@ -14,7 +35,7 @@ document.addEventListener("alpine:init", () => {
 
     set(value) {
       this.user = value;
-      localStorage.setItem("phoresis_theme", value);
+      safeLocalSet("phoresis_theme", value);
       this.apply();
 
       // Persist to server (best-effort; localStorage is the canonical client store)
@@ -81,6 +102,10 @@ document.addEventListener("alpine:init", () => {
     toggle() { this.open ? this.hide() : this.show(); },
   });
 });
+
+// Inline theme application happens in base.html before alpine:init -- guard
+// the same operation here too so that even if the inline script's localStorage
+// access was blocked, alpine:init does not throw.
 
 // Ctrl+K / Cmd+K opens the palette
 document.addEventListener("keydown", (e) => {

@@ -1,8 +1,11 @@
 {% load ui_icons %}
-{# x-data (empty) creates an Alpine scope so x-ref/$refs/$watch work below.
-   Without it, `$refs.paletteInput.focus()` crashes with `_x_refs` undefined,
-   which kills the entire alpine:init cascade and breaks every $store.* on the
-   page. #}
+{% comment %}
+x-data (empty) creates an Alpine scope so x-ref/$refs/$watch work below.
+Without it, `$refs.paletteInput.focus()` crashes with `_x_refs` undefined,
+which kills the entire alpine:init cascade and breaks every $store.* on
+the page. (Django's `{# #}` is single-line only -- needs `{% comment %}`
+for multi-line.)
+{% endcomment %}
 <div x-data
      x-show="$store.palette.open"
      x-cloak
