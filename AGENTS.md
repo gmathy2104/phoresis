@@ -41,9 +41,14 @@ If you find a remaining CDN URL anywhere in `src/`, it's a bug. Vendor it.
 
 ## 2. Django comment syntax
 
-`{# ... #}` is **single-line only** in Django templates. Multi-line comments
-must use `{% comment %} ... {% endcomment %}`. Mixing them up means the
-intended comment renders as visible text in the browser.
+`{# ... #}` is **single-line only** in Django templates. The moment you put
+a newline inside, the parser stops treating it as a comment and renders the
+WHOLE block as visible text in the browser. Multi-line comments REQUIRE
+`{% comment %} ... {% endcomment %}`.
+
+Quick check before committing: if your `{# ... #}` spans more than one line,
+it's broken. We've shipped this bug twice (v1.0.29 -> v1.0.31, v1.0.34 ->
+v1.0.35). Don't make it three.
 
 ## 3. Defensive coding for browser storage
 

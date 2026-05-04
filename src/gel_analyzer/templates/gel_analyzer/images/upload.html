@@ -15,27 +15,37 @@
         {% csrf_token %}
         <div>
             <label class="mb-1.5 block text-sm font-medium">File</label>
-            {#
+            {% comment %}
               Drop-zone notes:
-              - `depth` counter avoids the classic dragenter/dragleave flicker
-                (every child element fires its own enter/leave events when the
-                cursor crosses inner boundaries); we only flip back to inactive
-                when ALL nested enters have been balanced by leaves.
-              - Selected filename feedback (`fileName`) so the user gets visual
-                confirmation that the file actually attached.
-              - The whole dropzone is clickable thanks to `@click` on the
-                wrapper plus `pointer-events-none` on text/icon children -- so
-                clicks bubble up to the wrapper instead of being eaten by the
-                SVG or the inner <p>.
-              - We assign dataTransfer.files via DataTransfer instead of direct
-                FileList assignment -- direct assignment used to be flaky in
-                some browsers; DataTransfer.items.add + assigning .files is
-                widely supported.
-            #}
+              - `dragover` (which fires constantly while a file hovers) keeps
+                `active` true. `dragleave` schedules a 60 ms revert; if any
+                dragenter/dragover fires before that timer expires, we cancel
+                it. This bulletproof pattern eliminates the flicker that the
+                naive enter/leave-toggle (and even a depth counter) suffer
+                from when the browser fires phantom leaves mid-drag.
+              - The whole dropzone is clickable via `@click="pickFiles()"`.
+                Inner content has `pointer-events-none` so clicks bubble up
+                to the wrapper instead of being eaten by the SVG.
+              - File assignment via DataTransfer.items.add(...) -> input.files
+                (the well-supported way) instead of direct `input.files = ...`
+                which is flaky on some Edge versions.
+              - `fileName` reactive field shows visual confirmation of the
+                attached file.
+            {% endcomment %}
             <div class="ui-dropzone cursor-pointer rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center"
                  x-data="{
-                    depth: 0,
+                    active: false,
+                    inactiveTimer: null,
                     fileName: '',
+                    setActive() {
+                        clearTimeout(this.inactiveTimer);
+                        this.inactiveTimer = null;
+                        if (!this.active) this.active = true;
+                    },
+                    setInactive() {
+                        clearTimeout(this.inactiveTimer);
+                        this.inactiveTimer = setTimeout(() => { this.active = false; }, 60);
+                    },
                     pickFiles() { $refs.fileInput.click(); },
                     onChosen(files) {
                         if (!files || files.length === 0) return;
@@ -45,12 +55,12 @@
                         this.fileName = files[0].name + (files.length > 1 ? ` (+${files.length - 1} more)` : '');
                     }
                  }"
-                 :data-active="depth > 0"
+                 :data-active="active"
                  @click="pickFiles()"
-                 @dragenter.prevent="depth++"
-                 @dragleave.prevent="depth = Math.max(0, depth - 1)"
-                 @dragover.prevent
-                 @drop.prevent="depth = 0; onChosen($event.dataTransfer.files)">
+                 @dragenter.prevent="setActive()"
+                 @dragover.prevent="setActive()"
+                 @dragleave.prevent="setInactive()"
+                 @drop.prevent="active = false; clearTimeout(inactiveTimer); onChosen($event.dataTransfer.files)">
                 <div class="text-text-muted pointer-events-none">
                     {% icon "upload" size=32 class_="mx-auto mb-2" %}
                     <p class="text-sm" x-show="!fileName">
