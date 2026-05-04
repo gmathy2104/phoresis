@@ -77,6 +77,10 @@ jobs:
       DB_USER: phoresis
       DB_PASSWORD: phoresis
       REDIS_HOST: 127.0.0.1
+      # Hoist the secret into env so the conditional below can read it.
+      # GitHub disallows `secrets.X` in `if:` expressions (anti-exfiltration);
+      # `env.X` is permitted and equivalent here.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with: { lfs: true }
@@ -87,9 +91,9 @@ jobs:
       - run: uv run python manage.py migrate --noinput
       - run: uv run pytest -v --create-db --cov=src --cov-report=xml
       - uses: codecov/codecov-action@v5
-        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        if: env.CODECOV_TOKEN != ''
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
           files: coverage.xml
 
   # ───────────────────────── e2e (Playwright Chromium) ─────────────────────────

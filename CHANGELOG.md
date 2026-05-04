@@ -9,6 +9,12 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.4] - 2026-05-04
+
+### CI workflow validation fix
+
+- **`ci.yml` codecov step**: GitHub Actions rejected the workflow with `Unrecognized named-value: 'secrets'` because `secrets.CODECOV_TOKEN` was used inside an `if:` expression (forbidden anti-exfiltration measure). Hoisted the secret into a job-level `env.CODECOV_TOKEN`, then changed the conditional to `if: env.CODECOV_TOKEN != ''`. Same behavior, valid syntax.
+
 ## [1.0.3] - 2026-05-04
 
 ### Blackwell (RTX 50-series) GPU support
