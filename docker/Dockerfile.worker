@@ -30,9 +30,10 @@ RUN uv venv /opt/venv && \
 
 # ============================================================================
 # Stage B: Python deps (CUDA). Same as Dockerfile.web's python-cuda.
+# CUDA 12.8 + cu128 PyTorch wheel for Blackwell (sm_120, RTX 50-series) support.
 # Ubuntu 24.04 ships Python 3.12 natively — no deadsnakes PPA required.
 # ============================================================================
-FROM nvidia/cuda:12.1.1-runtime-ubuntu24.04 AS python-cuda
+FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
 WORKDIR /app
 ENV UV_LINK_MODE=copy DEBIAN_FRONTEND=noninteractive
 
@@ -52,7 +53,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 COPY pyproject.toml uv.lock ./
 RUN uv venv --python 3.12 /opt/venv && \
     . /opt/venv/bin/activate && \
-    uv pip install --extra-index-url https://download.pytorch.org/whl/cu121 torch torchvision && \
+    uv pip install --extra-index-url https://download.pytorch.org/whl/cu128 torch torchvision && \
     uv sync --no-dev --no-install-project --frozen
 
 # ============================================================================

@@ -9,6 +9,13 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.3] - 2026-05-04
+
+### Blackwell (RTX 50-series) GPU support
+
+- **Dockerfile.{web,worker} CUDA stages**: bumped base image from `nvidia/cuda:12.1.1-runtime-ubuntu24.04` to `nvidia/cuda:12.8.0-runtime-ubuntu24.04`, and PyTorch wheel index from `cu121` to `cu128`. CUDA 12.1 didn't include sm_120 PTX, so torch on RTX 50-series would silently fall back to CPU. Verified locally on an RTX 5090 (compute capability 12.0): `torch.cuda.is_available() == True`, `torch.version.cuda == '12.8'`, GEMM 2048×2048 runs on the GPU, all values finite. Backwards-compatible: cu128 supports sm_70+ (Volta and newer), covering RTX 20/30/40/50-series, GTX 16, and Quadro RTX/Tesla V100.
+- **`install.ps1` GPU detection**: now also reads `compute_cap` from `nvidia-smi`. If the lowest compute capability across all detected GPUs is < 7.5 (pre-Volta: Pascal GTX 10-series and older), falls back to the CPU image with a clear warning. Override remains possible via `-Variant cuda`.
+
 ## [1.0.2] - 2026-05-04
 
 ### Build pipeline fixes

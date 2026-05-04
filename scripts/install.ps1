@@ -122,6 +122,10 @@ $env:PGPASSWORD = $null
 Write-Ok "phoresis DB + user ready"
 
 # --- 3. GPU detection ---
+# The CUDA image ships PyTorch built with cu128 (CUDA 12.8), which officially
+# supports compute capability sm_70+ (Volta and newer). Older GPUs (Pascal
+# sm_61, Maxwell sm_50/52) silently fall back to CPU at runtime even with
+# the CUDA image, so we explicitly route them to the CPU variant here.
 Write-Step "GPU variant"
 $resolvedVariant = $Variant
 if ($Variant -eq 'auto') {
@@ -129,9 +133,18 @@ if ($Variant -eq 'auto') {
     if ($nvSmi) {
         try {
             $gpus = & nvidia-smi --query-gpu=name --format=csv,noheader 2>$null
+            $caps = & nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null
             if ($LASTEXITCODE -eq 0 -and $gpus) {
-                Write-Ok "NVIDIA GPU detected: $gpus"
-                $resolvedVariant = 'cuda'
+                $minCap = ($caps | ForEach-Object { [decimal]$_.Trim() } | Measure-Object -Minimum).Minimum
+                if ($minCap -ge 7.5) {
+                    Write-Ok "NVIDIA GPU detected: $gpus (compute capability $minCap >= 7.5)"
+                    $resolvedVariant = 'cuda'
+                } else {
+                    Write-Warn "GPU compute capability $minCap is below 7.5 (Volta/Turing+)."
+                    Write-Warn "PyTorch cu128 wheels do not officially support pre-Volta cards;"
+                    Write-Warn "falling back to CPU image. Override with -Variant cuda if you know better."
+                    $resolvedVariant = 'cpu'
+                }
             } else {
                 $resolvedVariant = 'cpu'
             }
