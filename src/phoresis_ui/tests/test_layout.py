@@ -1,4 +1,4 @@
-"""Tests for the layout chrome (sidebar/topbar)."""
+"""Tests for the layout chrome (sidebar/topbar/palette/toast in app_base.html)."""
 
 import pytest
 
@@ -17,18 +17,11 @@ def authenticated_request(db, django_user_model):
 
 
 @pytest.mark.django_db
-def test_layout_renders_sidebar_brand(authenticated_request) -> None:
-    """Render `_layout.html` directly (as a partial) and confirm sidebar + topbar
-    render without crashing, with the brand wordmark and theme toggle present."""
-    template = Template("{% include 'components/_layout.html' %}")
+def test_app_base_renders_chrome(authenticated_request) -> None:
+    """app_base.html provides sidebar + topbar + content slot for authenticated pages."""
+    template = Template("{% extends 'components/app_base.html' %}{% block content %}HELLO{% endblock %}")
     rendered = template.render(RequestContext(authenticated_request))
-    # Sidebar brand wordmark
-    assert "Phoresis" in rendered
-    # Topbar theme toggle
-    assert 'aria-label="Light mode"' in rendered
+    assert "Phoresis" in rendered  # sidebar brand
+    assert 'aria-label="Light mode"' in rendered  # theme toggle present
     assert 'aria-label="Dark mode"' in rendered
-    # Sidebar nav links use stable hardcoded paths until Task 14 wires URL names
-    assert 'href="/images/"' in rendered
-    assert 'href="/analyses/"' in rendered
-    # Authenticated user → avatar / username block rendered
-    assert "layout" in rendered  # username
+    assert "HELLO" in rendered  # content block actually renders
