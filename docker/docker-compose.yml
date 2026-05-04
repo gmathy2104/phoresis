@@ -18,7 +18,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - phoresis_staticfiles:/srv/staticfiles:ro
-      - ${PHORESIS_MEDIA_DIR:?PHORESIS_MEDIA_DIR must be set in .env -- pass --env-file ../.env or use scripts/phoresis.ps1}:/srv/media:ro
+      - phoresis_media:/srv/media:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -55,7 +55,7 @@ services:
       GUNICORN_WORKERS: 4
     volumes:
       - phoresis_staticfiles:/srv/staticfiles
-      - ${PHORESIS_MEDIA_DIR:?PHORESIS_MEDIA_DIR must be set in .env -- pass --env-file ../.env or use scripts/phoresis.ps1}:/srv/media
+      - phoresis_media:/srv/media
     depends_on:
       redis:
         condition: service_healthy
@@ -92,7 +92,7 @@ services:
       SKIP_COLLECTSTATIC: "1"
       SKIP_SEEDS: "1"
     volumes:
-      - ${PHORESIS_MEDIA_DIR:?PHORESIS_MEDIA_DIR must be set in .env -- pass --env-file ../.env or use scripts/phoresis.ps1}:/srv/media
+      - phoresis_media:/srv/media
     depends_on:
       redis:
         condition: service_healthy
@@ -175,3 +175,13 @@ volumes:
   phoresis_redis:
   caddy_data:
   caddy_config:
+  # phoresis_media holds user-uploaded gel images, generated display PNGs,
+  # thumbnails, and exports. Switched from a host bind mount in v1.0.37
+  # because Docker Desktop's WSL2 file sharing on Windows produced
+  # silent divergence between web (writes) and caddy (reads) -- writes
+  # didn't always propagate to the host path, so caddy returned 404
+  # for files Django had successfully saved. With a Docker-managed
+  # named volume, both containers share the exact same storage with no
+  # host-filesystem layer in the middle. Backup/restore via
+  # scripts/backup-media.ps1 / restore-media.ps1.
+  phoresis_media:

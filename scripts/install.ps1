@@ -27,12 +27,15 @@ param(
 
     [switch]$SkipBrowserOpen,
 
-    [string]$DataDir = (Join-Path $env:USERPROFILE 'Phoresis-Data'),
-
     # Postgres port. Default 5432, but override when an existing Postgres
     # (e.g. PG16) already owns 5432 and the new Phoresis-targeted PG17
     # ended up on 5433.
     [int]$DBPort = 5432
+
+    # NOTE: -DataDir was removed in v1.0.37 -- media now lives in the
+    # Docker-managed named volume `phoresis_phoresis_media`, not a host
+    # path. Backup with scripts/backup-media.ps1, restore with
+    # scripts/restore-media.ps1.
 )
 
 . "$PSScriptRoot\_common.ps1"
@@ -219,46 +222,26 @@ if ($resolved -contains '127.0.0.1') {
     Write-Ok "Added 127.0.0.1 phoresis (replaced any stale entry)"
 }
 
-# --- 4b. Storage paths ---
-Write-Step "Storage paths"
-$mediaDir = Join-Path $DataDir 'media'
-if (-not (Test-Path $mediaDir)) {
-    New-Item -ItemType Directory -Path $mediaDir -Force | Out-Null
-    Write-Ok "Created $mediaDir"
-} else {
-    Write-Ok "Using existing $mediaDir"
-}
-
-# Free-space check on the drive containing $DataDir
-$driveLetter = (Split-Path -Qualifier $DataDir).TrimEnd(':')
-$drive = Get-PSDrive -Name $driveLetter -ErrorAction SilentlyContinue
+# --- 4b. Storage check ---
+# Media is now stored in a Docker-managed named volume `phoresis_phoresis_media`
+# (since v1.0.37). Docker Desktop's WSL2 file sharing on Windows produced
+# silent divergence between web (writes) and caddy (reads) when we used a
+# host bind mount, so we moved everything into Docker storage. Backup/restore
+# via scripts/backup-media.ps1 / restore-media.ps1.
+# We still validate free space on the system drive (where Docker Desktop's
+# VHDX lives by default).
+Write-Step "Storage check"
+$dockerDrive = ($env:USERPROFILE.Substring(0, 1)).ToUpper()
+$drive = Get-PSDrive -Name $dockerDrive -ErrorAction SilentlyContinue
 if ($drive) {
     $freeGB = [math]::Round($drive.Free / 1GB, 1)
     if ($freeGB -lt 1) {
-        Write-Err "Drive $driveLetter`: has only $freeGB GB free - need at least 1 GB to start, 5+ GB recommended."
+        Write-Err "Drive $dockerDrive`: has only $freeGB GB free - need at least 1 GB to start, 5+ GB recommended."
         exit 1
     } elseif ($freeGB -lt 5) {
-        Write-Warn "Drive $driveLetter`: has only $freeGB GB free - 5+ GB recommended for gel image storage."
+        Write-Warn "Drive $dockerDrive`: has only $freeGB GB free - 5+ GB recommended for gel image storage."
     } else {
-        Write-Ok "Drive $driveLetter`: has $freeGB GB free"
-    }
-}
-
-# Migrate from a previous named-volume install if it exists.
-# `docker volume ls -q --filter` returns $null (not '') when no match -- pipe
-# through Out-String so .Trim() is always callable under Set-StrictMode.
-$oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null | Out-String).Trim()
-if ($oldVolume) {
-    Write-Warn "Detected legacy phoresis_media named volume - migrating contents to $mediaDir"
-    $mediaDirForward = $mediaDir -replace '\\', '/'
-    & docker run --rm `
-        -v phoresis_phoresis_media:/src:ro `
-        -v "${mediaDirForward}:/dst" `
-        alpine:3 sh -c "cp -a /src/. /dst/ 2>/dev/null || true"
-    if ($LASTEXITCODE -eq 0) {
-        Write-Ok "Migration complete - the old volume can be deleted with: docker volume rm phoresis_phoresis_media"
-    } else {
-        Write-Warn "Migration had issues (exit $LASTEXITCODE). Old volume preserved."
+        Write-Ok "Drive $dockerDrive`: has $freeGB GB free (media stored in Docker named volume)"
     }
 }
 
@@ -296,7 +279,6 @@ if (Test-Path $envPath) {
         PRIMARY_USER_PASSWORD    = $userPwd
         PRIMARY_USER_FULL_NAME   = $userName
         PHORESIS_IMAGE_VARIANT   = $resolvedVariant
-        PHORESIS_MEDIA_DIR        = ($mediaDir -replace '\\', '/')
         TZ                       = 'Europe/Brussels'
     }
     Write-EnvFile -Path $envPath -Map $envMap

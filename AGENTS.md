@@ -104,27 +104,31 @@ asks the operator for an email; `create_initial_users` derives username
 from the local part. Users naturally try logging in with the email they
 entered, so the backend has to honour both.
 
-## 8. Compose env-file resolution
+## 8. Compose env-file resolution + media storage
 
-The `.env` file lives at the **project root** (`<repo>/.env`), but the
-compose file is at `docker/docker-compose.yml`. By default, compose v2
-looks for `.env` in the directory of the compose file, NOT the project
-root -- which means `${PHORESIS_MEDIA_DIR}` and friends silently fall
-back to their default values when an operator runs `docker compose ...`
-ad-hoc. The Caddy media-mount silently breaking is the canonical bite
-(v1.0.36).
+`.env` lives at the project root (`<repo>/.env`) but the compose file is
+at `docker/docker-compose.yml`. Compose v2 looks for `.env` next to the
+compose file by default, NOT in the project root, so `${VAR}`
+substitutions silently fall back to defaults when an operator runs
+`docker compose` ad-hoc. **Solution**: `scripts/phoresis.ps1` always
+passes `--env-file <root>/.env` and `-f docker/docker-compose.yml`.
+Use it for ad-hoc ops; `install.ps1` / `update.ps1` do their own
+plumbing via `_common.ps1`.
 
-Two safeguards in place:
+**Media storage** (v1.0.37): user-uploaded gel images, generated display
+PNGs, thumbnails, and exports live in the Docker named volume
+`phoresis_phoresis_media` -- NOT a host bind mount. Reason: Docker
+Desktop's WSL2 file sharing on Windows produced silent divergence
+between web (writes propagated to its own container) and caddy (reads
+from a different host path), so caddy returned 404 for files Django
+had successfully saved. With a Docker-managed volume, both containers
+share the exact same storage with no host-filesystem layer.
 
-1. `compose.yml` uses `${VAR:?error message}` instead of `${VAR:-default}`
-   for path-resolution variables. A missing `PHORESIS_MEDIA_DIR` now
-   fails fast instead of mounting the wrong directory.
-
-2. `scripts/phoresis.ps1` is a thin wrapper that always passes
-   `--env-file <root>/.env` and `-f docker/docker-compose.yml`. Tell
-   users to invoke that for ad-hoc operations rather than raw
-   `docker compose`. (Background scripts like `install.ps1`,
-   `update.ps1` do their own --env-file plumbing via `_common.ps1`.)
+Backup / restore via dedicated scripts:
+- `scripts/backup-media.ps1`  -- tarballs the volume to a Windows file
+- `scripts/restore-media.ps1` -- reverses the above
+- `scripts/backup.ps1`        -- DB + media combined snapshot (recommended)
+- `scripts/restore.ps1`       -- pick from snapshots interactively
 
 ## 9. PowerShell compatibility
 

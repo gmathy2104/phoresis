@@ -90,20 +90,17 @@ try {
     $env:PGPASSWORD = $null
 }
 
-# --- 5. Media restore ---
+# --- 5. Media restore (into named volume) ---
+# Since v1.0.37 media lives in `phoresis_phoresis_media` (Docker named volume),
+# not a host path -- so we restore into the volume directly.
 $mediaTar = Join-Path $picked.FullName 'media.tar.gz'
 if (Test-Path $mediaTar) {
-    Write-Sub "Restoring media.tar.gz"
-    $mediaDst = Get-MediaDir
-    if (-not (Test-Path $mediaDst)) {
-        New-Item -ItemType Directory -Path $mediaDst -Force | Out-Null
-    }
-    $mediaDstForward = $mediaDst -replace '\\', '/'
-    $pickedForward   = $picked.FullName -replace '\\', '/'
+    Write-Sub "Restoring media.tar.gz into phoresis_phoresis_media"
+    $pickedForward = $picked.FullName -replace '\\', '/'
     & docker run --rm `
-        -v "${mediaDstForward}:/data" `
+        -v phoresis_phoresis_media:/data `
         -v "${pickedForward}:/backup:ro" `
-        alpine:3 sh -c "cd /data && rm -rf ./* && tar xzf /backup/media.tar.gz"
+        alpine:3 sh -c "rm -rf /data/* /data/.[!.]* 2>/dev/null; tar xzf /backup/media.tar.gz -C /data"
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "media restore failed (exit $LASTEXITCODE) - DB is restored"
     } else {
