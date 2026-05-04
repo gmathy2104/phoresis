@@ -48,3 +48,15 @@ PHORESIS_IMAGE_TAG=v0.4.0-cpu
 ```
 
 Then run `scripts/update.ps1 -Rollback v0.4.0`.
+
+## Scheduled backups
+
+To run `backup.ps1` daily at 02:30 (run as Administrator):
+
+```powershell
+$action  = New-ScheduledTaskAction -Execute "powershell.exe" `
+    -Argument "-ExecutionPolicy Bypass -File `"$PWD\scripts\backup.ps1`""
+$trigger = New-ScheduledTaskTrigger -Daily -At 2:30AM
+Register-ScheduledTask -TaskName "Phoresis Daily Backup" `
+    -Action $action -Trigger $trigger -RunLevel Highest
+```
