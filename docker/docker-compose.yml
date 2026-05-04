@@ -18,7 +18,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - phoresis_staticfiles:/srv/staticfiles:ro
-      - ${PHORESIS_MEDIA_DIR:-./_phoresis_data/media}:/srv/media:ro
+      - ${PHORESIS_MEDIA_DIR:?PHORESIS_MEDIA_DIR must be set in .env -- pass --env-file ../.env or use scripts/phoresis.ps1}:/srv/media:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -55,7 +55,7 @@ services:
       GUNICORN_WORKERS: 4
     volumes:
       - phoresis_staticfiles:/srv/staticfiles
-      - ${PHORESIS_MEDIA_DIR:-./_phoresis_data/media}:/srv/media
+      - ${PHORESIS_MEDIA_DIR:?PHORESIS_MEDIA_DIR must be set in .env -- pass --env-file ../.env or use scripts/phoresis.ps1}:/srv/media
     depends_on:
       redis:
         condition: service_healthy
@@ -92,7 +92,7 @@ services:
       SKIP_COLLECTSTATIC: "1"
       SKIP_SEEDS: "1"
     volumes:
-      - ${PHORESIS_MEDIA_DIR:-./_phoresis_data/media}:/srv/media
+      - ${PHORESIS_MEDIA_DIR:?PHORESIS_MEDIA_DIR must be set in .env -- pass --env-file ../.env or use scripts/phoresis.ps1}:/srv/media
     depends_on:
       redis:
         condition: service_healthy

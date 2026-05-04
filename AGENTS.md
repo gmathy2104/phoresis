@@ -104,7 +104,29 @@ asks the operator for an email; `create_initial_users` derives username
 from the local part. Users naturally try logging in with the email they
 entered, so the backend has to honour both.
 
-## 8. PowerShell compatibility
+## 8. Compose env-file resolution
+
+The `.env` file lives at the **project root** (`<repo>/.env`), but the
+compose file is at `docker/docker-compose.yml`. By default, compose v2
+looks for `.env` in the directory of the compose file, NOT the project
+root -- which means `${PHORESIS_MEDIA_DIR}` and friends silently fall
+back to their default values when an operator runs `docker compose ...`
+ad-hoc. The Caddy media-mount silently breaking is the canonical bite
+(v1.0.36).
+
+Two safeguards in place:
+
+1. `compose.yml` uses `${VAR:?error message}` instead of `${VAR:-default}`
+   for path-resolution variables. A missing `PHORESIS_MEDIA_DIR` now
+   fails fast instead of mounting the wrong directory.
+
+2. `scripts/phoresis.ps1` is a thin wrapper that always passes
+   `--env-file <root>/.env` and `-f docker/docker-compose.yml`. Tell
+   users to invoke that for ad-hoc operations rather than raw
+   `docker compose`. (Background scripts like `install.ps1`,
+   `update.ps1` do their own --env-file plumbing via `_common.ps1`.)
+
+## 9. PowerShell compatibility
 
 `scripts/*.ps1` MUST run on Windows PowerShell 5.1 (the default on Windows
 Server / older Windows boxes), not just PS7+. That means:
@@ -119,7 +141,7 @@ Server / older Windows boxes), not just PS7+. That means:
   variable expands to empty string; curl writes body to stdout). Use
   `curl -o NUL` (the Windows null device).
 
-## 9. Direct-to-main pushes
+## 10. Direct-to-main pushes
 
 The user authorized direct pushes to `main` for the v1.0.x bug-hunt cycle
 ("fix directement dans le main hein"). For v1.1.x onward, prefer PRs unless
