@@ -129,8 +129,14 @@ function Wait-HttpOk {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         if ($useCurl) {
-            $status = & $curl -k -s -o $null -w '%{http_code}' --max-time 5 $Url 2>$null
-            if ($status -eq '200') { return $true }
+            # IMPORTANT: use Windows null-device 'NUL', NOT PowerShell's $null --
+            # `& curl -o $null` passes -o "" to curl (PS expands $null to empty
+            # string), which curl treats as "no output file" and dumps the body
+            # to stdout, polluting the captured status code.
+            # `-f` makes curl exit non-zero on HTTP >= 400 (incl. Caddy's 503
+            # "no upstreams"), so we just check $LASTEXITCODE.
+            & $curl -fk -s --max-time 5 -o NUL $Url 2>$null
+            if ($LASTEXITCODE -eq 0) { return $true }
         } else {
             # Legacy fallback. Best-effort -- may fail on some PS5.1 + modern
             # Caddy combinations regardless of these tweaks.
