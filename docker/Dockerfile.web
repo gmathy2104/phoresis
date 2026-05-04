@@ -137,9 +137,13 @@ COPY --from=frontend --chown=phoresis:phoresis \
     /build/src/phoresis_ui/static/phoresis_ui/css/output.css \
     /app/src/phoresis_ui/static/phoresis_ui/css/output.css
 
-# Static + media volume mountpoints
+# Static + media volume mountpoints + entrypoint normalization.
+# `sed -i 's/\r$//'` strips Windows CRLF line endings that git on Windows can
+# inject (core.autocrlf=true). Without this, Linux reads the shebang as
+# `#!/bin/sh\r` and fails with "no such file or directory" on container start.
 RUN mkdir -p /srv/staticfiles /srv/media && \
     chown -R phoresis:phoresis /srv/staticfiles /srv/media && \
+    sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && \
     chmod +x /usr/local/bin/entrypoint.sh
 
 # Caddy serves static from this path; collectstatic in entrypoint writes here.

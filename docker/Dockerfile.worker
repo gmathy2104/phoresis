@@ -87,7 +87,12 @@ COPY --chown=phoresis:phoresis manage.py ./
 COPY --chown=phoresis:phoresis src/ ./src/
 COPY --chown=phoresis:phoresis docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN mkdir -p /srv/media && chown -R phoresis:phoresis /srv/media && chmod +x /usr/local/bin/entrypoint.sh
+# `sed -i 's/\r$//'` strips Windows CRLF line endings (see Dockerfile.web for
+# the full explanation). Required so the shebang resolves correctly.
+RUN mkdir -p /srv/media && \
+    chown -R phoresis:phoresis /srv/media && \
+    sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
 
 ENV MEDIA_ROOT=/srv/media
 
