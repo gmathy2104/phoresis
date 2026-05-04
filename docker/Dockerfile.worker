@@ -15,7 +15,9 @@ WORKDIR /app
 # UV_PROJECT_ENVIRONMENT: see Dockerfile.web's python-cpu stage for why this
 # is required (uv sync ignores VIRTUAL_ENV; without this it installs into
 # /app/.venv instead of /opt/venv).
-ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv
+# UV_HTTP_TIMEOUT 300 s -- pypi.nvidia.com's CDN sometimes hangs on big
+# wheels (nvidia-nvshmem-cu12, nvidia-cudnn-cu12 ~600 MB).
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv UV_HTTP_TIMEOUT=300
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -40,8 +42,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
 WORKDIR /app
-# UV_PROJECT_ENVIRONMENT: see python-cpu stage above.
-ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv DEBIAN_FRONTEND=noninteractive
+# UV_PROJECT_ENVIRONMENT + UV_HTTP_TIMEOUT: see Dockerfile.web's python-cuda
+# stage for the rationale (NVIDIA CDN slowness on cu128 sub-deps).
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv UV_HTTP_TIMEOUT=300 DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \

@@ -37,7 +37,9 @@ WORKDIR /app
 # silently creates `.venv` in the project root and installs deps there,
 # leaving /opt/venv empty (even when the venv is activated -- uv sync ignores
 # VIRTUAL_ENV in favour of its own project-discovery logic).
-ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv
+# UV_HTTP_TIMEOUT bumped to 300 s for the same reason as the CUDA stage:
+# some PyPI mirrors / NVIDIA's CDN can be slow on big wheels.
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv UV_HTTP_TIMEOUT=300
 
 # apt cache mount keeps the package archive between builds — when the apt
 # package list above doesn't change, this layer re-uses the cached debs.
@@ -69,7 +71,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
 WORKDIR /app
 # UV_PROJECT_ENVIRONMENT: see python-cpu stage above for why this is required.
-ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv DEBIAN_FRONTEND=noninteractive
+# UV_HTTP_TIMEOUT (seconds, default 30) is bumped to 300 because some PyTorch
+# cu128 sub-deps live on pypi.nvidia.com, whose CDN is occasionally slow;
+# the default 30 s timeout caused build failures on `nvidia-nvshmem-cu12`
+# (~50 MB) during install validation. 300 s + uv's 3 retries = ~15 min worst
+# case, plenty of headroom.
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv UV_HTTP_TIMEOUT=300 DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
