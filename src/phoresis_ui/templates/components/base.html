@@ -36,13 +36,15 @@
         </main>
     {% endblock %}
 
-    {# Order matters here. Alpine 3 cdn-build queueMicrotask()'s start() at
+    {% comment %}
+       Order matters here. Alpine 3 cdn-build queueMicrotask()'s start() at
        the end of its module, which fires `alpine:init` at the next microtask
        checkpoint -- which happens BETWEEN deferred scripts. So if alpine.js
        is loaded BEFORE alpine-init.js (both with defer), alpine:init fires
        before the listener is registered, and EVERY $store.* on the page
        comes back undefined. Per Alpine's own docs example, the init code
-       must run BEFORE Alpine's bundle. #}
+       must run BEFORE Alpine's bundle.
+    {% endcomment %}
     <script>
       window.PHORESIS_URLS = {
         theme_set: "{% url 'accounts:theme_set' %}",

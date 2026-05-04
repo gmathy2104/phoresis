@@ -39,16 +39,25 @@ cache-busting.
 
 If you find a remaining CDN URL anywhere in `src/`, it's a bug. Vendor it.
 
-## 2. Django comment syntax
+## 2. Django comment syntax (READ THIS BEFORE TOUCHING ANY TEMPLATE)
 
-`{# ... #}` is **single-line only** in Django templates. The moment you put
+`{# ... #}` is **single-line only** in Django templates. The MOMENT you put
 a newline inside, the parser stops treating it as a comment and renders the
 WHOLE block as visible text in the browser. Multi-line comments REQUIRE
 `{% comment %} ... {% endcomment %}`.
 
-Quick check before committing: if your `{# ... #}` spans more than one line,
-it's broken. We've shipped this bug twice (v1.0.29 -> v1.0.31, v1.0.34 ->
-v1.0.35). Don't make it three.
+We have shipped this bug **THREE TIMES** so far:
+- v1.0.29 -> v1.0.31 (command palette)
+- v1.0.34 -> v1.0.35 (upload dropzone)
+- v1.0.33 -> v1.0.38 (base.html alpine init)
+
+Each one was caught by the user, not by a test. Before committing any
+template change, run this check:
+
+    grep -rn '{#[^#]*$' src/
+
+If it returns ANYTHING, you have a multi-line `{# ... #}` and you need
+to convert it to `{% comment %} ... {% endcomment %}` BEFORE committing.
 
 ## 3. Defensive coding for browser storage
 
@@ -124,11 +133,30 @@ from a different host path), so caddy returned 404 for files Django
 had successfully saved. With a Docker-managed volume, both containers
 share the exact same storage with no host-filesystem layer.
 
+**Volume protection** (v1.0.38): `phoresis_media` is declared as
+`external: true` in compose.yml + `name: phoresis_phoresis_media`.
+This means:
+
+- `docker compose down -v` does NOT touch it -- compose treats
+  external volumes as off-limits.
+- `install.ps1` runs `docker volume create phoresis_phoresis_media`
+  ahead of compose up. Idempotent: succeeds whether the volume
+  already exists or not.
+- The only supported way to wipe media is `scripts/wipe-media.ps1`,
+  which (a) auto-backs up to `backups/auto/pre-wipe-<ts>.tar.gz`,
+  (b) requires three separate confirmation prompts, (c) recreates an
+  empty volume after the wipe so compose up still works.
+
+If you ever NEED to wipe (e.g. test a fresh install): run
+`wipe-media.ps1`, then `restore-media.ps1` to roll back if you change
+your mind.
+
 Backup / restore via dedicated scripts:
 - `scripts/backup-media.ps1`  -- tarballs the volume to a Windows file
 - `scripts/restore-media.ps1` -- reverses the above
-- `scripts/backup.ps1`        -- DB + media combined snapshot (recommended)
+- `scripts/backup.ps1`        -- DB + media combined snapshot (recommended for daily use)
 - `scripts/restore.ps1`       -- pick from snapshots interactively
+- `scripts/wipe-media.ps1`    -- nuclear, with safety net
 
 ## 9. PowerShell compatibility
 

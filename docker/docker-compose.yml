@@ -178,10 +178,15 @@ volumes:
   # phoresis_media holds user-uploaded gel images, generated display PNGs,
   # thumbnails, and exports. Switched from a host bind mount in v1.0.37
   # because Docker Desktop's WSL2 file sharing on Windows produced
-  # silent divergence between web (writes) and caddy (reads) -- writes
-  # didn't always propagate to the host path, so caddy returned 404
-  # for files Django had successfully saved. With a Docker-managed
-  # named volume, both containers share the exact same storage with no
-  # host-filesystem layer in the middle. Backup/restore via
-  # scripts/backup-media.ps1 / restore-media.ps1.
+  # silent divergence between web (writes) and caddy (reads).
+  #
+  # `external: true` (v1.0.38) protects user data: compose down -v will
+  # NOT remove this volume, because compose treats externally-managed
+  # volumes as off-limits. install.ps1 calls `docker volume create
+  # phoresis_phoresis_media` ahead of first compose up; subsequent runs
+  # are no-ops. To actually wipe media (e.g. to test a fresh install),
+  # use scripts/wipe-media.ps1, which auto-backs up first and requires
+  # explicit triple confirmation.
   phoresis_media:
+    external: true
+    name: phoresis_phoresis_media

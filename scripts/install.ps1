@@ -222,14 +222,22 @@ if ($resolved -contains '127.0.0.1') {
     Write-Ok "Added 127.0.0.1 phoresis (replaced any stale entry)"
 }
 
-# --- 4b. Storage check ---
-# Media is now stored in a Docker-managed named volume `phoresis_phoresis_media`
-# (since v1.0.37). Docker Desktop's WSL2 file sharing on Windows produced
-# silent divergence between web (writes) and caddy (reads) when we used a
-# host bind mount, so we moved everything into Docker storage. Backup/restore
-# via scripts/backup-media.ps1 / restore-media.ps1.
-# We still validate free space on the system drive (where Docker Desktop's
-# VHDX lives by default).
+# --- 4b. Media volume + storage check ---
+# Media lives in `phoresis_phoresis_media` (Docker named volume, since v1.0.37
+# -- bind mounts misbehaved on Docker Desktop WSL2). Declared `external: true`
+# in compose.yml so `docker compose down -v` will NOT remove it; we create it
+# here ahead of compose up. Idempotent: `docker volume create` succeeds when
+# the volume already exists.
+Write-Step "Media volume"
+& docker volume create phoresis_phoresis_media 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok "phoresis_phoresis_media ready (created or already existed)"
+} else {
+    Write-Err "docker volume create failed (exit $LASTEXITCODE)"
+    exit 1
+}
+
+# Free-space check on the drive where Docker Desktop's VHDX lives by default.
 Write-Step "Storage check"
 $dockerDrive = ($env:USERPROFILE.Substring(0, 1)).ToUpper()
 $drive = Get-PSDrive -Name $dockerDrive -ErrorAction SilentlyContinue
