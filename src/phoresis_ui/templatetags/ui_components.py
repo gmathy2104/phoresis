@@ -98,12 +98,17 @@ def btn(
     raw_extra = mark_safe(f" {extra_attrs}") if extra_attrs else ""
 
     if href:
+        anchor_extra = ""
+        if disabled:
+            cls += " pointer-events-none opacity-50"
+            anchor_extra = ' aria-disabled="true" tabindex="-1"'
         return format_html(
-            '<a href="{}" class="{}"{}{}>{}</a>',
+            '<a href="{}" class="{}"{}{}{}>{}</a>',
             href,
             cls,
             htmx_html,
             raw_extra,
+            mark_safe(anchor_extra),
             inner,
         )
 
@@ -152,11 +157,11 @@ def card_close():
 _BADGE_VARIANTS = {
     "default": "bg-surface-elevated text-text border border-border",
     "primary": "bg-accent-50 text-accent-700",
-    "success": "bg-emerald-50 text-emerald-700",
-    "warning": "bg-amber-50 text-amber-700",
-    "danger": "bg-red-50 text-red-700",
-    "info": "bg-cyan-50 text-cyan-700",
-    "muted": "bg-zinc-100 text-zinc-700",
+    "success": "bg-success/10 text-success",
+    "warning": "bg-warning/10 text-warning",
+    "danger": "bg-danger/10 text-danger",
+    "info": "bg-info/10 text-info",
+    "muted": "bg-surface-elevated text-text-muted border border-border",
     "band": "text-white",  # uses --color-band as bg via inline style
 }
 
@@ -315,4 +320,14 @@ def nav_palette_items_json() -> str:
             except NoReverseMatch:
                 continue  # URL not yet wired — skip silently
         items.append({"name": item["name"], "url": url, "type": item["type"], "icon": item.get("icon")})
-    return mark_safe(json.dumps(items))
+    raw = json.dumps(items)
+    # Escape characters that would break out of an inline <script> block
+    # (or trigger JS line-separator parsing for U+2028/U+2029).
+    raw = (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace(" ", "\\u2028")
+        .replace(" ", "\\u2029")
+    )
+    return mark_safe(raw)

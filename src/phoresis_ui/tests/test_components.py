@@ -48,7 +48,7 @@ def test_btn_loading_includes_spinner() -> None:
 
 
 def test_badge_variants() -> None:
-    for variant, expected in [("primary", "text-accent-700"), ("danger", "text-red-700")]:
+    for variant, expected in [("primary", "text-accent-700"), ("danger", "text-danger")]:
         rendered = Template(f'{{% load ui_components %}}{{% badge "TEST" variant="{variant}" %}}').render(Context({}))
         assert expected in rendered
 
@@ -120,3 +120,22 @@ def test_nav_palette_items_json_serializes_dashboard() -> None:
     rendered = Template("{% load ui_components %}{% nav_palette_items_json %}").render(Context({}))
     assert "Dashboard" in rendered
     assert "Home" in rendered
+
+
+def test_nav_palette_items_json_escapes_script_tag(monkeypatch) -> None:
+    """A `</script>` literal in a nav item must not break out of the inline <script>."""
+    from phoresis_core.navigation import nav_registry
+
+    fake_items = [{"name": "Pwn </script><script>alert(1)</script>", "url": "/x/", "type": "page", "icon": "image"}]
+    monkeypatch.setattr(nav_registry, "get_flat_items", lambda: fake_items)
+
+    rendered = Template("{% load ui_components %}{% nav_palette_items_json %}").render(Context({}))
+    assert "</script>" not in rendered
+    assert "\\u003c/script\\u003e" in rendered or "\\u003c\\/script\\u003e" in rendered
+
+
+def test_btn_disabled_anchor_is_aria_disabled() -> None:
+    """{% btn disabled=True href=... %} must produce an a11y-correct disabled anchor."""
+    rendered = Template('{% load ui_components %}{% btn "Open" href="/x/" disabled=True %}').render(Context({}))
+    assert 'aria-disabled="true"' in rendered
+    assert "pointer-events-none" in rendered
