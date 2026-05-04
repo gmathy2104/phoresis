@@ -68,10 +68,14 @@ class MobileSAMDecoderService:
             use_quantized: If True, use quantized model for faster inference.
         """
         if model_path is None:
+            # SRC_DIR (= BASE_DIR / "src") is the right anchor: source is COPY'd
+            # to /app/src/... in the container, so static/ assets live at
+            # /app/src/gel_analyzer/static/..., not /app/gel_analyzer/static/...
+            src_dir = getattr(settings, "SRC_DIR", Path(settings.BASE_DIR) / "src")
             if use_quantized:
-                model_path = Path(settings.BASE_DIR) / self.DEFAULT_MODEL_PATH
+                model_path = src_dir / self.DEFAULT_MODEL_PATH
             else:
-                model_path = Path(settings.BASE_DIR) / "gel_analyzer/static/gel_analyzer/ml/sam/mobilesam_decoder.onnx"
+                model_path = src_dir / "gel_analyzer/static/gel_analyzer/ml/sam/mobilesam_decoder.onnx"
 
         self._model_path = Path(model_path)
         self._use_quantized = use_quantized

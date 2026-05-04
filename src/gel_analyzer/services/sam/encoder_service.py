@@ -62,7 +62,10 @@ class MobileSAMEncoderService:
                        Defaults to static/gel_analyzer/ml/sam/mobile_sam.pt
         """
         if model_path is None:
-            model_path = Path(settings.BASE_DIR) / self.DEFAULT_MODEL_PATH
+            # See decoder_service.py for the SRC_DIR rationale (paths are
+            # relative to /app/src/, not /app/).
+            src_dir = getattr(settings, "SRC_DIR", Path(settings.BASE_DIR) / "src")
+            model_path = src_dir / self.DEFAULT_MODEL_PATH
 
         self._model_path = Path(model_path)
         self._load_model()
