@@ -1,0 +1,57 @@
+{
+	# Global options — none needed for laptop install. Phase 6 may add `email`
+	# if/when external CAs ever get used.
+}
+
+phoresis {
+	tls internal {
+		# Caddy's built-in CA — first request triggers a self-signed cert.
+		# User accepts it once in the browser; install.ps1 (Phase 6) automates
+		# trusting it via certutil for a friction-free experience.
+	}
+
+	encode gzip zstd
+
+	header {
+		# Strict-Transport-Security: 1 year HSTS — only in effect for `phoresis`,
+		# not the localhost upstream so dev tools remain usable.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		# Hide upstream identification.
+		-Server
+	}
+
+	# Static files served directly by Caddy (collectstatic writes here).
+	handle_path /static/* {
+		root * /srv/staticfiles
+		file_server {
+			precompressed gzip
+		}
+	}
+
+	# User-uploaded media (gel images, thumbnails) — also served directly.
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+
+	# Reverse-proxy everything else to gunicorn.
+	reverse_proxy web:8000 {
+		# Use /healthz/live/ — cheap (no DB/Redis touch) and stable on every boot.
+		health_uri /healthz/live/
+		health_interval 10s
+		health_timeout 5s
+		health_status 200
+
+		# Forward client info so loguru's `client_ip` field stays accurate.
+		header_up X-Forwarded-Proto https
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# Catch-all for HTTP -> HTTPS redirect on any other host header.
+:80 {
+	redir https://phoresis{uri} permanent
+}
