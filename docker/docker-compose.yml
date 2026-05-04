@@ -145,7 +145,7 @@ services:
   # containers labelled `watchtower.enable=true` (web, worker, scheduler).
   # Phase 6 will harden the credentials story and the notification URL.
   watchtower:
-    image: containrrr/watchtower:1.7
+    image: containrrr/watchtower:1.7.1
     restart: unless-stopped
     environment:
       WATCHTOWER_LABEL_ENABLE: "true"
