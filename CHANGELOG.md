@@ -9,6 +9,12 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.10] - 2026-05-04
+
+### install.ps1: support coexisting Postgres versions
+
+- New `-DBPort <int>` parameter on `install.ps1` (default 5432) for hosts that already run another Postgres on 5432 — typical case: an existing PG13/14/15/16 on 5432, freshly-installed PG17 forced to 5433. The script now passes `-p $DBPort` to `psql` for DB provisioning and writes `DB_PORT=$DBPort` to `.env`. Detected during the first real install on a workstation that had PG16 + PG17 cohabiting.
+
 ## [1.0.9] - 2026-05-04
 
 ### install.ps1 robustness fix
