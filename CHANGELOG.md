@@ -9,6 +9,12 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.6] - 2026-05-04
+
+### CUDA build runner disk space fix
+
+- **`release.yml` build-and-push job**: added `jlumbroso/free-disk-space@main` step gated on `if: matrix.variant == 'cuda'`. The CUDA images push the ubuntu-24.04 runner past its ~14 GB free disk (CUDA 12.8 base ~3 GB + 90 wheels including duplicated nvidia-cublas/cudnn ~6-8 GB + uv cache). Verified via run 25309016114 logs: `Free space left: 0 MB` then `failed to copy to ... No space left on device (os error 28)` during `uv sync`. The action frees ~28 GB by removing preinstalled Android SDK / .NET / Haskell toolchains we don't need. Targeted with `tool-cache: true` only — leaves docker-images and swap intact.
+
 ## [1.0.5] - 2026-05-04
 
 ### CUDA build pipeline fix
