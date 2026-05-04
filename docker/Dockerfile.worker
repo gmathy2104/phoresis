@@ -51,10 +51,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock ./
+# Same two-step ordering as Dockerfile.web's python-cuda — see comment there.
 RUN uv venv --python 3.12 /opt/venv && \
     . /opt/venv/bin/activate && \
-    uv pip install --extra-index-url https://download.pytorch.org/whl/cu128 torch torchvision && \
-    uv sync --no-dev --no-install-project --frozen
+    uv sync --no-dev --no-install-project --frozen && \
+    uv pip install --reinstall-package torch --reinstall-package torchvision \
+        --extra-index-url https://download.pytorch.org/whl/cu128 \
+        torch torchvision
 
 # ============================================================================
 # Stage selector + runtime

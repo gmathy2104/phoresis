@@ -9,6 +9,12 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.0.5] - 2026-05-04
+
+### CUDA build pipeline fix
+
+- **Dockerfile.{web,worker} CUDA stages**: reordered the install steps. Previously installed `torch torchvision` from cu128 first, then ran `uv sync --frozen` — which exited with code 2 because the manually-installed `torch==X.Y.Z+cu128` doesn't match `uv.lock`'s `torch==X.Y.Z` (no local version tag). New order: `uv sync --frozen` first (gets the full dep tree from lockfile, including CPU torch ~700 MB), then `uv pip install --reinstall-package torch --reinstall-package torchvision --extra-index-url cu128 torch torchvision` to swap them for cu128 builds. Adds ~700 MB of redundant download but keeps the lockfile as single source of truth and the build deterministic.
+
 ## [1.0.4] - 2026-05-04
 
 ### CI workflow validation fix

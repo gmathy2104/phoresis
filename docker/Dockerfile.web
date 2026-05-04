@@ -73,11 +73,21 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock ./
+# Step order matters here:
+# 1. `uv sync --frozen` installs ALL deps from the lockfile (CPU torch from PyPI ~700 MB).
+#    The lockfile has `torch==X.Y.Z` (no local version tag) — must run first so the
+#    venv state matches the lockfile exactly, otherwise --frozen rejects the mismatch.
+# 2. `uv pip install --reinstall-package torch --reinstall-package torchvision` then
+#    swaps both packages for their cu128 builds (~3 GB). Sub-deps (nvidia-cublas etc.)
+#    pull from the cu128 index automatically.
+# Net cost: ~700 MB of redundant CPU torch download. Tradeoff: lockfile remains the
+# single source of truth for the rest of the dep tree.
 RUN uv venv --python 3.12 /opt/venv && \
     . /opt/venv/bin/activate && \
-    uv pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
-        torch torchvision && \
-    uv sync --no-dev --no-install-project --frozen
+    uv sync --no-dev --no-install-project --frozen && \
+    uv pip install --reinstall-package torch --reinstall-package torchvision \
+        --extra-index-url https://download.pytorch.org/whl/cu128 \
+        torch torchvision
 
 # ============================================================================
 # Stage 3: Variant selector.
