@@ -36,13 +36,14 @@
         </main>
     {% endblock %}
 
-    <!-- HTMX 2 + Alpine.js 3 from CDN in dev (vendored in Phase 5) -->
-    <script defer src="https://unpkg.com/htmx.org@2.0.3"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+    {# HTMX 2 + Alpine.js 3 -- self-hosted via WhiteNoise. NO CDN: see AGENTS.md #}
+    <script defer src="{% static 'phoresis_ui/js/vendor/htmx-2.0.3.min.js' %}"></script>
+    <script defer src="{% static 'phoresis_ui/js/vendor/alpine-3.14.3.min.js' %}"></script>
 
     <script>
       window.PHORESIS_URLS = {
         theme_set: "{% url 'accounts:theme_set' %}",
+        countup_js: "{% static 'phoresis_ui/js/vendor/countup-2.8.0.min.js' %}",
       };
     </script>
     <script src="{% static 'phoresis_ui/js/htmx-config.js' %}" defer></script>

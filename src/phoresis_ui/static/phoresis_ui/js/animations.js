@@ -5,7 +5,12 @@
 
   async function ensureCountUp() {
     if (CountUpModule) return CountUpModule;
-    const m = await import("https://unpkg.com/countup.js@2.8.0/dist/countUp.min.js");
+    // URL injected by base.html so WhiteNoise's manifest hash is applied.
+    // Hardcoding "/static/.../countup-2.8.0.min.js" would 404 in prod
+    // because CompressedManifestStaticFilesStorage only serves hashed names.
+    const url = window.PHORESIS_URLS && window.PHORESIS_URLS.countup_js;
+    if (!url) throw new Error("countup_js URL not provided by base.html");
+    const m = await import(url);
     CountUpModule = m.CountUp || window.CountUp;
     return CountUpModule;
   }
