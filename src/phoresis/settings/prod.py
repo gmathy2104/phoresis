@@ -16,17 +16,29 @@ def _required_env(key: str) -> str:
 
 DEBUG = False
 SECRET_KEY = _required_env("DJANGO_SECRET_KEY")
-ALLOWED_HOSTS = [h.strip() for h in _required_env("DJANGO_ALLOWED_HOSTS").split(",") if h.strip()]
+
+# Public hosts the operator configured (matched against incoming Host header).
+_PUBLIC_HOSTS = [h.strip() for h in _required_env("DJANGO_ALLOWED_HOSTS").split(",") if h.strip()]
 
 # CSRF_TRUSTED_ORIGINS is REQUIRED for any state-changing POST when behind a
 # reverse proxy. Caddy serves on https://phoresis (or whatever DJANGO_BASE_URL
 # the operator configured). Without this, every login / form submit returns
 # 403 "Origin checking failed".
-# Default: derive https://<host> for each ALLOWED_HOSTS entry. Operators can
-# override via DJANGO_CSRF_TRUSTED_ORIGINS=https://foo.com,https://bar.com.
+# Default: derive https://<host> for each PUBLIC host. Operators can override
+# via DJANGO_CSRF_TRUSTED_ORIGINS=https://foo.com,https://bar.com.
+# Note: we DON'T derive from ALLOWED_HOSTS below because that list also
+# includes the internal Docker service name "web", which is never a real
+# browser origin.
 CSRF_TRUSTED_ORIGINS = [
     o.strip() for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
-] or [f"https://{h}" for h in ALLOWED_HOSTS]
+] or [f"https://{h}" for h in _PUBLIC_HOSTS]
+
+# Caddy performs ACTIVE health-check probes against the upstream's service
+# name (`web:8000` from inside phoresis_net) -- not via the public hostname.
+# Those probes carry `Host: web`, which Django rejects as DisallowedHost
+# unless we add it here. Adding `web` is safe: the service is only reachable
+# from inside the Docker network, never from outside.
+ALLOWED_HOSTS = _PUBLIC_HOSTS + ["web"]
 
 # SECURE_PROXY_SSL_HEADER tells Django to trust the X-Forwarded-Proto header
 # Caddy injects (Caddyfile sets this on the reverse proxy). Without it, Django
