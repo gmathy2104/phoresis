@@ -15,21 +15,56 @@
         {% csrf_token %}
         <div>
             <label class="mb-1.5 block text-sm font-medium">File</label>
-            <div class="ui-dropzone rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center"
-                 x-data="{ active: false }"
-                 :data-active="active"
-                 @dragenter.prevent="active = true"
-                 @dragleave.prevent="active = false"
+            {#
+              Drop-zone notes:
+              - `depth` counter avoids the classic dragenter/dragleave flicker
+                (every child element fires its own enter/leave events when the
+                cursor crosses inner boundaries); we only flip back to inactive
+                when ALL nested enters have been balanced by leaves.
+              - Selected filename feedback (`fileName`) so the user gets visual
+                confirmation that the file actually attached.
+              - The whole dropzone is clickable thanks to `@click` on the
+                wrapper plus `pointer-events-none` on text/icon children -- so
+                clicks bubble up to the wrapper instead of being eaten by the
+                SVG or the inner <p>.
+              - We assign dataTransfer.files via DataTransfer instead of direct
+                FileList assignment -- direct assignment used to be flaky in
+                some browsers; DataTransfer.items.add + assigning .files is
+                widely supported.
+            #}
+            <div class="ui-dropzone cursor-pointer rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center"
+                 x-data="{
+                    depth: 0,
+                    fileName: '',
+                    pickFiles() { $refs.fileInput.click(); },
+                    onChosen(files) {
+                        if (!files || files.length === 0) return;
+                        const dt = new DataTransfer();
+                        for (const f of files) dt.items.add(f);
+                        $refs.fileInput.files = dt.files;
+                        this.fileName = files[0].name + (files.length > 1 ? ` (+${files.length - 1} more)` : '');
+                    }
+                 }"
+                 :data-active="depth > 0"
+                 @click="pickFiles()"
+                 @dragenter.prevent="depth++"
+                 @dragleave.prevent="depth = Math.max(0, depth - 1)"
                  @dragover.prevent
-                 @drop.prevent="active = false; $refs.fileInput.files = $event.dataTransfer.files; $refs.fileInput.dispatchEvent(new Event('change', {bubbles:true}))">
-                <div class="text-text-muted">
+                 @drop.prevent="depth = 0; onChosen($event.dataTransfer.files)">
+                <div class="text-text-muted pointer-events-none">
                     {% icon "upload" size=32 class_="mx-auto mb-2" %}
-                    <p class="text-sm">Drop a gel image here or
-                        <label for="id_original_file" class="cursor-pointer text-accent-600 hover:underline">browse files</label>.
+                    <p class="text-sm" x-show="!fileName">
+                        Drop a gel image here or <span class="text-accent-600 underline">browse files</span>.
+                    </p>
+                    <p class="text-sm font-medium text-text" x-show="fileName" x-cloak>
+                        <span x-text="fileName"></span>
+                        <span class="block text-xs text-text-muted mt-1">click again to choose another</span>
                     </p>
                 </div>
-                <input id="id_original_file" type="file" name="original_file" required accept=".gel,.scn,.tiff,.tif,.png,.jpg,.jpeg"
+                <input id="id_original_file" type="file" name="original_file" required
+                       accept=".gel,.scn,.tiff,.tif,.png,.jpg,.jpeg"
                        x-ref="fileInput"
+                       @change="onChosen($event.target.files)"
                        class="sr-only">
             </div>
         </div>
