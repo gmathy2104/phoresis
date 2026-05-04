@@ -94,9 +94,15 @@ try {
 $mediaTar = Join-Path $picked.FullName 'media.tar.gz'
 if (Test-Path $mediaTar) {
     Write-Sub "Restoring media.tar.gz"
+    $mediaDst = Get-MediaDir
+    if (-not (Test-Path $mediaDst)) {
+        New-Item -ItemType Directory -Path $mediaDst -Force | Out-Null
+    }
+    $mediaDstForward = $mediaDst -replace '\\', '/'
+    $pickedForward   = $picked.FullName -replace '\\', '/'
     & docker run --rm `
-        -v phoresis_phoresis_media:/data `
-        -v "$($picked.FullName):/backup:ro" `
+        -v "${mediaDstForward}:/data" `
+        -v "${pickedForward}:/backup:ro" `
         alpine:3 sh -c "cd /data && rm -rf ./* && tar xzf /backup/media.tar.gz"
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "media restore failed (exit $LASTEXITCODE) - DB is restored"

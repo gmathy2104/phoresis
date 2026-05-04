@@ -73,3 +73,6 @@ playwright/.cache/
 
 # Docker
 .docker-cache/
+
+# Phoresis media bind-mount fallback (only used when PHORESIS_MEDIA_DIR is unset)
+/docker/_phoresis_data/

@@ -61,6 +61,25 @@ Register-ScheduledTask -TaskName "Phoresis Daily Backup" `
     -Action $action -Trigger $trigger -RunLevel Highest
 ```
 
+## Storage paths
+
+User data lives at host paths, not in Docker named volumes:
+
+| Data | Default host path | Override |
+|---|---|---|
+| Database | Native PostgreSQL on Windows host (port 5432) | `DB_HOST` / `DB_PORT` in `.env` |
+| Media (gel images, thumbnails, exports) | `%USERPROFILE%\Phoresis-Data\media` | `PHORESIS_MEDIA_DIR` in `.env`, set by `install.ps1 -DataDir <path>` |
+| Backups | `%USERPROFILE%\Phoresis-Backups\YYYY-MM-DD_HHmmss\` | `backup.ps1 -OutDir <path>` |
+
+Static files, Caddy TLS state, and Redis broker state live in **Docker named volumes**
+(`phoresis_staticfiles`, `caddy_data`, `caddy_config`, `phoresis_redis`) because they're
+regenerable: `collectstatic` rebuilds static files on every container start, Caddy
+re-issues its self-signed cert if `caddy_data` is wiped, and Redis only holds in-flight
+Celery task state.
+
+This means **`docker compose down -v` cannot wipe user data** — it only blasts the four
+disposable volumes. Database stays on the host, media stays at `PHORESIS_MEDIA_DIR`.
+
 ## Image visibility (public/private)
 
 Phoresis images on `ghcr.io/gmathy2104/phoresis-{web,worker}` are PUBLIC by

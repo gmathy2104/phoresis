@@ -52,19 +52,26 @@ try {
     $env:PGPASSWORD = $null
 }
 
-# --- 2. Media volume tar ---
-Write-Sub "tar phoresis_media"
+# --- 2. Media bind-mount tar ---
+Write-Sub "tar host media directory"
 $mediaTar = Join-Path $snapshotDir 'media.tar.gz'
+$mediaSrc = Get-MediaDir
 
-# Run a tar inside an alpine container with the volume mounted
-& docker run --rm `
-    -v phoresis_phoresis_media:/data:ro `
-    -v "$($snapshotDir):/backup" `
-    alpine:3 sh -c "cd /data && tar czf /backup/media.tar.gz ."
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "media tar failed (exit $LASTEXITCODE) - DB backup is preserved"
+if (-not (Test-Path $mediaSrc)) {
+    Write-Warn "Media directory not found at $mediaSrc - skipping media backup"
 } else {
-    Write-Ok "Media tar: $((Get-Item $mediaTar).Length / 1MB | ForEach-Object { '{0:F2} MB' -f $_ })"
+    # Use a tiny alpine container to write a deterministic gzip tar from the host path.
+    $mediaSrcForward = $mediaSrc -replace '\\', '/'
+    $snapDirForward  = $snapshotDir -replace '\\', '/'
+    & docker run --rm `
+        -v "${mediaSrcForward}:/data:ro" `
+        -v "${snapDirForward}:/backup" `
+        alpine:3 sh -c "cd /data && tar czf /backup/media.tar.gz ."
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "media tar failed (exit $LASTEXITCODE) - DB backup is preserved"
+    } else {
+        Write-Ok "Media tar: $((Get-Item $mediaTar).Length / 1MB | ForEach-Object { '{0:F2} MB' -f $_ })"
+    }
 }
 
 # --- 3. Metadata ---

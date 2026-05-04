@@ -26,6 +26,8 @@ param(
     [string]$Variant = 'auto',
 
     [switch]$SkipBrowserOpen
+,
+    [string]$DataDir = (Join-Path $env:USERPROFILE 'Phoresis-Data')
 )
 
 . "$PSScriptRoot\_common.ps1"
@@ -152,6 +154,47 @@ if ($hostsContent -notmatch '\bphoresis\b') {
     Write-Ok "Already configured"
 }
 
+# --- 4b. Storage paths ---
+Write-Step "Storage paths"
+$mediaDir = Join-Path $DataDir 'media'
+if (-not (Test-Path $mediaDir)) {
+    New-Item -ItemType Directory -Path $mediaDir -Force | Out-Null
+    Write-Ok "Created $mediaDir"
+} else {
+    Write-Ok "Using existing $mediaDir"
+}
+
+# Free-space check on the drive containing $DataDir
+$driveLetter = (Split-Path -Qualifier $DataDir).TrimEnd(':')
+$drive = Get-PSDrive -Name $driveLetter -ErrorAction SilentlyContinue
+if ($drive) {
+    $freeGB = [math]::Round($drive.Free / 1GB, 1)
+    if ($freeGB -lt 1) {
+        Write-Err "Drive $driveLetter`: has only $freeGB GB free - need at least 1 GB to start, 5+ GB recommended."
+        exit 1
+    } elseif ($freeGB -lt 5) {
+        Write-Warn "Drive $driveLetter`: has only $freeGB GB free - 5+ GB recommended for gel image storage."
+    } else {
+        Write-Ok "Drive $driveLetter`: has $freeGB GB free"
+    }
+}
+
+# Migrate from a previous named-volume install if it exists
+$oldVolume = (& docker volume ls -q --filter "name=phoresis_phoresis_media" 2>$null).Trim()
+if ($oldVolume) {
+    Write-Warn "Detected legacy phoresis_media named volume - migrating contents to $mediaDir"
+    $mediaDirForward = $mediaDir -replace '\\', '/'
+    & docker run --rm `
+        -v phoresis_phoresis_media:/src:ro `
+        -v "${mediaDirForward}:/dst" `
+        alpine:3 sh -c "cp -a /src/. /dst/ 2>/dev/null || true"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Migration complete - the old volume can be deleted with: docker volume rm phoresis_phoresis_media"
+    } else {
+        Write-Warn "Migration had issues (exit $LASTEXITCODE). Old volume preserved."
+    }
+}
+
 # --- 5. .env generation ---
 Write-Step ".env"
 $envPath = Join-Path $Script:RepoRoot '.env'
@@ -186,6 +229,7 @@ if (Test-Path $envPath) {
         PRIMARY_USER_PASSWORD    = $userPwd
         PRIMARY_USER_FULL_NAME   = $userName
         PHORESIS_IMAGE_VARIANT   = $resolvedVariant
+        PHORESIS_MEDIA_DIR        = ($mediaDir -replace '\\', '/')
         TZ                       = 'Europe/Brussels'
     }
     Write-EnvFile -Path $envPath -Map $envMap

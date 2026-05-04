@@ -126,3 +126,21 @@ function Wait-HttpOk {
     }
     return $false
 }
+
+# ---------- storage paths ----------
+
+function Get-MediaDir {
+    <#
+    .SYNOPSIS
+        Resolve the host-side media directory.
+    .DESCRIPTION
+        Reads PHORESIS_MEDIA_DIR from .env if present, falls back to the
+        compose default `<repo>/_phoresis_data/media`.
+    #>
+    $envMap = Read-EnvFile (Join-Path $Script:RepoRoot '.env')
+    $mediaDir = $envMap['PHORESIS_MEDIA_DIR']
+    if ($mediaDir) {
+        return ($mediaDir -replace '/', '\')
+    }
+    return (Join-Path $Script:DockerDir '_phoresis_data\media')
+}
