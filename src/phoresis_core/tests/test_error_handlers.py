@@ -1,4 +1,4 @@
-"""Tests for the custom 404 / 500 handler views."""
+"""Tests for the custom 400 / 403 / 404 / 500 handler views."""
 
 import pytest
 
@@ -9,6 +9,34 @@ def test_404_returns_branded_page(client) -> None:
     assert response.status_code == 404
     assert b"Page not found" in response.content
     assert b"Phoresis" in response.content
+
+
+@pytest.mark.django_db
+def test_400_handler_view_renders(rf) -> None:
+    """Direct unit test of handler400."""
+    from phoresis_core.error_handling.views import handler400
+
+    request = rf.get("/some/bad/request/")
+    response = handler400(request, exception=None)
+    response.render()
+
+    assert response.status_code == 400
+    assert b"Bad request" in response.content
+    assert b"/some/bad/request/" in response.content
+
+
+@pytest.mark.django_db
+def test_403_handler_view_renders(rf) -> None:
+    """Direct unit test of handler403 (CSRF failure / permission denied)."""
+    from phoresis_core.error_handling.views import handler403
+
+    request = rf.get("/some/forbidden/path/")
+    response = handler403(request, exception=None)
+    response.render()
+
+    assert response.status_code == 403
+    assert b"Access denied" in response.content
+    assert b"/some/forbidden/path/" in response.content
 
 
 @pytest.mark.django_db

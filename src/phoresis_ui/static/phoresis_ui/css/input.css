@@ -167,3 +167,34 @@
     color: var(--color-accent-600);
   }
 }
+
+/* ============================================================================
+ * Respect prefers-reduced-motion (a11y: WCAG 2.3.3)
+ *
+ * For users who set "Reduce motion" in their OS, neutralize decorative
+ * animations and long transitions. The app still works exactly the same —
+ * just without the ripple/shimmer/pulse/scale flourishes.
+ *
+ * Notes:
+ * - Skeleton shimmer overlay hidden (pure decoration).
+ * - Dropzone pulse replaced by a steady accent ring (still conveys "drop here").
+ * - Ripple element hidden entirely.
+ * - Theme toggle, modal scale-in, sidebar icon scale all collapse to
+ *   instant via the universal selector below.
+ * ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .ui-shimmer::after { display: none; }
+  .ui-dropzone[data-active="true"] {
+    box-shadow: 0 0 0 4px rgb(from var(--color-accent-500) r g b / 0.3);
+  }
+  .ui-ripple { display: none; }
+}

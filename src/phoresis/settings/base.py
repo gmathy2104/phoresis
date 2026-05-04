@@ -121,6 +121,11 @@ CELERY_TASK_QUEUES = ("default", "heavy")
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+# Recycle each worker child after this many tasks to mitigate memory creep —
+# the ML services (band detection, SAM, densitometry) load ~100 MB ONNX models
+# per child, and over hours of uptime the prefork children gradually retain
+# arena pages they could release. 50 tasks ≈ a few hours of typical lab use.
+CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get("CELERY_WORKER_MAX_TASKS_PER_CHILD", "50"))
 CELERY_TIMEZONE = TIME_ZONE
 
 CACHES = {

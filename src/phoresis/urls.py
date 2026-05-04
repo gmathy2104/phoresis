@@ -16,5 +16,7 @@ urlpatterns = [
 ]
 
 # Custom error handlers
+handler400 = "phoresis_core.error_handling.views.handler400"
+handler403 = "phoresis_core.error_handling.views.handler403"
 handler404 = "phoresis_core.error_handling.views.handler404"
 handler500 = "phoresis_core.error_handling.views.handler500"

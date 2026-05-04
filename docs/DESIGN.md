@@ -189,7 +189,7 @@ Centered illustration + heading + body + optional CTA. Used for first-run dashbo
 {% skeleton class="h-4 w-32" %}
 ```
 
-A shimmer-animated placeholder rectangle. Composes with Tailwind utilities (`h-`, `w-`, `rounded-`). Animation: 2 s shimmer (`translateX(-100% → 100%)`) on a gradient overlay; respects `prefers-reduced-motion` (TODO — see §9).
+A shimmer-animated placeholder rectangle. Composes with Tailwind utilities (`h-`, `w-`, `rounded-`). Animation: 2 s shimmer (`translateX(-100% → 100%)`) on a gradient overlay; respects `prefers-reduced-motion` (see §9).
 
 ### Accessibility notes summary
 
@@ -272,7 +272,7 @@ The Phoresis app icon is a gradient lane silhouette overlaid with three horizont
 - **Keyboard** — `Ctrl+K` opens the command palette anywhere; `Tab` cycles all form fields and interactive chrome in DOM order; `Esc` closes the palette, modals, and the user menu.
 - **ARIA** — toast container has `aria-live="polite"`; modals have `role="dialog"` + `aria-modal="true"` (driven by Alpine's `x-show` + `x-transition`); icon-only buttons carry `aria-label`.
 - **Color-as-information rule** — every status badge, KPI trend, and band classification has a text or icon affordance in addition to color. A red-green colorblind user can read the entire UI.
-- **Reduced motion** — TODO: respect `@media (prefers-reduced-motion: reduce)` in `animations.css` (Phase 8 candidate). Currently animations always run.
+- **Reduced motion** — `@media (prefers-reduced-motion: reduce)` neutralizes decorative animations and long transitions. Skeleton shimmer hides; dropzone pulse becomes a steady accent ring; ripple is hidden; theme/sidebar/modal motion collapses to instant. The app remains fully functional with the system "Reduce motion" preference enabled.
 
 ## 10. Adding a new component
 
