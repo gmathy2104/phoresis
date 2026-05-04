@@ -60,3 +60,24 @@ $trigger = New-ScheduledTaskTrigger -Daily -At 2:30AM
 Register-ScheduledTask -TaskName "Phoresis Daily Backup" `
     -Action $action -Trigger $trigger -RunLevel Highest
 ```
+
+## Image visibility (public/private)
+
+Phoresis images on `ghcr.io/gmathy2104/phoresis-{web,worker}` are PUBLIC by
+default. The image content is open-source code + open-weights ML models —
+no secrets, no proprietary data. Public eliminates `docker login` friction
+in `install.ps1`.
+
+To switch to private images:
+
+1. Make the GHCR package private (GitHub UI → Packages → Settings).
+2. On each Phoresis host, run `docker login ghcr.io` once (with a PAT that
+   has `read:packages`).
+3. Add Watchtower auth env vars in `docker/docker-compose.yml`:
+   ```yaml
+   watchtower:
+     environment:
+       WATCHTOWER_AUTH_USERNAME: <gh-user>
+       WATCHTOWER_AUTH_PASSWORD: ${GHCR_PAT}
+   ```
+   (and add `GHCR_PAT=...` to `.env`).

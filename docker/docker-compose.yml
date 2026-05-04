@@ -29,6 +29,13 @@ services:
       com.centurylinklabs.watchtower.enable: "false"   # Caddy not auto-updated by Watchtower
 
   # ────────────────────── Django web ──────────────────────
+  # Default: public GHCR image (no docker login required).
+  # For private-image deployments:
+  #   1. Set the GHCR package visibility to Private in GitHub Packages.
+  #   2. On every Phoresis machine, run: docker login ghcr.io -u <gh-user> -p <PAT>
+  #      where <PAT> has read:packages scope only.
+  #   3. Add WATCHTOWER_AUTH_USERNAME + WATCHTOWER_AUTH_PASSWORD env vars to the
+  #      watchtower service below (or mount ~/.docker/config.json read-only).
   web:
     image: ${PHORESIS_WEB_IMAGE:-ghcr.io/gmathy2104/phoresis-web:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
     restart: unless-stopped
