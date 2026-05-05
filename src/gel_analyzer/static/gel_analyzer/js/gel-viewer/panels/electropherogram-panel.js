@@ -84,6 +84,7 @@
             // Display options
             this.showRawProfile = false;
             this.showBands = true;
+            this.showPeakMax = true;
             this.showBackground = false;
             // Valleys come from the OLD ProfileProcessor (Savitzky-Golay
             // smoothing + rolling-ball + derivative-based valley detection),
@@ -659,6 +660,7 @@
             // Toggle buttons
             this._setupToggleButton('electropherogram-toggle-raw', 'showRawProfile');
             this._setupToggleButton('electropherogram-toggle-bands', 'showBands');
+            this._setupToggleButton('electropherogram-toggle-peakmax', 'showPeakMax');
             this._setupToggleButton('electropherogram-toggle-background', 'showBackground');
             this._setupToggleButton('electropherogram-toggle-valleys', 'showValleys');
             this._setupToggleButton('electropherogram-toggle-threshold', 'showThreshold');
@@ -1441,10 +1443,21 @@
                         x: [null], y: [null],
                         mode: 'lines',
                         line: { color: 'rgba(158, 158, 158, 0.6)', width: 6 },
-                        name: 'Band region',
+                        name: 'Integration zone (bbox)',
                         showlegend: true,
                         hoverinfo: 'skip',
                     });
+                    if (this.showPeakMax) {
+                        traces.push({
+                            x: [null], y: [null],
+                            mode: 'lines+markers',
+                            line: { color: '#dc2626', width: 1.25, dash: 'dash' },
+                            marker: { symbol: 'triangle-down', color: '#dc2626', size: 8 },
+                            name: 'Peak max (MW)',
+                            showlegend: true,
+                            hoverinfo: 'skip',
+                        });
+                    }
                 }
             }
 
@@ -1625,7 +1638,15 @@
                 });
             }
 
-            // Band highlight regions
+            // Band highlight regions + peak-max markers.
+            //
+            // Two visually distinct overlays per band:
+            //   - filled colored rect spanning [bbox_y, bbox_y + bbox_height]
+            //     = the integration zone (server-side densitometry integrates
+            //     over exactly this range — peak_integrator.integrate_band).
+            //   - thin red vertical line + ▼ glyph at peak_center_y (or
+            //     position_y if no fit yet) = the X position used to read MW
+            //     off the calibration curve.
             if (this.showBands && this.currentLaneId) {
                 const lane = this.stateManager.getLane(this.currentLaneId);
                 if (lane && lane.bands) {
@@ -1651,6 +1672,30 @@
                             opacity: isSelected ? 0.6 : 0.4,
                             layer: 'below',
                         });
+
+                        // Peak-max marker (toggle independently of bbox/Bands)
+                        const peakX = band.densitometry?.peak_center_y ?? band.position_y;
+                        if (this.showPeakMax && peakX != null) {
+                            shapes.push({
+                                type: 'line',
+                                xref: 'x', yref: 'paper',
+                                x0: peakX, x1: peakX,
+                                y0: 0, y1: 1,
+                                line: { color: '#dc2626', width: 1.25, dash: 'dash' },
+                                opacity: 0.7,
+                            });
+                            annotations.push({
+                                xref: 'x', yref: 'paper',
+                                x: peakX,
+                                y: 1,
+                                text: '▼',
+                                font: { size: 12, color: '#dc2626' },
+                                showarrow: false,
+                                xanchor: 'center',
+                                yanchor: 'top',
+                                yshift: 2,
+                            });
+                        }
                     });
                 }
             }

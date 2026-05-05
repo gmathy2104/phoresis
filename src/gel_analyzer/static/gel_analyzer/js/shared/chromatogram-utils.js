@@ -437,18 +437,91 @@
 
         /**
          * Calculate band bounds (integration boundaries).
-         * Uses ±3σ from peak center if sigma is available, falls back to bbox.
+         *
+         * Returns the bbox edges, NOT ±3σ. The server-side integrator
+         * (services/densitometry/peak_integrator.py:132-144) uses bbox_y /
+         * bbox_y + bbox_height as the integration region — anything else
+         * shown on the chromatogram would mislead the user about what was
+         * actually integrated.
+         *
+         * peakY remains the peak center used for MW estimation, which is a
+         * separate concept (read on the calibration curve) and gets its
+         * own marker in the rendering layer.
          *
          * @param {Object} band - Band data object
          * @returns {Object} { peakY, leftBound, rightBound, sigma }
          */
         calculateBandBounds(band) {
-            const peakY = band.densitometry?.peak_center_y || band.position_y;
-            const sigma = band.densitometry?.sigma || band.densitometry?.peak_sigma || 10;
-            const leftBound = peakY - (sigma * 3);
-            const rightBound = peakY + (sigma * 3);
+            const peakY = band.densitometry?.peak_center_y ?? band.position_y;
+            const sigma = band.densitometry?.sigma ?? band.densitometry?.peak_sigma ?? null;
 
-            return { peakY, leftBound, rightBound, sigma };
+            const bboxTop = band.bbox_y;
+            const bboxHeight = band.bbox_height;
+            if (bboxTop != null && bboxHeight != null && bboxHeight > 0) {
+                return {
+                    peakY,
+                    leftBound: bboxTop,
+                    rightBound: bboxTop + bboxHeight,
+                    sigma,
+                };
+            }
+
+            // Fallback for legacy bands missing bbox: use ±3σ if a fit exists,
+            // else a fixed 20-px window centered on the peak (mirrors the
+            // server-side fallback in peak_integrator.integrate_band).
+            const halfWidth = sigma ? sigma * 3 : 20;
+            return {
+                peakY,
+                leftBound: peakY - halfWidth,
+                rightBound: peakY + halfWidth,
+                sigma,
+            };
+        },
+
+        /**
+         * Render a peak-maximum marker — the X position used to read the
+         * molecular weight off the calibration curve. Visually distinct
+         * from integration bounds: solid red vertical line + ▼ on the top
+         * axis.
+         *
+         * @param {d3.Selection} peakGroup - D3 selection for peak highlights group
+         * @param {d3.Scale} xScale - Current X scale
+         * @param {number} peakX - Peak max position in chart-X units
+         * @param {number} chartHeight - Chart drawing height
+         * @param {Object} opts - { bandId, color, onClick }
+         * @returns {Object} { line, glyph }
+         */
+        renderPeakMaxMarker(peakGroup, xScale, peakX, chartHeight, opts = {}) {
+            const bandId = opts.bandId || '';
+            const color = opts.color || '#dc2626';
+
+            const line = peakGroup.append('line')
+                .attr('class', 'band-peak-max')
+                .attr('x1', xScale(peakX))
+                .attr('y1', 0)
+                .attr('x2', xScale(peakX))
+                .attr('y2', chartHeight)
+                .attr('stroke', color)
+                .attr('stroke-width', 1.25)
+                .attr('stroke-dasharray', '3,3')
+                .attr('opacity', 0.7)
+                .attr('data-band-id', bandId)
+                .style('pointer-events', 'none');
+
+            const glyph = peakGroup.append('path')
+                .attr('class', 'band-peak-max-glyph')
+                .attr('d', 'M -5,0 L 5,0 L 0,7 Z')
+                .attr('transform', `translate(${xScale(peakX)}, 0)`)
+                .attr('fill', color)
+                .attr('opacity', 0.9)
+                .attr('data-band-id', bandId)
+                .style('cursor', opts.onClick ? 'pointer' : 'default');
+
+            if (opts.onClick) {
+                glyph.on('click', opts.onClick);
+            }
+
+            return { line, glyph };
         },
 
 

@@ -74,9 +74,12 @@
             this.showBoundaries = true;
             this.showLabels = true;
             this.showDetectedPeaks = true;
+            this.showPeakMax = true;
 
-            // Background visibility (hidden → Y-axis scales to corrected signal only)
-            this.showBackground = true;
+            // Background visibility — default OFF so the Y-axis scales to
+            // the corrected signal and small peaks are visible right away.
+            // Toggle in the chart toolbar to overlay the raw background.
+            this.showBackground = false;
 
             // 3D view state
             this.is3DMode = false;
@@ -698,10 +701,21 @@
                 // Store peak data for zoom updates
                 this.peakDataMap.set(band.id, { x: dataPoint.x, y: dataPoint.y });
 
-                // Calculate band boundaries (±3σ from center)
+                // Integration boundaries == band bbox edges. The server-side
+                // densitometry integrator uses bbox_y / bbox_y + bbox_height
+                // as the integration region, so the dashed lines drawn here
+                // now reflect what is actually integrated (was ±3σ before
+                // the May 2026 fix — that was misleading vs the real area).
                 const bounds = ChartUtils
                     ? ChartUtils.calculateBandBounds(band)
-                    : { peakY, leftBound: peakY - 30, rightBound: peakY + 30, sigma: 10 };
+                    : {
+                        peakY,
+                        leftBound: band.bbox_y ?? peakY - 20,
+                        rightBound: (band.bbox_y != null && band.bbox_height != null)
+                            ? band.bbox_y + band.bbox_height
+                            : peakY + 20,
+                        sigma: band.densitometry?.sigma ?? null,
+                    };
 
                 // In MW mode, convert bounds to MW
                 let renderBounds;
@@ -743,7 +757,17 @@
                     this._renderPeakAreaFallback(band, renderBounds, color, defs);
                 }
 
-                // 3. Draw peak marker (circle)
+                // 3a. Draw peak-maximum marker — vertical red line + ▼ on top
+                // axis, the exact X position used to read MW off the
+                // calibration curve. Distinct from the bbox boundaries above.
+                if (this.showPeakMax && ChartUtils && ChartUtils.renderPeakMaxMarker) {
+                    ChartUtils.renderPeakMaxMarker(
+                        this.peakGroup, this.xScale, dataPoint.x, this.height,
+                        { bandId: band.id, onClick }
+                    );
+                }
+
+                // 3b. Draw peak marker (circle on the curve at peak intensity)
                 if (ChartUtils) {
                     ChartUtils.renderPeakMarker(
                         this.peakGroup, this.xScale, this.yScale, dataPoint, band, color,
@@ -907,25 +931,26 @@
 
             if (!this.legendVisible) return;
 
-            // Background rect for readability
-            this.legendGroup.append('rect')
-                .attr('x', -8)
-                .attr('y', -8)
-                .attr('width', 125)
-                .attr('height', 113)  // Increased for 6 items
-                .attr('fill', 'rgba(255,255,255,0.9)')
-                .attr('stroke', '#ddd')
-                .attr('stroke-width', 1)
-                .attr('rx', 4);
-
             const items = [
                 { color: this.colors.profile, label: 'Profile', type: 'line' },
                 { color: this.colors.background, label: 'Background', opacity: 0.3 },
                 { color: this.colors.poi, label: 'POI' },
                 { color: this.colors.mwReference, label: 'MW Ref' },
                 { color: this.colors.other, label: 'Other' },
-                { color: '#666', label: 'Boundaries', type: 'dashed' },
+                { color: '#666', label: 'Integration (bbox)', type: 'dashed' },
+                { color: '#dc2626', label: 'Peak max (MW)', type: 'peakmax' },
             ];
+
+            // Background rect for readability — sized to fit all items.
+            this.legendGroup.append('rect')
+                .attr('x', -8)
+                .attr('y', -8)
+                .attr('width', 140)
+                .attr('height', items.length * 18 + 12)
+                .attr('fill', 'rgba(255,255,255,0.9)')
+                .attr('stroke', '#ddd')
+                .attr('stroke-width', 1)
+                .attr('rx', 4);
 
             items.forEach((item, i) => {
                 const y = i * 18;
@@ -949,6 +974,23 @@
                         .attr('stroke', item.color)
                         .attr('stroke-width', 1.5)
                         .attr('stroke-dasharray', '3,2');
+                } else if (item.type === 'peakmax') {
+                    // Dashed vertical line + ▼ glyph swatch — matches the
+                    // dashed rendering in renderPeakMaxMarker so the legend
+                    // mirrors what's drawn on the chart.
+                    this.legendGroup.append('line')
+                        .attr('x1', 7)
+                        .attr('y1', y + 2)
+                        .attr('x2', 7)
+                        .attr('y2', y + 14)
+                        .attr('stroke', item.color)
+                        .attr('stroke-width', 1.25)
+                        .attr('stroke-dasharray', '3,3')
+                        .attr('opacity', 0.7);
+                    this.legendGroup.append('path')
+                        .attr('d', 'M -4,0 L 4,0 L 0,5 Z')
+                        .attr('transform', `translate(7, ${y + 2})`)
+                        .attr('fill', item.color);
                 } else {
                     // Rectangle swatch for areas/peaks
                     this.legendGroup.append('rect')
@@ -1019,9 +1061,16 @@
                 {
                     id: 'boundaries-toggle-btn',
                     icon: 'bi-border-left',
-                    title: 'Toggle Boundaries',
+                    title: 'Toggle Integration Bounds (bbox)',
                     active: this.showBoundaries,
                     handler: () => this._toggleBoundaries()
+                },
+                {
+                    id: 'peakmax-toggle-btn',
+                    icon: 'bi-caret-down-fill',
+                    title: 'Toggle Peak Max (MW)',
+                    active: this.showPeakMax,
+                    handler: () => this._togglePeakMax()
                 },
                 {
                     id: 'labels-toggle-btn',
@@ -1138,6 +1187,26 @@
             }
 
             // Re-render peaks to apply change
+            if (this.currentLaneId) {
+                this._renderPeaks();
+            }
+        }
+
+        /**
+         * Toggle the peak-maximum marker (red dashed line + ▼).
+         */
+        _togglePeakMax() {
+            this.showPeakMax = !this.showPeakMax;
+
+            const toggleBtn = this.container.querySelector('#peakmax-toggle-btn');
+            if (toggleBtn) {
+                toggleBtn.classList.toggle('active', this.showPeakMax);
+                toggleBtn.setAttribute(
+                    'data-tooltip',
+                    this.showPeakMax ? 'Hide Peak Max (MW)' : 'Show Peak Max (MW)'
+                );
+            }
+
             if (this.currentLaneId) {
                 this._renderPeaks();
             }
