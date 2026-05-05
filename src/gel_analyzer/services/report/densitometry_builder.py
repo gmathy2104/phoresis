@@ -1,9 +1,10 @@
 """
 Word document builder for densitometry analysis reports.
 
-Generates comprehensive analysis reports with GSK branding, server-side rendered
-gel images, digital gel visualization, electropherograms, 3D terrain views,
-and detailed lane analysis.
+Generates comprehensive analysis reports with the Phoresis brand
+palette (accent-600 blue, Inter), server-side rendered gel images,
+digital gel visualization, electropherograms, 3D terrain views, and
+detailed lane analysis.
 """
 
 from io import BytesIO
@@ -15,16 +16,18 @@ from phoresis_core.logging_config import get_logger
 
 from .builder import BaseReportBuilder
 from .constants import (
-    GSK_LOGO_PATH,
-    GSK_ORANGE,
     HEADING_FONT,
     IMAGE_FULL_WIDTH,
     METHODOLOGY_CALIBRATION,
     METHODOLOGY_DENSITOMETRY,
     METHODOLOGY_PURITY,
     MUTED_GRAY,
+    PHORESIS_ACCENT,
+    PHORESIS_LOGO_PATH,
     SMALL_SIZE,
     TITLE_SIZE,
+    band_colors,
+    lane_colors,
 )
 from .densitometry_data_collector import DensitometryReportData
 
@@ -34,7 +37,7 @@ logger = get_logger(__name__)
 class DensitometryReportBuilder(BaseReportBuilder):
     """
     Generates comprehensive Word document for Densitometry Analysis reports
-    using python-docx with GSKPrecision font family.
+    using python-docx with the Phoresis brand palette.
 
     All visuals are rendered server-side with Pillow/matplotlib.
     Rendering methods (_render_*) have no dependency on self.document
@@ -73,18 +76,23 @@ class DensitometryReportBuilder(BaseReportBuilder):
 
     def _render_full_gel_image(self, show_bands: bool = False) -> BytesIO | None:
         """
-        Load the full gel image from the database and optionally draw
-        lane/band overlay annotations with Pillow.
+        Load the full gel image from the database and optionally draw the
+        lane/band overlay matching the live web app.
+
+        Delegates to ``gel_overlay.render_gel_overlay`` so the visual
+        is shared with comparison + analysis builders.
 
         Args:
-            show_bands: If True, draw semi-transparent band overlays
+            show_bands: If True, draw the band layer too. When False,
+                only the lane outlines are drawn (useful for the bare
+                "full gel" section).
 
         Returns:
-            BytesIO with PNG image, or None if image not available
+            BytesIO with PNG image, or None if image not available.
         """
-        from PIL import Image, ImageDraw, ImageFont
-
         from gel_analyzer.models import GelImage
+
+        from .gel_overlay import render_gel_overlay
 
         if not self.data.gel_image_id:
             return None
@@ -94,107 +102,11 @@ class DensitometryReportBuilder(BaseReportBuilder):
             image_file = gel_image.display_file or gel_image.original_file
             if not image_file:
                 return None
-
-            img = Image.open(image_file).convert("RGBA")
-
-            if show_bands and self.data.lanes:
-                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                draw = ImageDraw.Draw(overlay)
-
-                LANE_FILL = (59, 130, 246, 60)
-                LANE_BORDER = (59, 130, 246, 200)
-                BAND_COLORS = {
-                    "Protein of Interest": (168, 85, 247, 120),
-                    "Other": (34, 197, 94, 120),
-                    "MW Ladder": (249, 115, 22, 120),
-                    "MW Reference": (249, 115, 22, 120),
-                }
-                LABEL_BG = (0, 0, 0, 160)
-                LABEL_FG = (255, 255, 255, 255)
-
-                try:
-                    font_size = max(14, img.width // 80)
-                    font_small_size = max(11, img.width // 100)
-                    font = ImageFont.truetype("arial.ttf", font_size)
-                    font_small = ImageFont.truetype("arial.ttf", font_small_size)
-                except OSError:
-                    try:
-                        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", max(14, img.width // 80))
-                        font_small = ImageFont.truetype(
-                            "/System/Library/Fonts/Helvetica.ttc", max(11, img.width // 100)
-                        )
-                    except OSError:
-                        font = ImageFont.load_default()
-                        font_small = font
-
-                for lane in self.data.lanes:
-                    lx, ly, lw, lh = lane.x, lane.y, lane.width, lane.height
-                    if not all(v is not None for v in (lx, ly, lw, lh)):
-                        continue
-
-                    # Lane rectangle
-                    draw.rectangle(
-                        [lx, ly, lx + lw, ly + lh],
-                        fill=LANE_FILL,
-                        outline=LANE_BORDER,
-                        width=2,
-                    )
-
-                    # Lane label
-                    label = f"L{lane.lane_number}"
-                    bbox = draw.textbbox((0, 0), label, font=font)
-                    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                    draw.rectangle([lx, ly - th - 6, lx + tw + 10, ly], fill=LABEL_BG)
-                    draw.text((lx + 5, ly - th - 3), label, fill=LABEL_FG, font=font)
-
-                    # Sample name below lane
-                    if lane.sample_name:
-                        short_name = lane.sample_name[:20]
-                        nbbox = draw.textbbox((0, 0), short_name, font=font_small)
-                        nw = nbbox[2] - nbbox[0]
-                        nh = nbbox[3] - nbbox[1]
-                        nx = lx + (lw - nw) // 2
-                        ny = ly + lh + 2
-                        draw.rectangle([nx - 2, ny, nx + nw + 2, ny + nh + 4], fill=LABEL_BG)
-                        draw.text((nx, ny + 2), short_name, fill=LABEL_FG, font=font_small)
-
-                    # Band overlays
-                    for band in lane.bands:
-                        bx, by = band.bbox_x, band.bbox_y
-                        bw, bh = band.bbox_width, band.bbox_height
-                        if not all(v is not None for v in (bx, by, bw, bh)):
-                            continue
-
-                        color = BAND_COLORS.get(band.band_type, BAND_COLORS["Other"])
-                        draw.rectangle(
-                            [bx, by, bx + bw, by + bh],
-                            fill=color,
-                            outline=color[:3] + (220,),
-                            width=1,
-                        )
-
-                        # MW label
-                        if band.estimated_mw_kda:
-                            mw_label = f"{band.estimated_mw_kda:.0f} kDa"
-                            mbbox = draw.textbbox((0, 0), mw_label, font=font_small)
-                            mw_w = mbbox[2] - mbbox[0]
-                            mw_h = mbbox[3] - mbbox[1]
-                            mx = bx + bw + 3
-                            my = by + (bh - mw_h) // 2
-                            draw.rectangle(
-                                [mx - 1, my - 1, mx + mw_w + 3, my + mw_h + 1],
-                                fill=LABEL_BG,
-                            )
-                            draw.text((mx + 1, my), mw_label, fill=LABEL_FG, font=font_small)
-
-                img = Image.alpha_composite(img, overlay)
-
-            result = img.convert("RGB")
-            buf = BytesIO()
-            result.save(buf, format="PNG", quality=95)
-            buf.seek(0)
-            return buf
-
+            return render_gel_overlay(
+                image_file,
+                self.data.lanes if self.data.lanes else [],
+                draw_band_overlay=show_bands,
+            )
         except Exception as e:
             logger.warning(f"Failed to render full gel image: {e}", exc_info=True)
             return None
@@ -555,18 +467,19 @@ class DensitometryReportBuilder(BaseReportBuilder):
     # ══════════════════════════════════════════════════════════════════
 
     def _add_cover_page(self):
-        """Add cover page with GSK logo."""
-        try:
-            logo_path = Path(__file__).resolve().parents[3] / GSK_LOGO_PATH
-            if logo_path.exists():
-                paragraph = self.document.add_paragraph()
-                from docx.enum.text import WD_ALIGN_PARAGRAPH
+        """Add the cover page (Phoresis logo if configured, then title)."""
+        if PHORESIS_LOGO_PATH:
+            try:
+                logo_path = Path(__file__).resolve().parents[3] / PHORESIS_LOGO_PATH
+                if logo_path.exists():
+                    paragraph = self.document.add_paragraph()
+                    from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                run = paragraph.add_run()
-                run.add_picture(str(logo_path), width=Inches(1.5))
-        except Exception as e:
-            logger.warning(f"Failed to add GSK logo: {e}")
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                    run = paragraph.add_run()
+                    run.add_picture(str(logo_path), width=Inches(1.5))
+            except Exception as e:
+                logger.warning(f"Failed to add logo: {e}")
 
         for _ in range(2):
             self.document.add_paragraph()
@@ -575,7 +488,7 @@ class DensitometryReportBuilder(BaseReportBuilder):
             "DENSITOMETRY ANALYSIS REPORT",
             font_size=TITLE_SIZE,
             bold=True,
-            color=GSK_ORANGE,
+            color=PHORESIS_ACCENT,
             align="center",
             font_name=HEADING_FONT,
         )

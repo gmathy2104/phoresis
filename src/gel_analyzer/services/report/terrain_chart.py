@@ -5,7 +5,12 @@ Renders a matplotlib 3D surface plot representing lane intensity profiles
 as an elongated mountain ridge with Gaussian cross-section, band-colored
 regions, contour lines on the surface, and dramatic lighting.
 
-Inspired by the Three.js frontend terrain view (Chromatogram3DRenderer).
+Band colours mirror the live gel-viewer overlay (see
+``BAND_PALETTE_HEX`` in ``constants.py`` and the corresponding
+``.gv-band.*`` rules in ``gel_viewer_standalone.css``) so a POI band
+on the gel image and the same band on the terrain plot have the
+same hue. Lookups are done by enum code, with a defensive fallback
+to the display string for older callers.
 """
 
 from io import BytesIO
@@ -14,16 +19,26 @@ import numpy as np
 
 from phoresis_core.logging_config import get_logger
 
+from .constants import BAND_PALETTE_HEX, BAND_TYPE_DISPLAY, LANE_PALETTE_HEX
+
 logger = get_logger(__name__)
 
-# Band type colors (matching densitometry UI / Three.js renderer)
-BAND_COLORS = {
-    "Protein of Interest": "#22C55E",
-    "Other": "#9E9E9E",
-    "MW Reference": "#FFC107",
-    "MW Ladder": "#FFC107",
-}
-BASELINE_COLOR = "#3B82F6"  # Blue baseline (matching Three.js DEFAULT)
+# Build a forgiving lookup that accepts either the enum code (preferred)
+# or the display string ("Protein of Interest", "MW Reference", …).
+_BAND_DISPLAY_TO_CODE = {v: k for k, v in BAND_TYPE_DISPLAY.items()}
+_BAND_DISPLAY_TO_CODE["MW Ladder"] = "MW_REFERENCE"  # legacy display alias
+
+BAND_COLORS = {**BAND_PALETTE_HEX}
+BAND_COLORS.update({display: BAND_PALETTE_HEX[code] for display, code in _BAND_DISPLAY_TO_CODE.items()})
+
+BASELINE_COLOR = LANE_PALETTE_HEX["SAMPLE"]  # accent-aligned baseline
+
+
+def _band_color(band_type) -> str:
+    """Resolve a band-type token (enum code or display string) to a hex color."""
+    if band_type is None:
+        return BAND_PALETTE_HEX["OTHER"]
+    return BAND_COLORS.get(band_type, BAND_PALETTE_HEX["OTHER"])
 
 
 def render_terrain_chart(
@@ -158,7 +173,7 @@ def render_terrain_chart(
                         best_type = bi["type"]
 
                 if best_type:
-                    color_hex = BAND_COLORS.get(best_type, BASELINE_COLOR)
+                    color_hex = _band_color(best_type)
                     band_rgba = np.array(to_rgba(color_hex, alpha=0.9))
 
                     # Fade by distance from band center for smooth transitions

@@ -1,7 +1,8 @@
 """
 Word document builder for gel analysis reports.
 
-Generates comprehensive Word documents with GSK branding, charts, and tables.
+Generates comprehensive Word documents with the Phoresis brand palette
+(accent-600 blue, Inter typography), charts, and tables.
 """
 
 from io import BytesIO
@@ -18,8 +19,6 @@ from phoresis_core.logging_config import get_logger
 from .constants import (
     BODY_FONT,
     BODY_SIZE,
-    GSK_LOGO_PATH,
-    GSK_ORANGE,
     HEADING_FONT,
     IMAGE_DIGITAL_LANE_WIDTH,
     IMAGE_FULL_WIDTH,
@@ -28,10 +27,13 @@ from .constants import (
     METHODOLOGY_DENSITOMETRY,
     METHODOLOGY_PURITY,
     MUTED_GRAY,
+    PHORESIS_ACCENT,
+    PHORESIS_LOGO_PATH,
     SECTION_H1_SIZE,
     SECTION_H2_SIZE,
     SECTION_H3_SIZE,
     SMALL_SIZE,
+    TABLE_ALT_ROW,
     TABLE_HEADER_BG,
     TABLE_SIZE,
     TITLE_SIZE,
@@ -54,7 +56,7 @@ class BaseReportBuilder:
         self._setup_page_layout()
 
     def _setup_styles(self):
-        """Configure GSKPrecision fonts and document styles."""
+        """Configure Inter fonts and document styles."""
         style = self.document.styles["Normal"]
         font = style.font
         font.name = BODY_FONT
@@ -98,7 +100,7 @@ class BaseReportBuilder:
         return p
 
     def _add_section_heading(self, text: str, level: int = 1):
-        """Add a section heading with GSK orange color."""
+        """Add a section heading with the Phoresis accent colour."""
         if level == 1:
             font_size = SECTION_H1_SIZE
         elif level == 2:
@@ -107,7 +109,7 @@ class BaseReportBuilder:
             font_size = SECTION_H3_SIZE
 
         self._add_paragraph(
-            text, font_size=font_size, bold=True, color=GSK_ORANGE, font_name=HEADING_FONT, space_after=12
+            text, font_size=font_size, bold=True, color=PHORESIS_ACCENT, font_name=HEADING_FONT, space_after=12
         )
 
     def _add_info_table(self, data: list, widths: list | None = None):
@@ -141,14 +143,14 @@ class BaseReportBuilder:
         self.document.add_paragraph()
 
     def _add_data_table(self, headers: list, rows: list):
-        """Add a data table with styled headers."""
+        """Add a data table with brand-blue header and alternating row fill."""
         if not rows:
             return
 
         table = self.document.add_table(rows=1 + len(rows), cols=len(headers))
         table.style = "Table Grid"
 
-        # Header row
+        # Header row — accent-600 fill, white text
         header_row = table.rows[0]
         for i, header in enumerate(headers):
             cell = header_row.cells[i]
@@ -163,15 +165,20 @@ class BaseReportBuilder:
             shading.set(qn("w:fill"), TABLE_HEADER_BG)
             cell._tc.get_or_add_tcPr().append(shading)
 
-        # Data rows
+        # Data rows — zebra-striped with TABLE_ALT_ROW on every odd row
         for i, row_data in enumerate(rows):
             row = table.rows[i + 1]
+            zebra = i % 2 == 1
             for j, value in enumerate(row_data):
                 cell = row.cells[j]
                 para = cell.paragraphs[0]
                 run = para.add_run(str(value) if value is not None else "-")
                 run.font.size = Pt(TABLE_SIZE)
                 run.font.name = BODY_FONT
+                if zebra:
+                    shading = OxmlElement("w:shd")
+                    shading.set(qn("w:fill"), TABLE_ALT_ROW)
+                    cell._tc.get_or_add_tcPr().append(shading)
 
         self.document.add_paragraph()
 
@@ -234,17 +241,17 @@ class GelAnalysisReportBuilder(BaseReportBuilder):
         super().__init__()
 
     def add_cover_page(self):
-        """Add cover page with GSK logo."""
-        try:
-            # GSK logo (top-right)
-            logo_path = Path(__file__).resolve().parents[3] / GSK_LOGO_PATH
-            if logo_path.exists():
-                paragraph = self.document.add_paragraph()
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                run = paragraph.add_run()
-                run.add_picture(str(logo_path), width=Inches(1.5))
-        except Exception as e:
-            logger.warning(f"Failed to add GSK logo: {e}")
+        """Add the cover page (Phoresis logo if configured, then title)."""
+        if PHORESIS_LOGO_PATH:
+            try:
+                logo_path = Path(__file__).resolve().parents[3] / PHORESIS_LOGO_PATH
+                if logo_path.exists():
+                    paragraph = self.document.add_paragraph()
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                    run = paragraph.add_run()
+                    run.add_picture(str(logo_path), width=Inches(1.5))
+            except Exception as e:
+                logger.warning(f"Failed to add logo: {e}")
 
         # Spacing
         for _ in range(2):
@@ -255,7 +262,7 @@ class GelAnalysisReportBuilder(BaseReportBuilder):
             "GEL ANALYSIS REPORT",
             font_size=TITLE_SIZE,
             bold=True,
-            color=GSK_ORANGE,
+            color=PHORESIS_ACCENT,
             align="center",
             font_name=HEADING_FONT,
         )
@@ -395,16 +402,48 @@ class GelAnalysisReportBuilder(BaseReportBuilder):
             logger.error(f"Error in add_calibration_section: {e}")
 
     def add_gel_image_section(self):
-        """Add gel image overview section."""
+        """Add the annotated gel image section.
+
+        Server-side rendered with ``gel_overlay.render_gel_overlay`` so the
+        report shows exactly the same lane / band styling as the live web
+        app (lane-type colours, band-type colours, polygon-aware shapes).
+        Falls back to the JS-captured ``gel_overview`` screenshot when
+        the database has no image attached.
+        """
         try:
             self._add_section_heading("4. GEL IMAGE")
 
-            self._add_captured_image("gel_overview")
+            buf = self._render_annotated_gel()
+            if buf is not None:
+                self.document.add_picture(buf, width=Inches(IMAGE_FULL_WIDTH))
+            else:
+                # Last-resort fallback for environments where the gel
+                # image file isn't reachable but the browser has already
+                # captured one.
+                self._add_captured_image("gel_overview")
 
             self.document.add_page_break()
 
         except Exception as e:
             logger.error(f"Error in add_gel_image_section: {e}")
+
+    def _render_annotated_gel(self) -> BytesIO | None:
+        """Pillow-rendered annotated gel matching the live overlay."""
+        if not getattr(self.data, "gel_image_id", None):
+            return None
+        try:
+            from gel_analyzer.models import GelImage
+
+            from .gel_overlay import render_gel_overlay
+
+            gel_image = GelImage.objects.get(pk=self.data.gel_image_id)
+            image_file = gel_image.display_file or gel_image.original_file
+            if not image_file:
+                return None
+            return render_gel_overlay(image_file, self.data.lanes, draw_band_overlay=True)
+        except Exception as e:
+            logger.warning(f"Annotated gel render failed for analysis report: {e}")
+            return None
 
     def add_lane_detail_sections(self):
         """Add individual lane analysis sections."""

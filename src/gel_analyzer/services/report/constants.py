@@ -1,37 +1,116 @@
 """
-Constants for gel analysis Word report generation.
+Constants for Phoresis report generation (Word, PowerPoint, Excel).
 
-Contains GSK branding colors, fonts, sizing, and methodology text blocks.
+The colour and typography tokens here mirror the live web app's design
+tokens (`src/phoresis_ui/static/phoresis_ui/css/tokens.css`) so the
+exported reports stay visually aligned with what the user sees on
+screen. The lane / band palettes mirror the gel-viewer overlay styles
+in `gel_viewer_standalone.css` and `gel-preview.js`.
 """
 
-# GSK Brand Colors (RGB tuples for python-docx)
-GSK_ORANGE = (244, 121, 32)
-GSK_BLUE = (59, 113, 202)
-TABLE_HEADER_BG = "4472C4"
-MUTED_GRAY = (108, 117, 125)
+# ── Brand palette ─────────────────────────────────────────────────────
+# Anchored on Tailwind's blue-600 (the live app's accent-600).
+PHORESIS_ACCENT = (37, 99, 235)          # #2563EB — primary action / headers
+PHORESIS_ACCENT_DARK = (29, 78, 216)     # #1D4ED8
+PHORESIS_ACCENT_LIGHT = (219, 234, 254)  # #DBEAFE — subtle fills
+PHORESIS_INK = (15, 23, 42)              # #0F172A — primary text
+MUTED_GRAY = (100, 116, 139)             # #64748B — secondary text
+BORDER_GRAY = (226, 232, 240)            # #E2E8F0 — subtle borders
+ALT_ROW_FILL = (245, 247, 250)           # very-light blue-gray for table zebra
 
-# Fonts
-BODY_FONT = "GSKPrecision Thin"
-HEADING_FONT = "GSKPrecision"
+# Hex strings for libraries that prefer them (openpyxl, RGBColor)
+TABLE_HEADER_BG = "2563EB"               # accent-600
+TABLE_HEADER_FG = "FFFFFF"
+TABLE_ALT_ROW = "F5F7FA"
 
-# Font sizes (Pt)
+# Legacy aliases — kept so any straggler call site keeps working.
+GSK_ORANGE = PHORESIS_ACCENT  # deprecated; prefer PHORESIS_ACCENT
+GSK_BLUE = PHORESIS_ACCENT    # deprecated
+
+# ── Typography ────────────────────────────────────────────────────────
+# Inter is the live app's `--font-sans`. Fallback to system sans-serif
+# at the python-docx / pptx layer (each library handles fallback itself).
+BODY_FONT = "Inter"
+HEADING_FONT = "Inter"
+
+# Font sizes (pt)
 TITLE_SIZE = 28
 SECTION_H1_SIZE = 16
 SECTION_H2_SIZE = 14
 SECTION_H3_SIZE = 12
 BODY_SIZE = 11
-TABLE_SIZE = 9
+TABLE_SIZE = 10        # bumped from 9 — 9pt is hard to read in Word at 100% zoom
 SMALL_SIZE = 10
 
-# Assets path
-GSK_LOGO_PATH = "base/static/base/images/gsk_logo_template.png"
+# Asset paths
+# Logo intentionally unset; downstream builders must guard against missing logo.
+PHORESIS_LOGO_PATH = ""    # add when a vector / png lives somewhere stable
+GSK_LOGO_PATH = PHORESIS_LOGO_PATH  # deprecated alias
 
 # Image widths (inches) for Word doc
 IMAGE_FULL_WIDTH = 6.5
 IMAGE_HALF_WIDTH = 3.1
 IMAGE_DIGITAL_LANE_WIDTH = 2.0
 
-# Methodology text blocks
+# ── Lane / Band palettes ──────────────────────────────────────────────
+# Keyed by ENUM CODE (matches Lane.lane_type / Band.band_type in the
+# database — never on the get_*_display() string, which is fragile).
+#
+# Tuples are RGBA in the 0–255 range. The fill alpha is intentionally
+# low (~50–60) so the underlying gel image stays readable through the
+# overlay, mirroring what the live SVG does with rgba(...,0.06–0.10).
+#
+# Mirror of:
+#   .gv-lane.sample/.ladder/.control/.empty in gel_viewer_standalone.css
+#   .gv-band.poi/.mw_reference/.other       (idem)
+
+LANE_PALETTE = {
+    "SAMPLE":  {"fill": (59, 130, 246, 50),   "stroke": (59, 130, 246, 220),  "dashed": False},
+    "LADDER":  {"fill": (249, 115, 22, 55),   "stroke": (249, 115, 22, 230),  "dashed": False},
+    "CONTROL": {"fill": (34, 197, 94, 50),    "stroke": (34, 197, 94, 230),   "dashed": False},
+    "EMPTY":   {"fill": (107, 114, 128, 35),  "stroke": (107, 114, 128, 180), "dashed": True},
+    "DOT":     {"fill": (59, 130, 246, 50),   "stroke": (59, 130, 246, 220),  "dashed": False},
+}
+
+BAND_PALETTE = {
+    "POI":          {"fill": (168, 85, 247, 110), "stroke": (168, 85, 247, 220)},  # purple
+    "MW_REFERENCE": {"fill": (249, 115, 22, 110), "stroke": (249, 115, 22, 220)},  # orange
+    "OTHER":        {"fill": (34, 197, 94, 110),  "stroke": (34, 197, 94, 220)},   # green
+}
+
+# Hex variants for matplotlib / Plotly equivalents
+LANE_PALETTE_HEX = {
+    "SAMPLE":  "#3B82F6",
+    "LADDER":  "#F97316",
+    "CONTROL": "#22C55E",
+    "EMPTY":   "#6B7280",
+    "DOT":     "#3B82F6",
+}
+
+BAND_PALETTE_HEX = {
+    "POI":          "#A855F7",
+    "MW_REFERENCE": "#F97316",
+    "OTHER":        "#22C55E",
+}
+
+
+def lane_colors(lane_type: str | None) -> dict:
+    """Return a {fill, stroke, dashed} dict for the given lane_type code.
+
+    Falls back to SAMPLE so a missing/unknown type still draws something.
+    """
+    return LANE_PALETTE.get((lane_type or "SAMPLE").upper(), LANE_PALETTE["SAMPLE"])
+
+
+def band_colors(band_type: str | None) -> dict:
+    """Return a {fill, stroke} dict for the given band_type code.
+
+    Falls back to OTHER for unknown / missing codes.
+    """
+    return BAND_PALETTE.get((band_type or "OTHER").upper(), BAND_PALETTE["OTHER"])
+
+
+# ── Methodology text blocks ───────────────────────────────────────────
 METHODOLOGY_DENSITOMETRY = """
 Quantitative band analysis is performed using Gaussian peak fitting with rolling ball background subtraction.
 Each band's intensity profile is extracted perpendicular to the migration direction and fitted to a Gaussian
@@ -57,7 +136,7 @@ classified as "OTHER" are considered impurities or host cell proteins, while ban
 are excluded from purity calculations.
 """
 
-# Display name mappings
+# ── Display name mappings ─────────────────────────────────────────────
 BAND_TYPE_DISPLAY = {
     "POI": "Protein of Interest",
     "OTHER": "Other",
@@ -72,9 +151,8 @@ LANE_TYPE_DISPLAY = {
     "DOT": "Dot",
 }
 
-# ── Comparison Report Configuration ──────────────────────────────
+# ── Comparison Report Configuration ──────────────────────────────────
 
-# Available report sections as (key, label) tuples
 REPORT_SECTIONS = [
     ("overview", "Comparison Overview"),
     ("sample_summary", "Sample Summary"),
@@ -88,7 +166,6 @@ REPORT_SECTIONS = [
 
 ALL_SECTION_KEYS = [key for key, _ in REPORT_SECTIONS]
 
-# Supported export formats
 REPORT_FORMATS = ["docx", "xlsx", "pptx"]
 
 FORMAT_CONTENT_TYPES = {
@@ -103,23 +180,25 @@ FORMAT_EXTENSIONS = {
     "pptx": ".pptx",
 }
 
-# POI Purity thresholds
 POI_PURITY_TARGET = 90
 POI_PURITY_MINIMUM = 70
 
-# Accent color palette (hex) matching frontend sample comparison
+# Accent color palette (hex) for multi-sample charts.
+# Anchored on the live app's accent-600 first so the primary lane lines up
+# with the rest of the UI. Subsequent colours sweep the same hue family
+# used by the gel-viewer overlay (purple POI, green other, orange ladder).
 ACCENT_COLORS_HEX = [
-    "#3B82F6",  # blue
-    "#A855F7",  # purple
-    "#22C55E",  # green
-    "#F97316",  # orange
-    "#EC4899",  # pink
+    "#2563EB",  # accent-600 (live UI primary)
+    "#A855F7",  # purple — POI
+    "#22C55E",  # green — other
+    "#F97316",  # orange — MW reference
+    "#EC4899",  # pink — band token
     "#14B8A6",  # teal
     "#F59E0B",  # amber
     "#6366F1",  # indigo
 ]
 
-# ── Densitometry Report Configuration ────────────────────────────
+# ── Densitometry Report Configuration ────────────────────────────────
 
 DENSITOMETRY_REPORT_SECTIONS = [
     ("overview", "Analysis Overview"),

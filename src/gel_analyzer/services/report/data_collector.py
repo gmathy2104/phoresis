@@ -28,17 +28,24 @@ class BandReportData:
 
     # Identity
     band_id: str
-    band_type: str
+    band_type: str          # Display string, e.g. "Protein of Interest"
     band_number: int | None
     position_y: int
     estimated_mw_kda: float | None
     label: str
 
-    # Geometry
+    # Geometry — bbox is the fallback shape; polygon, when present,
+    # carries the actual user-drawn outline (matches Band.polygon JSON
+    # field, list of [x, y] pairs in image-pixel coordinates).
     bbox_x: int | None = None
     bbox_y: int | None = None
     bbox_width: int | None = None
     bbox_height: int | None = None
+    polygon: list | None = None
+
+    # Enum code (e.g. "POI", "MW_REFERENCE", "OTHER") for palette lookups —
+    # default at the end so existing positional callers stay compatible.
+    band_type_code: str = "OTHER"
 
     # Densitometry results
     corrected_area: float | None = None
@@ -59,18 +66,25 @@ class LaneReportData:
     # Identity
     lane_id: int
     lane_number: int
-    lane_type: str
+    lane_type: str          # Display string ("Sample", "MW Ladder"…)
     sample_name: str
     condition: str
     protein_load_ug: float | None
     protein_load_type: str
     notes: str
 
-    # Geometry
+    # Geometry — rectangle bbox is always populated; ``polygon`` carries
+    # the actual outline when ``lane_shape != RECTANGLE``.
     x: int
     y: int
     width: int
     height: int
+
+    # Optional fields with defaults — added in the brand refresh; placed
+    # AFTER the required fields so subclass dataclasses keep working.
+    lane_type_code: str = "SAMPLE"   # enum code for palette lookups
+    lane_shape: str = "RECTANGLE"
+    polygon: list | None = None
 
     # Bands
     bands: list[BandReportData] = field(default_factory=list)
@@ -118,6 +132,7 @@ class ReportData:
     image_title: str
     image_width: int | None
     image_height: int | None
+    gel_image_id: str | None = None  # used by server-side overlay rendering
 
     # Lanes
     lanes: list[LaneReportData] = field(default_factory=list)
@@ -213,6 +228,7 @@ class ReportDataCollector:
             image_title=analysis.gel_image.original_filename,
             image_width=analysis.gel_image.width,
             image_height=analysis.gel_image.height,
+            gel_image_id=str(analysis.gel_image.id),
             # Lanes
             lanes=lane_data_list,
             # Calibrations
@@ -298,6 +314,8 @@ class ReportDataCollector:
             lane_id=lane.id,
             lane_number=lane.lane_number,
             lane_type=lane.get_lane_type_display(),
+            lane_type_code=lane.lane_type or "SAMPLE",
+            lane_shape=getattr(lane, "lane_shape", "RECTANGLE") or "RECTANGLE",
             sample_name=sample_name,
             condition=lane.condition_display,
             protein_load_ug=lane.protein_load_ug,
@@ -307,6 +325,7 @@ class ReportDataCollector:
             y=lane.y,
             width=lane.width,
             height=lane.height,
+            polygon=getattr(lane, "polygon", None) or None,
             bands=bands,
             total_integrated_area=total_area,
             poi_integrated_area=poi_area,
@@ -354,6 +373,7 @@ class ReportDataCollector:
         return BandReportData(
             band_id=str(band.id),
             band_type=band.get_band_type_display(),
+            band_type_code=band.band_type or "OTHER",
             band_number=band.band_number,
             position_y=band.position_y,
             estimated_mw_kda=band.estimated_mw_kda,
@@ -362,6 +382,7 @@ class ReportDataCollector:
             bbox_y=band.bbox_y,
             bbox_width=band.bbox_width,
             bbox_height=band.bbox_height,
+            polygon=getattr(band, "polygon", None) or None,
             corrected_area=corrected_area,
             peak_amplitude=peak_amplitude,
             peak_sigma=peak_sigma,

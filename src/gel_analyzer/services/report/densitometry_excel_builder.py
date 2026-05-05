@@ -15,20 +15,21 @@ from openpyxl.utils import get_column_letter
 from phoresis_core.logging_config import get_logger
 
 from .constants import (
-    GSK_LOGO_PATH,
+    PHORESIS_LOGO_PATH,
+    TABLE_HEADER_BG,
 )
 from .densitometry_data_collector import DensitometryReportData
 
 logger = get_logger(__name__)
 
-# GSK branding for Excel
-_ORANGE_HEX = "F47920"
-_HEADER_FILL = PatternFill(start_color=_ORANGE_HEX, end_color=_ORANGE_HEX, fill_type="solid")
-_HEADER_FONT = Font(name="GSKPrecision", bold=True, color="FFFFFF", size=11)
-_BODY_FONT = Font(name="GSKPrecision Thin", size=10)
-_BOLD_FONT = Font(name="GSKPrecision", bold=True, size=10)
-_TITLE_FONT = Font(name="GSKPrecision", bold=True, size=16, color=_ORANGE_HEX)
-_LABEL_FONT = Font(name="GSKPrecision", bold=True, size=10, color="6C757D")
+# Brand palette for Excel (Phoresis accent-600)
+_ACCENT_HEX = TABLE_HEADER_BG  # "2563EB"
+_HEADER_FILL = PatternFill(start_color=_ACCENT_HEX, end_color=_ACCENT_HEX, fill_type="solid")
+_HEADER_FONT = Font(name="Inter", bold=True, color="FFFFFF", size=11)
+_BODY_FONT = Font(name="Inter", size=10)
+_BOLD_FONT = Font(name="Inter", bold=True, size=10)
+_TITLE_FONT = Font(name="Inter", bold=True, size=16, color=_ACCENT_HEX)
+_LABEL_FONT = Font(name="Inter", bold=True, size=10, color="6C757D")
 _THIN_BORDER = Border(
     left=Side(style="thin", color="D0D0D0"),
     right=Side(style="thin", color="D0D0D0"),
@@ -78,7 +79,7 @@ class DensitometryExcelBuilder:
 
         # Logo
         try:
-            logo_path = Path(__file__).resolve().parents[3] / GSK_LOGO_PATH
+            logo_path = Path(__file__).resolve().parents[3] / PHORESIS_LOGO_PATH
             if logo_path.exists():
                 img = XlImage(str(logo_path))
                 img.width = 160
@@ -95,7 +96,7 @@ class DensitometryExcelBuilder:
 
         ws.merge_cells("A4:C4")
         ws["A4"].value = self.data.analysis_name
-        ws["A4"].font = Font(name="GSKPrecision", bold=True, size=13)
+        ws["A4"].font = Font(name="Inter", bold=True, size=13)
 
         # Key-value pairs
         rows = [

@@ -1,7 +1,9 @@
 """
 PowerPoint builder for densitometry analysis reports.
 
-Generates 16:9 .pptx presentations with GSK orange branding using python-pptx.
+Generates 16:9 .pptx presentations with Phoresis branding (accent blue,
+Inter typography) using python-pptx. Palette tokens come from
+``services.report.constants``.
 """
 
 from io import BytesIO
@@ -16,24 +18,26 @@ from pptx.util import Inches, Pt
 from phoresis_core.logging_config import get_logger
 
 from .constants import (
-    GSK_LOGO_PATH,
     METHODOLOGY_CALIBRATION,
     METHODOLOGY_DENSITOMETRY,
     METHODOLOGY_PURITY,
+    PHORESIS_ACCENT,
+    PHORESIS_ACCENT_DARK,
+    PHORESIS_LOGO_PATH,
 )
 from .densitometry_data_collector import DensitometryReportData
 
 logger = get_logger(__name__)
 
-# GSK branding (exact same as comparison PPTX)
-_ORANGE = RGBColor(0xF4, 0x79, 0x20)
-_ORANGE_DARK = RGBColor(0xD0, 0x62, 0x10)
+# Brand palette (RGBColor) — derived from constants.py
+_ACCENT = RGBColor(*PHORESIS_ACCENT)
+_ACCENT_DARK = RGBColor(*PHORESIS_ACCENT_DARK)
 _WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-_DARK = RGBColor(0x33, 0x33, 0x33)
-_GREY = RGBColor(0x6C, 0x75, 0x7D)
-_GREY_LIGHT = RGBColor(0xF8, 0xF9, 0xFA)
-_TABLE_HEADER_BG = RGBColor(0xF4, 0x79, 0x20)
-_TABLE_ALT_BG = RGBColor(0xFD, 0xF0, 0xE6)
+_DARK = RGBColor(0x0F, 0x17, 0x2A)        # PHORESIS_INK
+_GREY = RGBColor(0x64, 0x74, 0x8B)        # MUTED_GRAY
+_GREY_LIGHT = RGBColor(0xF8, 0xFA, 0xFC)
+_TABLE_HEADER_BG = _ACCENT
+_TABLE_ALT_BG = RGBColor(0xF5, 0xF7, 0xFA)
 
 # Sections not applicable to PowerPoint
 _PPTX_SKIP_SECTIONS = set()  # All sections can produce slides
@@ -42,7 +46,7 @@ _PPTX_SKIP_SECTIONS = set()  # All sections can produce slides
 class DensitometryPowerPointBuilder:
     """
     Generates a 16:9 PowerPoint presentation for Densitometry Analysis reports
-    with GSK orange branding.
+    using the Phoresis brand palette (accent-600 blue, Inter).
     """
 
     def __init__(
@@ -84,7 +88,7 @@ class DensitometryPowerPointBuilder:
             Inches(height),
         )
         header.fill.solid()
-        header.fill.fore_color.rgb = _ORANGE
+        header.fill.fore_color.rgb = _ACCENT
         header.line.fill.background()
 
         # Accent line below
@@ -96,7 +100,7 @@ class DensitometryPowerPointBuilder:
             Inches(0.08),
         )
         accent.fill.solid()
-        accent.fill.fore_color.rgb = _ORANGE_DARK
+        accent.fill.fore_color.rgb = _ACCENT_DARK
         accent.line.fill.background()
 
         # Title text in header
@@ -113,7 +117,7 @@ class DensitometryPowerPointBuilder:
         p.font.size = Pt(28)
         p.font.bold = True
         p.font.color.rgb = _WHITE
-        p.font.name = "GSKPrecision"
+        p.font.name = "Inter"
         p.alignment = PP_ALIGN.LEFT
 
     def _add_slide_number(self, slide):
@@ -151,14 +155,14 @@ class DensitometryPowerPointBuilder:
                 p.font.size = Pt(12)
                 p.font.bold = True
                 p.font.color.rgb = _GREY
-                p.font.name = "GSKPrecision"
+                p.font.name = "Inter"
 
             vc = table.cell(i, 1)
             vc.text = str(value) if value else ""
             for p in vc.text_frame.paragraphs:
                 p.font.size = Pt(12)
                 p.font.color.rgb = _DARK
-                p.font.name = "GSKPrecision Thin"
+                p.font.name = "Inter"
 
     def _add_data_table(self, slide, headers, rows, top=1.5, max_rows=15):
         """Add a data table with orange headers. Returns number of rows written."""
@@ -189,7 +193,7 @@ class DensitometryPowerPointBuilder:
                 p.font.size = Pt(10)
                 p.font.bold = True
                 p.font.color.rgb = _WHITE
-                p.font.name = "GSKPrecision"
+                p.font.name = "Inter"
                 p.alignment = PP_ALIGN.CENTER
 
         # Data
@@ -203,7 +207,7 @@ class DensitometryPowerPointBuilder:
                 for p in cell.text_frame.paragraphs:
                     p.font.size = Pt(9)
                     p.font.color.rgb = _DARK
-                    p.font.name = "GSKPrecision Thin"
+                    p.font.name = "Inter"
 
         return len(display_rows)
 
@@ -249,7 +253,7 @@ class DensitometryPowerPointBuilder:
             Inches(2.8),
         )
         header.fill.solid()
-        header.fill.fore_color.rgb = _ORANGE
+        header.fill.fore_color.rgb = _ACCENT
         header.line.fill.background()
 
         accent = slide.shapes.add_shape(
@@ -260,7 +264,7 @@ class DensitometryPowerPointBuilder:
             Inches(0.08),
         )
         accent.fill.solid()
-        accent.fill.fore_color.rgb = _ORANGE_DARK
+        accent.fill.fore_color.rgb = _ACCENT_DARK
         accent.line.fill.background()
 
         # Logo
@@ -289,7 +293,7 @@ class DensitometryPowerPointBuilder:
         p.font.size = Pt(44)
         p.font.bold = True
         p.font.color.rgb = _WHITE
-        p.font.name = "GSKPrecision"
+        p.font.name = "Inter"
 
         # Subtitle (analysis name)
         txbox2 = slide.shapes.add_textbox(
@@ -302,7 +306,7 @@ class DensitometryPowerPointBuilder:
         p2.text = self.data.analysis_name
         p2.font.size = Pt(22)
         p2.font.color.rgb = RGBColor(0xFF, 0xE0, 0xC0)
-        p2.font.name = "GSKPrecision"
+        p2.font.name = "Inter"
 
         # Info below header
         avg_purity_str = f"{self.data.average_purity:.1f}%" if self.data.average_purity is not None else "N/A"
@@ -325,7 +329,7 @@ class DensitometryPowerPointBuilder:
             p.text = line
             p.font.size = Pt(13)
             p.font.color.rgb = _GREY
-            p.font.name = "GSKPrecision Thin"
+            p.font.name = "Inter"
             y += 0.45
 
     def _add_overview_slide(self):
@@ -493,7 +497,7 @@ class DensitometryPowerPointBuilder:
                 p.font.size = header_font_size
                 p.font.bold = True
                 p.font.color.rgb = _WHITE
-                p.font.name = "GSKPrecision"
+                p.font.name = "Inter"
                 p.alignment = PP_ALIGN.CENTER
 
         # Data rows
@@ -507,7 +511,7 @@ class DensitometryPowerPointBuilder:
                 for p in cell.text_frame.paragraphs:
                     p.font.size = body_font_size
                     p.font.color.rgb = _DARK
-                    p.font.name = "GSKPrecision Thin"
+                    p.font.name = "Inter"
 
         self._add_slide_number(slide)
 
@@ -601,12 +605,12 @@ class DensitometryPowerPointBuilder:
                 run.font.bold = True
                 run.font.size = Pt(11)
                 run.font.color.rgb = _GREY
-                run.font.name = "GSKPrecision"
+                run.font.name = "Inter"
                 run2 = p.add_run()
                 run2.text = value
                 run2.font.size = Pt(11)
                 run2.font.color.rgb = _DARK
-                run2.font.name = "GSKPrecision Thin"
+                run2.font.name = "Inter"
                 y += 0.35
 
             # Electropherogram (right side)
@@ -707,8 +711,8 @@ class DensitometryPowerPointBuilder:
             p.text = title
             p.font.size = Pt(13)
             p.font.bold = True
-            p.font.color.rgb = _ORANGE
-            p.font.name = "GSKPrecision"
+            p.font.color.rgb = _ACCENT
+            p.font.name = "Inter"
             y += 0.4
 
             # Body
@@ -724,7 +728,7 @@ class DensitometryPowerPointBuilder:
             p.text = text.strip()
             p.font.size = Pt(10)
             p.font.color.rgb = _DARK
-            p.font.name = "GSKPrecision Thin"
+            p.font.name = "Inter"
             y += 1.7
 
         self._add_slide_number(slide)
