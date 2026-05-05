@@ -39,8 +39,11 @@ if (-not (Test-Path $defaultMedia)) {
 }
 $env:MEDIA_ROOT = $defaultMedia
 
-# Mute Django debug-toolbar internal IP check noise on a non-INTERNAL_IPS box.
-$env:DJANGO_ALLOWED_HOSTS = 'localhost,127.0.0.1'
+# Note: DJANGO_ALLOWED_HOSTS is NOT exported here because phoresis.settings.dev
+# hardcodes ALLOWED_HOSTS = ["localhost", "127.0.0.1", "phoresis"] after
+# `from .base import *`, so any env-var override would be silently dropped.
+# Setting it would only mislead future contributors into thinking they could
+# tweak ALLOWED_HOSTS via env in dev — they can't.
 
 Write-Host ""
 Write-Host "Phoresis dev env loaded:" -ForegroundColor Green

@@ -15,3 +15,10 @@ STORAGES = {
 }
 
 INTERNAL_IPS = ["127.0.0.1"]
+
+# Print emails to the runserver console rather than trying to deliver via SMTP.
+# Without this, any code path that calls send_mail() (password reset flow, our
+# error notifications, etc.) blocks for ~30s on a connection to localhost:25
+# and ultimately fails — annoying in dev and a real footgun if the message is
+# triggered from inside a web request (the user just sees a hung page).
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"

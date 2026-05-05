@@ -10,6 +10,7 @@ Provides:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -135,8 +136,13 @@ def setup_logging() -> None:
     )
 
     if debug_mode:
-        log_dir = base_dir / "logs"
-        log_dir.mkdir(exist_ok=True)
+        # Env-overridable per AGENTS.md §5 (writable path policy). Required for
+        # the dev-stack worker container, where the default `BASE_DIR / "logs"`
+        # would resolve to /app/logs — which is root-owned because Dockerfile's
+        # `WORKDIR /app` runs before the user is changed to phoresis (UID 1000).
+        # Outside containers, BASE_DIR/logs is fine and stays the default.
+        log_dir = Path(os.environ.get("PHORESIS_LOG_DIR") or (base_dir / "logs"))
+        log_dir.mkdir(parents=True, exist_ok=True)
         logger.add(
             log_dir / "phoresis_{time:YYYY-MM-DD}.log",
             format=FILE_FORMAT,

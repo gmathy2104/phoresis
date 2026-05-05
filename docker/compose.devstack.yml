@@ -86,6 +86,20 @@ services:
       DB_PASSWORD: phoresis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      # CRITICAL: MEDIA_ROOT must point to /srv/media inside the container —
+      # the same bind-mounted directory Django (runserver on Windows) uses.
+      # Without this, the worker falls back to BASE_DIR/"media" (= /app/media)
+      # while Django writes uploads to /srv/media via the bind mount, and
+      # band-detection tasks crash with FileNotFoundError on the gel image
+      # they're supposed to read.
+      MEDIA_ROOT: /srv/media
+      # PHORESIS_LOG_DIR redirects loguru's file sink out of /app/logs (which
+      # is root-owned because Dockerfile's WORKDIR /app predates USER phoresis)
+      # into the phoresis user's home dir. Without this, the worker crashes
+      # at app startup with PermissionError on `mkdir /app/logs` — but ONLY
+      # in dev (DEBUG=True). The prod worker runs DEBUG=False and skips the
+      # whole file-logging branch, so it never hits this code path.
+      PHORESIS_LOG_DIR: /home/phoresis/logs
       SKIP_COLLECTSTATIC: "1"
       SKIP_SEEDS: "1"
     volumes:
@@ -127,6 +141,12 @@ services:
       DB_PASSWORD: phoresis
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      # MEDIA_ROOT not strictly needed for beat (it doesn't read/write
+      # media), but consistent with worker keeps Django settings homogeneous
+      # if any periodic task ever does media I/O.
+      MEDIA_ROOT: /srv/media
+      # See worker service for why this redirect is necessary.
+      PHORESIS_LOG_DIR: /home/phoresis/logs
       SKIP_COLLECTSTATIC: "1"
       SKIP_SEEDS: "1"
     volumes:
