@@ -75,3 +75,9 @@ playwright/.cache/
 
 # Phoresis media bind-mount fallback (only used when PHORESIS_MEDIA_DIR is unset)
 /docker/_phoresis_data/
+
+# Devstack media (created by scripts/devstack.ps1 / scripts/dev-env.ps1)
+/_dev_media/
+
+# Build log (created by ad-hoc `docker compose build *> build.log`)
+/build.log

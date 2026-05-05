@@ -1,0 +1,157 @@
+# Phoresis DEV stack — runs Postgres + Redis + Celery worker + beat in Docker
+# while Django (manage.py runserver) + Tailwind watch run NATIVELY on the
+# Windows host. Lets you iterate on Python/template changes in seconds without
+# rebuilding the prod image, while keeping a real Celery + Postgres + Redis
+# behind the dev server (no SQLite, no in-process broker, no fakes).
+#
+# Why a separate compose file (vs the prod docker-compose.yml + an override)?
+# The prod stack assumes Django-in-container; the dev stack assumes Django-on-
+# host. Mixing the two with overrides ends up with three modes (prod / dev-
+# override / dev-pure) that all get tested differently. Cleaner to ship two
+# distinct compose files and keep their service names disjoint where it
+# matters (`postgres`/`redis`/`worker`/`beat` here vs `web`/`worker`/...
+# /`scheduler`/`caddy`/`watchtower` in docker-compose.yml).
+#
+# Bring up:
+#   pwsh scripts/devstack.ps1 up
+# Tear down (keeps DB + media):
+#   pwsh scripts/devstack.ps1 down
+# Wipe DB (re-runs migrations on next up):
+#   pwsh scripts/devstack.ps1 reset-db
+#
+# Then in your Django shell:
+#   . .\scripts\dev-env.ps1   # exports DB_*, REDIS_*, MEDIA_ROOT for this session
+#   .venv\Scripts\python.exe manage.py migrate
+#   .venv\Scripts\python.exe manage.py runserver
+
+name: phoresis-dev
+
+services:
+
+  # ────────────────────── Dev Postgres 17 ──────────────────────
+  # Exposed on host port 15432 (NOT 5432) to avoid colliding with the native
+  # Windows PostgreSQL 17 install that the prod stack uses.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: phoresis
+      POSTGRES_PASSWORD: phoresis
+      POSTGRES_DB: phoresis
+    volumes:
+      - phoresis_dev_pgdata:/var/lib/postgresql/data
+    networks: [phoresis_dev_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U phoresis -d phoresis"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ────────────────────── Dev Redis ──────────────────────
+  # Exposed on host port 16379 (NOT 6379) to avoid colliding with other dev
+  # stacks the user may already have running (e.g. dshub-dev-redis).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "16379:6379"
+    # No persistence in dev — Celery's in-flight task state is throwaway.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [phoresis_dev_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ────────────────────── Celery worker ──────────────────────
+  # Reuses the prod image (phoresis-app). Source code is bind-mounted from the
+  # host so editing a `.py` file on Windows is visible inside the container
+  # without rebuild — `docker compose restart worker` reloads the new code.
+  # (Celery doesn't auto-reload by default; we use --pool=solo so a single
+  # restart picks up new task definitions cleanly.)
+  worker:
+    image: ${PHORESIS_APP_IMAGE:-ghcr.io/gmathy2104/phoresis-app:latest-cpu}
+    restart: unless-stopped
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.dev
+      DJANGO_DEBUG: "true"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: phoresis
+      DB_USER: phoresis
+      DB_PASSWORD: phoresis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SKIP_COLLECTSTATIC: "1"
+      SKIP_SEEDS: "1"
+    volumes:
+      - ../src:/app/src
+      - ../manage.py:/app/manage.py
+      - ../conftest.py:/app/conftest.py
+      # Media is shared with the host so Django (runserver, on Windows) and
+      # the worker see the same files. Path is configurable via env.
+      - ${PHORESIS_DEV_MEDIA_DIR:-../_dev_media}:/srv/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [phoresis_dev_net]
+    command:
+      - celery
+      - -A
+      - phoresis_core.celery_app
+      - worker
+      - --loglevel=debug
+      - -Q
+      - default,heavy
+      - --pool=solo
+
+  # ────────────────────── Celery beat ──────────────────────
+  # Same image, same code mount, same `--schedule` redirect as the prod
+  # scheduler (writes outside /app, which is root-owned).
+  beat:
+    image: ${PHORESIS_APP_IMAGE:-ghcr.io/gmathy2104/phoresis-app:latest-cpu}
+    restart: unless-stopped
+    environment:
+      DJANGO_SETTINGS_MODULE: phoresis.settings.dev
+      DJANGO_DEBUG: "true"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: phoresis
+      DB_USER: phoresis
+      DB_PASSWORD: phoresis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SKIP_COLLECTSTATIC: "1"
+      SKIP_SEEDS: "1"
+    volumes:
+      - ../src:/app/src
+      - ../manage.py:/app/manage.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    networks: [phoresis_dev_net]
+    command:
+      - celery
+      - -A
+      - phoresis_core.celery_app
+      - beat
+      - --loglevel=info
+      - --schedule
+      - /home/phoresis/celerybeat-schedule.db
+
+networks:
+  phoresis_dev_net:
+    driver: bridge
+
+volumes:
+  phoresis_dev_pgdata:

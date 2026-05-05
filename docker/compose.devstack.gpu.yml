@@ -1,0 +1,22 @@
+# Devstack GPU override — applied on top of compose.devstack.yml when
+# `scripts/devstack.ps1 up -Variant cuda` is used. Only the worker gets GPU
+# passthrough (beat doesn't run any compute, postgres + redis don't either).
+#
+# Requirements:
+# - Docker Desktop >= 4.16 on Windows
+# - WSL2 backend
+# - NVIDIA Container Toolkit installed in the WSL2 distro
+# - A locally-built `phoresis-app:latest-cuda` image (produced by install.ps1
+#   with -Variant cuda, OR by `docker compose -f docker/docker-compose.yml
+#   --env-file .\.env build` when PHORESIS_IMAGE_VARIANT=cuda is set)
+
+services:
+
+  worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]

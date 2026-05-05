@@ -54,6 +54,10 @@ The `DB_*` env-var prefix on every `manage.py` invocation is the project convent
 
 ## 4. Run the dev server
 
+You have two ways to run the stack in development:
+
+### 4.a — All-native (Postgres on the host)
+
 Three terminals (or one terminal with three split panes):
 
 ```bash
@@ -68,6 +72,40 @@ DB_HOST=127.0.0.1 DB_USER=phoresis DB_PASSWORD=phoresis DB_NAME=phoresis \
 DB_HOST=127.0.0.1 DB_USER=phoresis DB_PASSWORD=phoresis DB_NAME=phoresis \
   .venv/Scripts/python.exe -m celery -A phoresis_core.celery_app worker --loglevel=info -Q default,heavy
 ```
+
+This requires the native PostgreSQL 17 install (port 5432) + native Redis on the host.
+
+### 4.b — Devstack (Postgres + Redis + worker in Docker, Django on host)
+
+If you don't want to install Postgres/Redis natively (or you have them but they're already serving the prod stack at `https://phoresis/`), bring up an isolated devstack in Docker:
+
+```powershell
+.\scripts\devstack.ps1 up                    # postgres on 127.0.0.1:15432, redis on 127.0.0.1:16379
+. .\scripts\dev-env.ps1                       # exports DB_*/REDIS_*/MEDIA_ROOT for this PowerShell session
+.venv\Scripts\python.exe manage.py migrate
+.venv\Scripts\python.exe manage.py runserver  # http://127.0.0.1:8000/
+
+# In another terminal:
+npm run watch:css
+```
+
+Devstack ports are deliberately offset (`15432`, `16379`) so the devstack and the prod stack at `https://phoresis/` can run simultaneously without colliding. Worker + beat run inside the devstack and share the source tree via bind-mount, so editing a `.py` file is visible immediately (`devstack.ps1 restart-worker` to pick up Celery task changes). Wipe and reset with `devstack.ps1 reset-db` (asks for confirmation).
+
+**GPU in the devstack worker** — for working on Celery tasks that need CUDA (band detection ML, future YOLO pipeline):
+
+```powershell
+.\scripts\devstack.ps1 up -Variant cuda  # uses phoresis-app:latest-cuda + GPU passthrough
+```
+
+Requires a locally-built `phoresis-app:latest-cuda` image (produce one via `install.ps1 -Variant cuda` or by running the prod build with `PHORESIS_IMAGE_VARIANT=cuda`). Devstack only attaches the GPU to the **worker** service — Postgres/Redis/beat don't need it. Verify inside the container:
+
+```powershell
+docker exec phoresis-dev-worker-1 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+Note that Django/runserver on the host still uses your `.venv` torch (CPU by default — see `uv sync --extra cuda` if you want GPU torch on the host too for code that runs in views, like the SAM encoder service).
+
+### Both paths
 
 The dev server runs on `http://127.0.0.1:8000/`. The DRF browsable API is mounted at `/api/v1/`. Without the worker, any "detect bands (async)" action will sit in the queue forever — the synchronous detection path still works.
 
