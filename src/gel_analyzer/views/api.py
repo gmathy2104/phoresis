@@ -2177,15 +2177,28 @@ def api_analysis_calibrate(request, pk):
             r_squared=result.r_squared,
         )
 
-        # Determine unmatched template bands by mw_kda — see comment in
-        # api_analysis_calibrate_multi for why band_order can't be used here.
-        matched_mws = {round(float(m.mw_kda), 2) for m in result.band_matches}
+        # Same logic as api_analysis_calibrate_multi: only report MARKERS
+        # GENUINELY MISSING FROM THE GEL (no ladder band assigned to that MW).
+        # User-excluded markers are shown in the marker table; flagging them
+        # as "not detected" here would be redundant + misleading.
+        excluded_set = {str(b) for b in excluded_band_ids}
+        ladder_assignments = []
+        for b in lane.bands.filter(estimated_mw_kda__isnull=False).exclude(estimated_mw_kda=0):
+            ladder_assignments.append((str(b.id), round(float(b.estimated_mw_kda), 2)))
+
         template_bands = list(template.bands.order_by("band_order"))
-        unmatched = [
-            {"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)}
-            for tb in template_bands
-            if round(float(tb.mw_kda), 2) not in matched_mws
-        ]
+        unmatched = []
+        for tb in template_bands:
+            target_mw = round(float(tb.mw_kda), 2)
+            has_active = any(
+                mw == target_mw and band_id not in excluded_set
+                for (band_id, mw) in ladder_assignments
+            )
+            if has_active:
+                continue
+            has_any = any(mw == target_mw for (_, mw) in ladder_assignments)
+            if not has_any:
+                unmatched.append({"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)})
 
         return JsonResponse(
             {
@@ -2379,27 +2392,36 @@ def api_analysis_calibrate_multi(request, pk):
             average_r_squared=result.average_r_squared,
         )
 
-        # Determine unmatched template bands.
-        #
-        # Compare by `mw_kda` rather than `template_band_order` because
-        # CalibrationService.get_bands_with_assigned_mw assigns band_order
-        # sequentially from the position-sorted ladder bands (1, 2, 3, ...),
-        # NOT the original template band_order. Excluding any marker shifts
-        # all subsequent indexes and produces false-positive "unmatched"
-        # entries (e.g. excluding 250 kDa wrongly flags 10 kDa as missing).
+        # Determine unmatched template bands — only flag MARKERS THAT ARE
+        # GENUINELY MISSING FROM THE GEL, i.e. the user has not annotated
+        # any ladder band with that MW. Markers the user explicitly excluded
+        # via the marker checkbox shouldn't show up here: the user already
+        # knows about them (they unchecked them) and reporting them as "not
+        # detected" is misleading. The exclusion is reflected in the marker
+        # table itself.
         unmatched = []
         if result.calibrations:
-            matched_mws = set()
-            for cal in result.calibrations:
-                for m in cal.band_matches:
-                    matched_mws.add(round(float(m.mw_kda), 2))
-
             template_bands = list(template.bands.order_by("band_order"))
-            unmatched = [
-                {"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)}
-                for tb in template_bands
-                if round(float(tb.mw_kda), 2) not in matched_mws
-            ]
+            excluded_set = {str(b) for b in excluded_band_ids}
+
+            ladder_assignments = []  # [(band_id, mw_rounded), ...]
+            for ll in analysis.lanes.filter(lane_type="LADDER").prefetch_related("bands"):
+                for b in ll.bands.all():
+                    if b.estimated_mw_kda and b.estimated_mw_kda > 0:
+                        ladder_assignments.append((str(b.id), round(float(b.estimated_mw_kda), 2)))
+
+            for tb in template_bands:
+                target_mw = round(float(tb.mw_kda), 2)
+                has_active_assignment = any(
+                    mw == target_mw and band_id not in excluded_set
+                    for (band_id, mw) in ladder_assignments
+                )
+                if has_active_assignment:
+                    continue  # marker is fitted on at least one ladder
+                has_any_assignment = any(mw == target_mw for (_, mw) in ladder_assignments)
+                if not has_any_assignment:
+                    # Truly absent from the gel — worth telling the user.
+                    unmatched.append({"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)})
 
         return JsonResponse(
             {
