@@ -2177,13 +2177,14 @@ def api_analysis_calibrate(request, pk):
             r_squared=result.r_squared,
         )
 
-        # Determine unmatched template bands
-        matched_orders = {m.template_band_order for m in result.band_matches}
+        # Determine unmatched template bands by mw_kda — see comment in
+        # api_analysis_calibrate_multi for why band_order can't be used here.
+        matched_mws = {round(float(m.mw_kda), 2) for m in result.band_matches}
         template_bands = list(template.bands.order_by("band_order"))
         unmatched = [
             {"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)}
             for tb in template_bands
-            if tb.band_order not in matched_orders
+            if round(float(tb.mw_kda), 2) not in matched_mws
         ]
 
         return JsonResponse(
@@ -2378,21 +2379,26 @@ def api_analysis_calibrate_multi(request, pk):
             average_r_squared=result.average_r_squared,
         )
 
-        # Determine unmatched template bands (aggregate across all calibrations)
-        # Use the first calibration as reference since all use the same template
+        # Determine unmatched template bands.
+        #
+        # Compare by `mw_kda` rather than `template_band_order` because
+        # CalibrationService.get_bands_with_assigned_mw assigns band_order
+        # sequentially from the position-sorted ladder bands (1, 2, 3, ...),
+        # NOT the original template band_order. Excluding any marker shifts
+        # all subsequent indexes and produces false-positive "unmatched"
+        # entries (e.g. excluding 250 kDa wrongly flags 10 kDa as missing).
         unmatched = []
         if result.calibrations:
-            # Collect all matched band orders across all ladders
-            all_matched_orders = set()
+            matched_mws = set()
             for cal in result.calibrations:
                 for m in cal.band_matches:
-                    all_matched_orders.add(m.template_band_order)
+                    matched_mws.add(round(float(m.mw_kda), 2))
 
             template_bands = list(template.bands.order_by("band_order"))
             unmatched = [
                 {"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)}
                 for tb in template_bands
-                if tb.band_order not in all_matched_orders
+                if round(float(tb.mw_kda), 2) not in matched_mws
             ]
 
         return JsonResponse(
