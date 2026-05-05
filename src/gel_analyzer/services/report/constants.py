@@ -169,18 +169,20 @@ REPORT_SECTIONS = [
 
 ALL_SECTION_KEYS = [key for key, _ in REPORT_SECTIONS]
 
-REPORT_FORMATS = ["docx", "xlsx", "pptx"]
+REPORT_FORMATS = ["docx", "xlsx", "pptx", "pdf"]
 
 FORMAT_CONTENT_TYPES = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "pdf": "application/pdf",
 }
 
 FORMAT_EXTENSIONS = {
     "docx": ".docx",
     "xlsx": ".xlsx",
     "pptx": ".pptx",
+    "pdf": ".pdf",
 }
 
 POI_PURITY_TARGET = 90
