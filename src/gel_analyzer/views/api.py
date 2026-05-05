@@ -2843,21 +2843,25 @@ def api_lane_comparison_data(request, pk):
         if not calibration_data:
             comparability_issues.append("no_calibration")
 
-        # Pre-compute MW-aligned profile
+        # Pre-compute MW-aligned profile.
+        # Rf is computed in the LADDER lane's reference frame — the frame
+        # the calibration curve was fit in. Using lane.y / lane.height of
+        # the SAMPLE lane here would skew the entire MW axis whenever the
+        # sample lane bbox doesn't perfectly match the ladder lane bbox.
         mw_profile_data = None
         if profile_data and calibration_data and lane.analysis:
             try:
                 calibration = lane.analysis.ladder_calibrations.first()
-                if calibration:
+                if calibration and calibration.ladder_lane:
                     y_positions = profile_data.get("y_positions", [])
                     intensities = profile_data.get("intensities", [])
-                    lane_top = lane.y
-                    lane_bottom = lane.y + lane.height
+                    ladder_top = calibration.ladder_lane.y
+                    ladder_bottom = calibration.ladder_lane.y + calibration.ladder_lane.height
 
-                    if y_positions and intensities and lane_bottom > lane_top:
+                    if y_positions and intensities and ladder_bottom > ladder_top:
                         mw_values = []
                         for y_pos in y_positions:
-                            mw = calibration.estimate_mw(int(y_pos), lane_top, lane_bottom)
+                            mw = calibration.estimate_mw(int(y_pos), ladder_top, ladder_bottom)
                             mw_values.append(float(mw) if mw else None)
 
                         mw_profile_data = {

@@ -1215,21 +1215,36 @@
             const calibrations = this.calibrationData.calibrations;
             if (!calibrations?.length) return null;
 
-            const laneTop = lane.y;
-            const laneBottom = lane.y + lane.height;
-            const rf = (positionY - laneTop) / (laneBottom - laneTop);
-
-            // Clamp Rf to valid range [0, 1]
-            if (rf < 0 || rf > 1) return null;
-
-            // Single ladder: direct calculation
+            // Rf MUST be computed in the LADDER lane's reference frame —
+            // that's the frame the calibration curve was fit in. Using the
+            // sample lane's bbox (lane.y / lane.height) skews the estimate
+            // whenever the sample bbox doesn't perfectly match the ladder
+            // bbox, which happens routinely when lanes are drawn or resized
+            // by hand. Each calibration carries its ladder's lane_top /
+            // lane_bottom from the server (LadderCalibrationData.to_dict).
             if (calibrations.length === 1) {
-                return this._calculateMWFromCalibration(rf, calibrations[0]);
+                return this._calculateMWUsingLadderFrame(positionY, calibrations[0]);
             }
 
-            // Multi-ladder: position-weighted interpolation
+            // Multi-ladder: each ladder applies its own frame, then we
+            // interpolate the resulting MWs across X position.
             const laneCenterX = lane.x + lane.width / 2;
-            return this._interpolateMWFromCalibrations(rf, laneCenterX, calibrations);
+            return this._interpolateMWFromCalibrations(positionY, laneCenterX, calibrations);
+        }
+
+        /**
+         * MW from a single calibration, using THAT ladder's lane bounds for Rf.
+         * Returns null if Rf falls outside [0,1] or if MW is non-physical.
+         */
+        _calculateMWUsingLadderFrame(positionY, calibration) {
+            const top = calibration.lane_top;
+            const bottom = calibration.lane_bottom;
+            if (top == null || bottom == null || bottom <= top) return null;
+
+            const rf = (positionY - top) / (bottom - top);
+            if (rf < 0 || rf > 1) return null;
+
+            return this._calculateMWFromCalibration(rf, calibration);
         }
 
         /**
@@ -1256,8 +1271,13 @@
 
         /**
          * Interpolate MW between multiple ladders based on X position.
+         *
+         * Each ladder's MW is computed using THAT ladder's own lane_top /
+         * lane_bottom for the Rf calculation — mirrors the server-side
+         * MultiLadderCalibrationService. Mixing reference frames here would
+         * make the gel-smile correction worse than no correction at all.
          */
-        _interpolateMWFromCalibrations(rf, xPosition, calibrations) {
+        _interpolateMWFromCalibrations(positionY, xPosition, calibrations) {
             // Sort by X position
             const sorted = [...calibrations].sort((a, b) =>
                 a.ladder_x_position - b.ladder_x_position);
@@ -1270,13 +1290,13 @@
             }
 
             // Edge cases
-            if (!left) return this._calculateMWFromCalibration(rf, right);
-            if (!right) return this._calculateMWFromCalibration(rf, left);
-            if (left === right) return this._calculateMWFromCalibration(rf, left);
+            if (!left) return this._calculateMWUsingLadderFrame(positionY, right);
+            if (!right) return this._calculateMWUsingLadderFrame(positionY, left);
+            if (left === right) return this._calculateMWUsingLadderFrame(positionY, left);
 
-            // Interpolate between two ladders
-            const leftMW = this._calculateMWFromCalibration(rf, left);
-            const rightMW = this._calculateMWFromCalibration(rf, right);
+            // Interpolate between two ladders — each in its own Rf frame.
+            const leftMW = this._calculateMWUsingLadderFrame(positionY, left);
+            const rightMW = this._calculateMWUsingLadderFrame(positionY, right);
             if (!leftMW || !rightMW) return leftMW || rightMW;
 
             const t = (xPosition - left.ladder_x_position) /

@@ -126,21 +126,23 @@ def _serialize_lane_data(lane):
     if not calibration_data:
         comparability_issues.append("no_calibration")
 
-    # Pre-compute MW values for profile if calibration and profile data available
+    # Pre-compute MW values for profile if calibration and profile data available.
+    # Rf is computed in the LADDER lane's reference frame, not the sample's —
+    # see services/calibration/service.py for rationale.
     mw_profile_data = None
     if profile_data and calibration_data:
         try:
             y_positions = profile_data.get("y_positions", [])
             intensities = profile_data.get("intensities", [])
-            lane_top = lane.y
-            lane_bottom = lane.y + lane.height
+            calibration = lane.analysis.ladder_calibrations.first()
 
-            if y_positions and intensities and lane_bottom > lane_top:
-                calibration = lane.analysis.ladder_calibrations.first()
-                if calibration:
+            if y_positions and intensities and calibration and calibration.ladder_lane:
+                ladder_top = calibration.ladder_lane.y
+                ladder_bottom = calibration.ladder_lane.y + calibration.ladder_lane.height
+                if ladder_bottom > ladder_top:
                     mw_values = []
                     for y_pos in y_positions:
-                        mw = calibration.estimate_mw(int(y_pos), lane_top, lane_bottom)
+                        mw = calibration.estimate_mw(int(y_pos), ladder_top, ladder_bottom)
                         mw_values.append(float(mw) if mw else None)
 
                     mw_profile_data = {

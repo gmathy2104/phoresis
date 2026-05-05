@@ -753,6 +753,12 @@ class CalibrationService:
 
         Updates the estimated_mw_kda field for all bands in non-ladder lanes.
 
+        IMPORTANT (Rf reference frame): Rf is always computed in the *ladder
+        lane's* coordinate system — the same frame the calibration curve was
+        fitted in. Earlier versions used each sample lane's own bbox, which
+        silently skewed every MW estimate when the sample lane bbox didn't
+        match the ladder lane bbox (e.g. user resized one lane manually).
+
         Args:
             analysis: GelAnalysis model instance
             calibration: LadderCalibration with computed coefficients
@@ -760,17 +766,24 @@ class CalibrationService:
         Returns:
             Number of bands updated
         """
+        ladder_lane = calibration.ladder_lane
+        if ladder_lane is None:
+            logger.error(
+                f"Calibration {calibration.pk} has no ladder_lane — refusing to apply (would use wrong Rf frame)"
+            )
+            return 0
+
+        ladder_top = ladder_lane.y
+        ladder_bottom = ladder_lane.y + ladder_lane.height
+
         updated = 0
 
         for lane in analysis.lanes.exclude(lane_type="LADDER"):
-            lane_top = lane.y
-            lane_bottom = lane.y + lane.height
-
             for band in lane.bands.all():
                 mw = calibration.estimate_mw(
                     band.position_y,
-                    lane_top,
-                    lane_bottom,
+                    ladder_top,
+                    ladder_bottom,
                 )
                 if mw is not None:
                     band.estimated_mw_kda = mw
@@ -778,7 +791,11 @@ class CalibrationService:
                     band.save(update_fields=["estimated_mw_kda", "mw_estimation_method"])
                     updated += 1
 
-        logger.info(f"Applied calibration to {updated} bands in analysis {analysis.pk}")
+        logger.info(
+            f"Applied calibration to {updated} bands in analysis {analysis.pk} "
+            f"(reference frame: ladder lane #{ladder_lane.lane_number}, "
+            f"y={ladder_top}..{ladder_bottom})"
+        )
 
         return updated
 
