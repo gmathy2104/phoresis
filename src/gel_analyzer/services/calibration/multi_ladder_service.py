@@ -95,7 +95,8 @@ class MultiLadderCalibrationService:
                     lane_id=cal.ladder_lane.id,
                     lane_top=cal.ladder_lane.y,
                     lane_bottom=cal.ladder_lane.y + cal.ladder_lane.height,
-                    band_matches=cal.band_matches or [],  # Include band matches for chart display
+                    band_matches=cal.band_matches or [],
+                    excluded_band_ids=cal.excluded_band_ids or [],
                 )
             )
 
@@ -106,21 +107,28 @@ class MultiLadderCalibrationService:
         template: LadderTemplate,
         user: User,
         method: str = "LOG_LINEAR",
+        excluded_band_ids: list[str] | None = None,
     ) -> MultiLadderCalibrationResult:
         """
         Calibrate all ladder lanes in the analysis with the same template.
 
         This is the main entry point for multi-ladder calibration. It:
         1. Finds all LADDER lanes in the analysis
-        2. Matches bands to template for each
+        2. Matches bands to template for each (skipping any in excluded_band_ids)
         3. Computes calibration curve for each
-        4. Saves calibrations with X positions
+        4. Saves calibrations with X positions and the excluded list (so a
+           reload of the modal restores the user's selection)
         5. Creates/updates MultiLadderCalibrationConfig
 
         Args:
             template: LadderTemplate to use for all ladders
             user: User performing the calibration
             method: Calibration method (LOG_LINEAR, POLYNOMIAL_2, etc.)
+            excluded_band_ids: Ladder band UUIDs (str) the user wants to
+                drop from the fit — typically high-residual outliers spotted
+                in the marker table. Each ID is matched against the band's
+                primary key, so a single shared list works across all ladder
+                lanes (a band only ever lives in one lane).
 
         Returns:
             MultiLadderCalibrationResult with all calibration results
@@ -154,10 +162,15 @@ class MultiLadderCalibrationService:
         params = CalibrationParams(method=method)
         calibration_service = CalibrationService(params)
 
+        excluded = list(excluded_band_ids or [])
+
         for lane in ladder_lanes:
             try:
-                # Get bands with assigned MW values (priority over template matching)
-                matches, match_warnings = calibration_service.get_bands_with_assigned_mw(lane)
+                # Get bands with assigned MW values (priority over template matching),
+                # skipping any IDs the user explicitly excluded.
+                matches, match_warnings = calibration_service.get_bands_with_assigned_mw(
+                    lane, excluded_band_ids=excluded
+                )
                 all_warnings.extend(match_warnings)
 
                 if len(matches) < params.min_bands:
@@ -187,7 +200,12 @@ class MultiLadderCalibrationService:
                 # Calculate X center
                 x_center = lane.x + (lane.width // 2)
 
-                # Save calibration
+                # Save calibration. Persist the per-ladder slice of the
+                # excluded list so a re-open of the modal restores the same
+                # selection without forcing the user to redo the picking.
+                lane_band_ids = {str(b_id) for b_id in lane.bands.values_list("id", flat=True)}
+                excluded_for_lane = [b for b in excluded if b in lane_band_ids]
+
                 calibration = LadderCalibration.objects.create(
                     analysis=self.analysis,
                     ladder_lane=lane,
@@ -197,6 +215,7 @@ class MultiLadderCalibrationService:
                     r_squared=result.r_squared,
                     matched_band_count=len(result.band_matches),
                     band_matches=[m.to_dict() for m in result.band_matches],
+                    excluded_band_ids=excluded_for_lane,
                     ladder_x_position=x_center,
                     created_by=user,
                 )

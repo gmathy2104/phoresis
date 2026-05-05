@@ -949,7 +949,7 @@
          * @param {string} method - Calibration method (LOG_LINEAR, POLYNOMIAL_2, etc.)
          * @returns {Promise<Object>} Calibration result with coefficients
          */
-        async calibrateSingle(laneId, templateId, method = 'LOG_LINEAR') {
+        async calibrateSingle(laneId, templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
                 const response = await fetch(`/api/analyses/${this.analysisId}/calibrate/`, {
                     method: 'POST',
@@ -961,6 +961,7 @@
                         lane_id: laneId,
                         template_id: templateId,
                         method: method,
+                        excluded_band_ids: excludedBandIds,
                     }),
                 });
 
@@ -983,7 +984,7 @@
          * @param {string} method - Calibration method
          * @returns {Promise<Object>} Multi-calibration result
          */
-        async calibrateMulti(templateId, method = 'LOG_LINEAR') {
+        async calibrateMulti(templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
                 const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-multi/`, {
                     method: 'POST',
@@ -994,6 +995,7 @@
                     body: JSON.stringify({
                         template_id: templateId,
                         method: method,
+                        excluded_band_ids: excludedBandIds,
                     }),
                 });
 

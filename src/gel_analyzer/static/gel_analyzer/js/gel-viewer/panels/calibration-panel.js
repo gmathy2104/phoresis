@@ -62,6 +62,12 @@
             this.unmatchedTemplateBands = [];
             this.isStale = false;  // True when calibration may be out of date
 
+            // Per-marker exclusion: ladder band UUIDs the user has dropped from
+            // the fit via the marker table checkboxes. Persists between runs
+            // so toggling a checkbox re-fits without losing the rest of the
+            // selection.
+            this.excludedBandIds = new Set();
+
             // DOM references
             this.panel = null;
             this.chartContainer = null;
@@ -874,23 +880,178 @@
         }
 
         /**
-         * Show the Results step (Step 4).
+         * Render the per-marker table (checkbox + name + Y + residual %).
+         *
+         * Lets the user drop high-residual outlier markers from the fit
+         * without leaving the modal — toggling a checkbox re-runs the
+         * calibration with the updated exclusion list. Multi-ladder results
+         * are split into one section per ladder so a marker bad on one
+         * ladder lane can still be kept on the other.
          */
-        _showResultsStep() {
-            const step4 = document.getElementById('calibration-step-4');
-            if (step4) {
-                step4.style.display = 'block';
+        _renderMarkersTable(result) {
+            const body = document.getElementById('calibration-markers-body');
+            const wrapper = document.getElementById('calibration-markers');
+            if (!body || !wrapper) return;
+
+            // Normalise the API response: single vs multi-ladder shapes differ.
+            let calibrations;
+            if (result.calibrations) {
+                calibrations = result.calibrations;
+            } else if (result.result) {
+                calibrations = [result.result];
+            } else {
+                calibrations = [result];
+            }
+
+            // Sync excludedBandIds with what the server persisted (covers reload
+            // from existing calibration where the user wasn't the one who set it).
+            const persisted = new Set();
+            for (const cal of calibrations) {
+                for (const id of (cal.excluded_band_ids || [])) {
+                    persisted.add(String(id));
+                }
+            }
+            // Keep transient session exclusions union with persisted state.
+            for (const id of persisted) this.excludedBandIds.add(id);
+
+            const allMatches = calibrations.flatMap(cal => (cal.band_matches || []).map(m => ({ ...m, _calibration_id: cal.calibration_id })));
+            if (allMatches.length === 0) {
+                wrapper.style.display = 'none';
+                return;
+            }
+            wrapper.style.display = '';
+
+            const fmt = (v, digits = 2) => (v == null ? '–' : Number(v).toFixed(digits));
+            const residualClass = (pct) => {
+                if (pct == null) return 'is-na';
+                const a = Math.abs(pct);
+                if (a < 5) return 'is-excellent';
+                if (a < 15) return 'is-acceptable';
+                return 'is-poor';
+            };
+
+            const rows = [];
+            const isMulti = calibrations.length > 1;
+
+            for (const cal of calibrations) {
+                const matches = (cal.band_matches || []).slice().sort((a, b) => (b.mw_kda || 0) - (a.mw_kda || 0));
+                if (isMulti) {
+                    rows.push(`<div class="gv-calibration-marker-group-header">Ladder #${cal.calibration_id?.slice(0, 6) || ''} (X=${cal.ladder_x_position ?? '–'})</div>`);
+                }
+                if (matches.length === 0) {
+                    rows.push('<div class="gv-calibration-marker-group-header" style="color:#dc2626">No matched markers (all excluded?)</div>');
+                    continue;
+                }
+                for (const m of matches) {
+                    const id = String(m.band_id);
+                    const excluded = this.excludedBandIds.has(id);
+                    const pct = m.residual_pct;
+                    const sign = pct == null ? '' : (pct > 0 ? '+' : '');
+                    const cls = residualClass(pct);
+                    rows.push(`
+                        <div class="gv-calibration-marker-row${excluded ? ' is-excluded' : ''}" data-band-id="${id}">
+                            <input type="checkbox" class="gv-marker-checkbox" data-band-id="${id}" ${excluded ? '' : 'checked'}>
+                            <span class="gv-marker-name">${fmt(m.mw_kda, 0)} kDa</span>
+                            <span class="gv-marker-stat">y=${m.position_y ?? '–'}</span>
+                            <span class="gv-marker-stat">Rf=${fmt(m.rf, 4)}</span>
+                            <span class="gv-marker-residual ${cls}">${pct == null ? 'n/a' : `${sign}${pct.toFixed(1)}%`}</span>
+                        </div>
+                    `);
+                }
+            }
+
+            // For excluded markers we still want the user to be able to see/restore
+            // them — list ones that aren't in band_matches because they were dropped
+            // from the fit on this run.
+            const matchedIds = new Set(allMatches.map(m => String(m.band_id)));
+            const droppedIds = Array.from(this.excludedBandIds).filter(id => !matchedIds.has(id));
+            if (droppedIds.length > 0) {
+                rows.push('<div class="gv-calibration-marker-group-header">Excluded from fit</div>');
+                for (const id of droppedIds) {
+                    const ladderBand = this._lookupLadderBand(id);
+                    const name = ladderBand?.estimated_mw_kda != null
+                        ? `${ladderBand.estimated_mw_kda.toFixed(0)} kDa`
+                        : 'Marker';
+                    const y = ladderBand?.position_y ?? '–';
+                    rows.push(`
+                        <div class="gv-calibration-marker-row is-excluded" data-band-id="${id}">
+                            <input type="checkbox" class="gv-marker-checkbox" data-band-id="${id}">
+                            <span class="gv-marker-name">${name}</span>
+                            <span class="gv-marker-stat">y=${y}</span>
+                            <span class="gv-marker-stat">excluded</span>
+                            <span class="gv-marker-residual is-na">–</span>
+                        </div>
+                    `);
+                }
+            }
+
+            body.innerHTML = rows.join('');
+
+            // Wire toggle handlers
+            body.querySelectorAll('.gv-marker-checkbox').forEach(cb => {
+                cb.addEventListener('change', (e) => this._onMarkerToggle(e.target));
+            });
+        }
+
+        /**
+         * Look up a band that is currently excluded — needed to display its
+         * MW even when the server response no longer contains it under
+         * `band_matches`.
+         */
+        _lookupLadderBand(bandId) {
+            for (const lane of this.ladderLanes) {
+                const bands = this.stateManager?.getBandsForLane(lane.id) || lane.bands || [];
+                const found = bands.find(b => String(b.id) === String(bandId));
+                if (found) return found;
+            }
+            return null;
+        }
+
+        /**
+         * Marker checkbox toggled — flip the exclusion state and re-run the
+         * calibration so the chart, R² and residuals reflect the new fit.
+         */
+        async _onMarkerToggle(checkbox) {
+            const id = String(checkbox.dataset.bandId);
+            if (checkbox.checked) {
+                this.excludedBandIds.delete(id);
+            } else {
+                this.excludedBandIds.add(id);
+            }
+            // Disable the checkbox briefly to avoid spamming during re-fit,
+            // and bypass the recalibration-confirmation dialog (the toggle is
+            // an explicit user action — no need to ask for confirmation).
+            checkbox.disabled = true;
+            this._skipConfirmRecalibration = true;
+            try {
+                await this._runCalibration();
+            } finally {
+                checkbox.disabled = false;
             }
         }
 
         /**
-         * Hide the Results step (Step 4).
+         * Show the Results step (Step 4) + Apply step, hide the empty placeholder.
+         */
+        _showResultsStep() {
+            const step4 = document.getElementById('calibration-step-4');
+            const stepApply = document.getElementById('calibration-step-apply');
+            const placeholder = document.getElementById('calibration-results-empty');
+            if (step4) step4.style.display = 'block';
+            if (stepApply) stepApply.style.display = 'block';
+            if (placeholder) placeholder.style.display = 'none';
+        }
+
+        /**
+         * Hide the Results step (Step 4) + Apply step, show the empty placeholder.
          */
         _hideResultsStep() {
             const step4 = document.getElementById('calibration-step-4');
-            if (step4) {
-                step4.style.display = 'none';
-            }
+            const stepApply = document.getElementById('calibration-step-apply');
+            const placeholder = document.getElementById('calibration-results-empty');
+            if (step4) step4.style.display = 'none';
+            if (stepApply) stepApply.style.display = 'none';
+            if (placeholder) placeholder.style.display = '';
         }
 
         /**
@@ -927,14 +1088,18 @@
                 return;
             }
 
-            // Confirm if recalibrating (existing calibration will be replaced)
-            if (this.calibrationResult) {
+            // Confirm if recalibrating (existing calibration will be replaced),
+            // but skip the dialog when the recalibration was triggered by a
+            // marker checkbox toggle — that's the whole point of the live
+            // exclusion UX.
+            if (this.calibrationResult && !this._skipConfirmRecalibration) {
                 const confirmationManager = window.gelViewer?.confirmationManager;
                 if (confirmationManager) {
                     const confirmed = await confirmationManager.confirmRecalibration();
                     if (!confirmed) return;
                 }
             }
+            this._skipConfirmRecalibration = false;
 
             if (this.isProcessing) return;
             this.isProcessing = true;
@@ -948,11 +1113,14 @@
                 const method = document.getElementById('calibration-method')?.value || 'LOG_LINEAR';
                 let result;
 
+                const excludedIds = Array.from(this.excludedBandIds);
+
                 if (this.isMultiLadder) {
                     // Multi-ladder calibration
                     result = await this.apiClient.calibrateMulti(
                         this.selectedTemplate.id,
-                        method
+                        method,
+                        excludedIds
                     );
                 } else {
                     // Single ladder calibration
@@ -960,7 +1128,8 @@
                     result = await this.apiClient.calibrateSingle(
                         laneId,
                         this.selectedTemplate.id,
-                        method
+                        method,
+                        excludedIds
                     );
                 }
 
@@ -980,8 +1149,9 @@
                 this._updateCalibrationStatus(result);
                 this._renderUnmatchedBands();
                 this._renderCalibrationWarnings(result.warnings);
+                this._renderMarkersTable(result);
                 this._enableApplyButton();
-                this._updateFooterHint('Calibration complete! Review the curve and click "Apply to All Bands".');
+                this._updateFooterHint('Calibration complete! Review residuals and uncheck outliers if needed.');
 
                 this.eventBus.emit(Events.CALIBRATION_APPLIED, {
                     method,
@@ -1362,6 +1532,15 @@
                     this.calibrationResult = multiCal;
                     this.isMultiLadder = multiCal.calibrations.length > 1;
 
+                    // Restore the persisted exclusion list so the UI shows the
+                    // exact same state the user left when last closed.
+                    this.excludedBandIds.clear();
+                    for (const cal of multiCal.calibrations) {
+                        for (const id of (cal.excluded_band_ids || [])) {
+                            this.excludedBandIds.add(String(id));
+                        }
+                    }
+
                     // Set template if we have one (API returns template_id, not template object)
                     if (multiCal.template_id) {
                         const select = document.getElementById('calibration-template');
@@ -1377,6 +1556,7 @@
                     this._updateCalibrationChart(multiCal);
                     this._updateR2Display(multiCal);
                     this._updateCalibrationStatus(multiCal);
+                    this._renderMarkersTable(multiCal);
                     this._enableRunButton();
                     this._enableApplyButton();
                     this._updateFooterHint('Existing calibration loaded. You can recalibrate or apply to bands.');
@@ -1388,11 +1568,17 @@
 
                 if (cal && cal.r_squared) {
                     this.calibrationResult = cal;
+                    // Restore exclusion list from the persisted single-ladder cal
+                    this.excludedBandIds.clear();
+                    for (const id of (cal.excluded_band_ids || cal.result?.excluded_band_ids || [])) {
+                        this.excludedBandIds.add(String(id));
+                    }
                     // Show Results step since calibration exists
                     this._showResultsStep();
                     this._updateCalibrationChart(cal);
                     this._updateR2Display(cal);
                     this._updateCalibrationStatus(cal);
+                    this._renderMarkersTable(cal);
                     this._enableApplyButton();
                 }
 
@@ -1411,6 +1597,7 @@
             this.matchResults = [];
             this.calibrationResult = null;
             this.unmatchedTemplateBands = [];
+            this.excludedBandIds.clear();
             this._clearStaleState();
 
             // Reset UI

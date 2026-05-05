@@ -2112,6 +2112,9 @@ def api_analysis_calibrate(request, pk):
     lane_id = data.get("lane_id")
     template_id = data.get("template_id")
     method = data.get("method", "LOG_LINEAR")
+    excluded_band_ids = data.get("excluded_band_ids") or []
+    if not isinstance(excluded_band_ids, list):
+        return json_error("excluded_band_ids must be a list of band UUIDs")
 
     if not lane_id:
         return json_error("lane_id is required")
@@ -2127,8 +2130,13 @@ def api_analysis_calibrate(request, pk):
         params = CalibrationParams(method=method)
         service = CalibrationService(params)
 
+        # Pre-filter the matches so the user-excluded bands are dropped from the fit.
+        matches, match_warnings = service.get_bands_with_assigned_mw(
+            lane, excluded_band_ids=excluded_band_ids
+        )
+
         # Compute calibration
-        result = service.calibrate(lane, template)
+        result = service.calibrate(lane, template, matches, match_warnings)
 
         if not result.success:
             return JsonResponse(
@@ -2143,7 +2151,11 @@ def api_analysis_calibrate(request, pk):
             # Delete existing calibration if any
             LadderCalibration.objects.filter(analysis=analysis).delete()
 
-            # Create new calibration
+            # Create new calibration. excluded_band_ids is filtered to those
+            # actually in this ladder lane so the saved record stays clean.
+            lane_band_ids = {str(b_id) for b_id in lane.bands.values_list("id", flat=True)}
+            excluded_for_lane = [b for b in excluded_band_ids if b in lane_band_ids]
+
             calibration = LadderCalibration.objects.create(
                 analysis=analysis,
                 ladder_lane=lane,
@@ -2153,6 +2165,7 @@ def api_analysis_calibrate(request, pk):
                 r_squared=result.r_squared,
                 matched_band_count=len(result.band_matches),
                 band_matches=[m.to_dict() for m in result.band_matches],
+                excluded_band_ids=excluded_for_lane,
                 created_by=request.user,
             )
 
@@ -2272,6 +2285,7 @@ def api_analysis_calibration(request, pk):
                     "r_squared_quality": calibration.r_squared_quality,
                     "matched_band_count": calibration.matched_band_count,
                     "band_matches": calibration.band_matches,
+                    "excluded_band_ids": calibration.excluded_band_ids or [],
                     "ladder_x_position": calibration.ladder_x_position,
                     "created_at": calibration.created_at.isoformat(),
                 },
@@ -2338,6 +2352,9 @@ def api_analysis_calibrate_multi(request, pk):
 
     template_id = data.get("template_id")
     method = data.get("method", "LOG_LINEAR")
+    excluded_band_ids = data.get("excluded_band_ids") or []
+    if not isinstance(excluded_band_ids, list):
+        return json_error("excluded_band_ids must be a list of band UUIDs")
 
     if not template_id:
         return json_error("template_id is required")
@@ -2346,7 +2363,12 @@ def api_analysis_calibrate_multi(request, pk):
 
     try:
         service = MultiLadderCalibrationService(analysis)
-        result = service.calibrate_all_ladders(template, request.user, method)
+        result = service.calibrate_all_ladders(
+            template,
+            request.user,
+            method,
+            excluded_band_ids=excluded_band_ids,
+        )
 
         logger.info(
             f"Multi-ladder calibration for analysis {pk}",

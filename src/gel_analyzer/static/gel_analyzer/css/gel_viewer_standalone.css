@@ -5034,10 +5034,10 @@ body.ga-minimal {
     position: fixed;
     left: 50%;
     top: 50%;
-    width: 90%;
-    max-width: 700px;
+    width: min(95vw, 1200px);
+    max-width: 1200px;
     height: auto;
-    max-height: 85vh;
+    max-height: 90vh;
     background: #ffffff;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.15);
     transform: translate(-50%, -50%) scale(0.95);
@@ -5113,12 +5113,226 @@ body.ga-minimal {
     border-color: rgba(239, 68, 68, 1);
 }
 
-/* Calibration Body */
+/* Calibration Body — 2-column grid on desktop, stacked on mobile */
 .gv-calibration-body {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
+    padding: 16px;
     background: linear-gradient(180deg, #f5f3ff 0%, #ffffff 100%);
+    display: grid;
+    grid-template-columns: minmax(320px, 380px) 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+.gv-calibration-col-workflow {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.gv-calibration-col-results {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.gv-calibration-results-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 48px 24px;
+    background: #ffffff;
+    border: 1px dashed #c4b5fd;
+    border-radius: 8px;
+    text-align: center;
+    color: #6b7280;
+}
+
+.gv-calibration-results-empty i {
+    font-size: 32px;
+    color: #a78bfa;
+}
+
+.gv-calibration-results-empty p {
+    margin: 0;
+    font-weight: 500;
+}
+
+.gv-calibration-results-empty small {
+    color: #9ca3af;
+}
+
+.gv-calibration-results {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.gv-calibration-results-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    background: #ffffff;
+    border: 1px solid #e9d5ff;
+    border-radius: 8px;
+}
+
+/* Markers table */
+.gv-calibration-markers {
+    background: #ffffff;
+    border: 1px solid #e9d5ff;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.gv-calibration-markers-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f5f3ff;
+    border-bottom: 1px solid #e9d5ff;
+}
+
+.gv-calibration-markers-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #4c1d95;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.gv-calibration-markers-hint {
+    font-size: 11px;
+    color: #6b7280;
+    font-style: italic;
+}
+
+.gv-calibration-markers-body {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.gv-calibration-marker-group-header {
+    padding: 6px 12px;
+    background: #fafafa;
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.gv-calibration-marker-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 12px;
+    transition: background 0.12s ease;
+}
+
+.gv-calibration-marker-row:last-child {
+    border-bottom: none;
+}
+
+.gv-calibration-marker-row:hover {
+    background: #faf5ff;
+}
+
+.gv-calibration-marker-row.is-excluded {
+    opacity: 0.5;
+    background: #fef3f2;
+}
+
+.gv-calibration-marker-row .gv-marker-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #7c3aed;
+}
+
+.gv-calibration-marker-row .gv-marker-name {
+    font-weight: 600;
+    color: #1f2937;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gv-calibration-marker-row .gv-marker-stat {
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    color: #6b7280;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.gv-calibration-marker-row .gv-marker-residual {
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.gv-marker-residual.is-excellent {  /* |err| < 5%  */
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.gv-marker-residual.is-acceptable {  /* 5–15%      */
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.gv-marker-residual.is-poor {  /* > 15%        */
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.gv-marker-residual.is-na {
+    color: #9ca3af;
+}
+
+/* Apply step row (no number badge, just the button) */
+.gv-calibration-step-apply {
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+.gv-calibration-step-apply .gv-calibration-actions {
+    margin-top: 0;
+}
+
+@media (max-width: 900px) {
+    .gv-calibration-body {
+        grid-template-columns: 1fr;
+    }
+
+    .gv-calibration-col-workflow {
+        order: 1;
+    }
+
+    .gv-calibration-col-results {
+        order: 2;
+    }
+}
+
+.gv-calibration-body--legacy-padding {
+    padding: 12px;
 }
 
 .gv-calibration-body::-webkit-scrollbar {

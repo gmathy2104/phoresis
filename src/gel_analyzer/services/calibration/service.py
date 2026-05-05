@@ -61,6 +61,7 @@ class CalibrationService:
     def get_bands_with_assigned_mw(
         self,
         lane: Lane,
+        excluded_band_ids: list[str] | None = None,
     ) -> tuple[list[BandMatch], list[str]]:
         """
         Get bands that have MW values already assigned in the Band Editor.
@@ -70,16 +71,25 @@ class CalibrationService:
 
         Args:
             lane: Lane model instance (should be LADDER type)
+            excluded_band_ids: Optional list of band UUIDs (str) the user
+                wants the fit to ignore — typically outliers identified from
+                the residuals table in the calibration modal.
 
         Returns:
             Tuple of (list of BandMatch objects, list of warning messages)
         """
         warnings = []
 
+        excluded_set = {str(b) for b in (excluded_band_ids or [])}
+
         # Get bands with MW assigned, sorted by position_y (top to bottom)
-        bands_with_mw = list(
-            lane.bands.filter(estimated_mw_kda__isnull=False).exclude(estimated_mw_kda=0).order_by("position_y")
-        )
+        bands_with_mw = [
+            band
+            for band in lane.bands.filter(estimated_mw_kda__isnull=False)
+            .exclude(estimated_mw_kda=0)
+            .order_by("position_y")
+            if str(band.id) not in excluded_set
+        ]
 
         if not bands_with_mw:
             logger.warning(f"No bands with MW assigned in lane {lane.lane_number}")

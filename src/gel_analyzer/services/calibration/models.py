@@ -70,7 +70,25 @@ class BandMatch:
     residual: float = 0.0
 
     def to_dict(self) -> dict:
-        """Serialize to dictionary."""
+        """Serialize to dictionary.
+
+        Exposes the residual both in log-space (matches `residual` from the
+        regression) and in absolute MW terms — `predicted_mw_kda` and
+        `residual_pct` — so the marker-table UI can highlight outliers
+        without re-doing the math client-side.
+        """
+        # residual = log10(declared) - log10(predicted)  →  predicted = declared / 10**residual
+        try:
+            predicted_mw = self.mw_kda / (10**self.residual) if self.mw_kda > 0 else None
+            residual_pct = (
+                ((predicted_mw - self.mw_kda) / self.mw_kda) * 100.0
+                if predicted_mw is not None and self.mw_kda > 0
+                else None
+            )
+        except (ZeroDivisionError, OverflowError, ValueError):
+            predicted_mw = None
+            residual_pct = None
+
         return {
             "band_id": self.band_id,
             "template_band_order": self.template_band_order,
@@ -78,6 +96,8 @@ class BandMatch:
             "position_y": self.position_y,
             "rf": round(self.rf, 4),
             "residual": round(self.residual, 6),
+            "predicted_mw_kda": round(predicted_mw, 2) if predicted_mw is not None else None,
+            "residual_pct": round(residual_pct, 1) if residual_pct is not None else None,
         }
 
     @classmethod
@@ -190,6 +210,7 @@ class LadderCalibrationData:
     lane_top: int
     lane_bottom: int
     band_matches: list = field(default_factory=list)
+    excluded_band_ids: list = field(default_factory=list)
 
     def estimate_mw(self, position_y: int) -> float | None:
         """
@@ -241,6 +262,7 @@ class LadderCalibrationData:
             "lane_top": self.lane_top,
             "lane_bottom": self.lane_bottom,
             "band_matches": self.band_matches,
+            "excluded_band_ids": self.excluded_band_ids,
         }
 
 

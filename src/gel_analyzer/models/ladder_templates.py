@@ -326,6 +326,14 @@ class LadderCalibration(models.Model):
         default=list,
         help_text="Band match details: [{band_id, mw_kda, position_y, rf, residual}, ...]",
     )
+    excluded_band_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of ladder band UUIDs the user excluded from this fit. Persisted "
+            "so a re-open of the calibration modal restores the same selection."
+        ),
+    )
 
     # Audit
     created_by = models.ForeignKey(
