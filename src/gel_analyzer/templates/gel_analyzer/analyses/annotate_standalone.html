@@ -600,64 +600,6 @@
         </div>
     </div>
 
-    <!-- Sample Selector Modal -->
-    <div class="gv-sample-modal" id="sample-modal">
-        <div class="gv-sample-modal-content">
-            <div class="gv-sample-modal-header">
-                <span class="gv-sample-modal-title">
-                    <i class="bi bi-search"></i>
-                    Select Sample
-                </span>
-                <button class="gv-sample-modal-close" id="sample-modal-close">
-                    <i class="bi bi-x-lg"></i>
-                </button>
-            </div>
-            <div class="gv-sample-modal-body">
-                <!-- Current assignment context (shown when re-assigning) -->
-                <div class="gv-sample-context" id="sample-context" style="display: none;"></div>
-                <!-- Search box -->
-                <div class="gv-sample-search">
-                    <i class="bi bi-search"></i>
-                    <input type="text" id="sample-search-input" placeholder="Search samples by ID, sheet name...">
-                </div>
-                <!-- Filters -->
-                <div class="gv-sample-filters">
-                    <div class="gv-sample-filter">
-                        <label>Drug Substance</label>
-                        <select id="sample-filter-ds">
-                            <option value="">All</option>
-                        </select>
-                    </div>
-                    <div class="gv-sample-filter">
-                        <label>Process Sheet</label>
-                        <select id="sample-filter-sheet">
-                            <option value="">All</option>
-                        </select>
-                    </div>
-                </div>
-                <!-- Results list -->
-                <div class="gv-sample-results" id="sample-results">
-                    <div class="gv-sample-empty">
-                        <i class="bi bi-inbox"></i>
-                        <p>Search for samples or select filters</p>
-                    </div>
-                </div>
-                <!-- Custom name option -->
-                <div class="gv-sample-custom">
-                    <label>
-                        <input type="radio" name="sample-choice" value="custom">
-                        <span>Enter custom name:</span>
-                    </label>
-                    <input type="text" id="sample-custom-input" placeholder="e.g., Sample A">
-                </div>
-            </div>
-            <div class="gv-sample-modal-footer">
-                <button class="gv-sample-btn gv-sample-btn-cancel" id="sample-modal-cancel">Cancel</button>
-                <button class="gv-sample-btn gv-sample-btn-select" id="sample-modal-select">Select</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Review Panel (Phase 3: YOLO Detection Review) -->
     {% include "gel_analyzer/analyses/includes/_review_panel.html" %}
 
@@ -748,7 +690,6 @@
 <script src="{% static 'gel_analyzer/js/gel-viewer/panels/teacher-panel.js' %}"></script>
 
 <!-- Modals -->
-<script src="{% static 'gel_analyzer/js/gel-viewer/modals/sample-selector.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/gel-viewer/confirmation-manager.js' %}"></script>
 
 <!-- Inference (Phase 3: YOLO) -->

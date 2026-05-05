@@ -20,14 +20,15 @@
          * @param {StateManager} options.stateManager - StateManager instance
          * @param {Function} options.onSelectAnnotation - Callback for selection
          * @param {Function} options.onUpdateLane - Callback to update lane
-         * @param {Function} options.onOpenSampleSelector - Callback to open sample selector
+         * @param {APIClient} options.apiClient - APIClient (used for auto-save of text fields)
          */
         constructor(options) {
             this.eventBus = options.eventBus;
             this.stateManager = options.stateManager;
             this.onSelectAnnotation = options.onSelectAnnotation;
             this.onUpdateLane = options.onUpdateLane;
-            this.onOpenSampleSelector = options.onOpenSampleSelector;
+            this.apiClient = options.apiClient;
+            this._fieldSaveTimers = {};
 
             // DOM elements
             this.panel = document.getElementById('table-panel');
@@ -225,10 +226,9 @@
                     </select>
                 </td>
                 <td class="sample-cell">
-                    <div class="sample-link ${!(lane.process_sample || lane.sample_name) ? 'sample-link-empty' : ''}" data-lane-id="${lane.id}">
-                        <i class="bi bi-${lane.process_sample ? 'flask' : lane.sample_name ? 'link-45deg' : 'plus-circle'}"></i>
-                        <span>${lane.process_sample?.sample_id || lane.sample_name || 'Link sample...'}</span>
-                    </div>
+                    <input type="text" data-field="sample_name"
+                           value="${(lane.sample_name || '').replace(/"/g, '&quot;')}"
+                           placeholder="Sample name…" maxlength="255">
                 </td>
             `;
 
@@ -266,19 +266,9 @@
                 });
             });
 
-            // Sample link click
-            const sampleLink = row.querySelector('.sample-link');
-            if (sampleLink && this.onOpenSampleSelector) {
-                sampleLink.addEventListener('click', () => {
-                    this.onOpenSampleSelector(laneId);
-                });
-            }
-
             // Row click for selection
             row.addEventListener('click', (e) => {
-                if (e.target.tagName === 'INPUT' ||
-                    e.target.tagName === 'SELECT' ||
-                    e.target.closest('.sample-link')) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
                     return;
                 }
 
@@ -307,11 +297,30 @@
                 value = value === '' ? null : value === 'true';
             } else if (field === 'protein_load_ug') {
                 value = value === '' ? null : parseFloat(value);
+            } else if (field === 'sample_name') {
+                value = String(value || '').trim();
             }
 
             // Update lane via callback
             if (this.onUpdateLane) {
                 this.onUpdateLane(laneId, { [field]: value }, true); // silent=true
+            }
+
+            // Auto-persist sample_name immediately (free-text identifier)
+            if (field === 'sample_name' && this.apiClient) {
+                const key = `${laneId}:sample_name`;
+                if (this._fieldSaveTimers[key]) clearTimeout(this._fieldSaveTimers[key]);
+                this._fieldSaveTimers[key] = setTimeout(async () => {
+                    try {
+                        await this.apiClient.updateLane(laneId, { sample_name: value });
+                        input.classList.add('gv-field-saved');
+                        setTimeout(() => input.classList.remove('gv-field-saved'), 700);
+                    } catch (err) {
+                        console.error('Auto-save failed for sample_name:', err);
+                        input.classList.add('gv-field-save-error');
+                        setTimeout(() => input.classList.remove('gv-field-save-error'), 700);
+                    }
+                }, 350);
             }
 
             // Emit event for properties panel sync
@@ -335,25 +344,6 @@
                 } else {
                     input.value = value || '';
                 }
-            }
-        }
-
-        /**
-         * Update sample cell display after sample selection.
-         * @param {string|number} laneId
-         * @param {string} sampleName
-         */
-        updateSampleCell(laneId, sampleName) {
-            const row = this.tbody?.querySelector(`tr[data-lane-id="${laneId}"]`);
-            if (!row) return;
-
-            const sampleLink = row.querySelector('.sample-link');
-            if (sampleLink) {
-                sampleLink.innerHTML = `
-                    <i class="bi bi-${sampleName ? 'link-45deg' : 'plus-circle'}"></i>
-                    <span>${sampleName || 'Link sample...'}</span>
-                `;
-                sampleLink.classList.toggle('sample-link-empty', !sampleName);
             }
         }
 

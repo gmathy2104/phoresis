@@ -19,7 +19,6 @@
          * @param {EventBus} options.eventBus - EventBus instance
          * @param {StateManager} options.stateManager - StateManager instance
          * @param {APIClient} options.apiClient - APIClient instance
-         * @param {Function} options.onOpenSampleSelector - Callback to open sample selector
          * @param {Function} options.onDeleteLane - Callback to delete lane
          * @param {Function} options.onDeleteBand - Callback to delete band
          * @param {Function} options.onUpdateLane - Callback to update lane
@@ -30,7 +29,6 @@
             this.eventBus = options.eventBus;
             this.stateManager = options.stateManager;
             this.apiClient = options.apiClient;
-            this.onOpenSampleSelector = options.onOpenSampleSelector;
             this.onDeleteLane = options.onDeleteLane;
             this.onDeleteBand = options.onDeleteBand;
             this.onUpdateLane = options.onUpdateLane;
@@ -164,122 +162,110 @@
         _renderLaneProperties(lane) {
             if (!this.contentContainer) return;
 
-            // Build template selector HTML (only for LADDER lanes)
             const isLadder = lane.lane_type === 'LADDER';
-            const templateSectionHTML = `
-                <div class="mb-2" id="prop-template-section" style="display: ${isLadder ? 'block' : 'none'};">
-                    <label class="form-label">MW Template</label>
-                    <select class="form-select form-select-sm" id="prop-ladder-template" data-field="ladder_template_id">
-                        <option value="">Select template...</option>
-                        <!-- Populated dynamically -->
-                    </select>
-                    <small class="text-muted" id="prop-template-info"></small>
-                </div>
-            `;
-
+            const typeBadgeClass = `gv-prop-type-badge gv-prop-type-${(lane.lane_type || 'sample').toLowerCase()}`;
             this.contentContainer.innerHTML = `
-                <div class="gv-quick-form">
-                    <h6 class="mb-3">Lane ${lane.lane_number}</h6>
+                <div class="gv-prop-form">
 
-                    <div class="mb-2">
-                        <label class="form-label">Type</label>
-                        <select class="form-select form-select-sm" id="prop-lane-type" data-field="lane_type">
-                            <option value="SAMPLE" ${lane.lane_type === 'SAMPLE' ? 'selected' : ''}>Sample</option>
-                            <option value="LADDER" ${lane.lane_type === 'LADDER' ? 'selected' : ''}>MW Ladder</option>
-                            <option value="EMPTY" ${lane.lane_type === 'EMPTY' ? 'selected' : ''}>Empty</option>
-                            <option value="CONTROL" ${lane.lane_type === 'CONTROL' ? 'selected' : ''}>Control</option>
-                        </select>
-                    </div>
-
-                    ${templateSectionHTML}
-
-                    <div class="mb-2">
-                        <label class="form-label">Condition</label>
-                        <select class="form-select form-select-sm" id="prop-is-reduced" data-field="is_reduced">
-                            <option value="" ${lane.is_reduced == null ? 'selected' : ''}>—</option>
-                            <option value="true" ${lane.is_reduced === true ? 'selected' : ''}>Reduced</option>
-                            <option value="false" ${lane.is_reduced === false ? 'selected' : ''}>Non-reduced</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Protein Load (µg)</label>
-                        <input type="number" class="form-control form-control-sm" id="prop-protein-load"
-                               data-field="protein_load_ug"
-                               value="${lane.protein_load_ug || ''}" step="0.1" min="0" placeholder="—">
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Load Type</label>
-                        <select class="form-select form-select-sm" id="prop-load-type" data-field="protein_load_type">
-                            <option value="" ${!lane.protein_load_type ? 'selected' : ''}>—</option>
-                            <option value="TOTAL" ${lane.protein_load_type === 'TOTAL' ? 'selected' : ''}>Total Protein</option>
-                            <option value="POI" ${lane.protein_load_type === 'POI' ? 'selected' : ''}>Protein of Interest</option>
-                            <option value="HOST_CELL" ${lane.protein_load_type === 'HOST_CELL' ? 'selected' : ''}>Host Cell Protein</option>
-                            <option value="OTHER" ${lane.protein_load_type === 'OTHER' ? 'selected' : ''}>Other</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Sample</label>
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">
-                                <i class="bi bi-pencil"></i>
-                            </span>
-                            <input type="text" class="form-control form-control-sm" id="prop-sample-name"
-                                   data-field="sample_name"
-                                   value="${lane.sample_name || ''}" placeholder="Sample name (optional)" maxlength="255">
+                    <div class="gv-prop-header">
+                        <span class="gv-prop-lane-badge">${lane.lane_number}</span>
+                        <div class="gv-prop-header-text">
+                            <div class="gv-prop-title">Lane ${lane.lane_number}</div>
+                            <span class="${typeBadgeClass}" id="prop-lane-type-badge">${lane.lane_type_display || 'Sample'}</span>
                         </div>
                     </div>
 
-                    <div class="mb-2">
-                        <label class="form-label">Notes</label>
-                        <textarea class="form-control form-control-sm" id="prop-notes" data-field="notes" rows="2">${lane.notes || ''}</textarea>
-                    </div>
-
-                    <div class="mb-2 mt-3">
-                        <label class="form-label d-flex align-items-center gap-1">
-                            <i class="bi bi-bounding-box"></i> Dimensions
-                        </label>
-                        <div class="row g-1">
-                            <div class="col-6">
-                                <label class="form-label small text-muted mb-0">X</label>
-                                <input type="number" class="form-control form-control-sm" id="prop-dim-x"
-                                       data-field="x" value="${lane.x || 0}" min="0" step="1">
+                    <section class="gv-prop-section">
+                        <h6 class="gv-prop-section-title">Identity</h6>
+                        <div class="gv-prop-grid">
+                            <div class="gv-prop-field gv-prop-col-2">
+                                <label for="prop-lane-type">Type</label>
+                                <select id="prop-lane-type" data-field="lane_type" class="form-select form-select-sm">
+                                    <option value="SAMPLE" ${lane.lane_type === 'SAMPLE' ? 'selected' : ''}>Sample</option>
+                                    <option value="LADDER" ${lane.lane_type === 'LADDER' ? 'selected' : ''}>MW Ladder</option>
+                                    <option value="EMPTY" ${lane.lane_type === 'EMPTY' ? 'selected' : ''}>Empty</option>
+                                    <option value="CONTROL" ${lane.lane_type === 'CONTROL' ? 'selected' : ''}>Control</option>
+                                </select>
                             </div>
-                            <div class="col-6">
-                                <label class="form-label small text-muted mb-0">Y</label>
-                                <input type="number" class="form-control form-control-sm" id="prop-dim-y"
-                                       data-field="y" value="${lane.y || 0}" min="0" step="1">
+                            <div class="gv-prop-field gv-prop-col-2" id="prop-template-section" style="display: ${isLadder ? '' : 'none'};">
+                                <label for="prop-ladder-template">MW Template</label>
+                                <select id="prop-ladder-template" data-field="ladder_template_id" class="form-select form-select-sm">
+                                    <option value="">Select template…</option>
+                                </select>
+                                <small class="text-muted gv-prop-hint" id="prop-template-info"></small>
                             </div>
-                            <div class="col-6 mt-1">
-                                <label class="form-label small text-muted mb-0">Width</label>
-                                <input type="number" class="form-control form-control-sm" id="prop-dim-w"
-                                       data-field="width" value="${lane.width || 0}" min="1" step="1">
-                            </div>
-                            <div class="col-6 mt-1">
-                                <label class="form-label small text-muted mb-0">Height</label>
-                                <input type="number" class="form-control form-control-sm" id="prop-dim-h"
-                                       data-field="height" value="${lane.height || 0}" min="1" step="1">
+                            <div class="gv-prop-field gv-prop-col-2">
+                                <label for="prop-sample-name">Sample name</label>
+                                <input type="text" id="prop-sample-name" data-field="sample_name"
+                                       class="form-control form-control-sm"
+                                       value="${(lane.sample_name || '').replace(/"/g, '&quot;')}"
+                                       placeholder="Optional" maxlength="255">
                             </div>
                         </div>
-                    </div>
+                    </section>
 
-                    <div class="gv-quick-form-actions mt-3">
+                    <section class="gv-prop-section">
+                        <h6 class="gv-prop-section-title">Conditions</h6>
+                        <div class="gv-prop-grid">
+                            <div class="gv-prop-field">
+                                <label for="prop-is-reduced">Condition</label>
+                                <select id="prop-is-reduced" data-field="is_reduced" class="form-select form-select-sm">
+                                    <option value="" ${lane.is_reduced == null ? 'selected' : ''}>—</option>
+                                    <option value="true" ${lane.is_reduced === true ? 'selected' : ''}>Reduced</option>
+                                    <option value="false" ${lane.is_reduced === false ? 'selected' : ''}>Non-reduced</option>
+                                </select>
+                            </div>
+                            <div class="gv-prop-field">
+                                <label for="prop-protein-load">Load (µg)</label>
+                                <input type="number" id="prop-protein-load" data-field="protein_load_ug"
+                                       class="form-control form-control-sm"
+                                       value="${lane.protein_load_ug || ''}" step="0.1" min="0" placeholder="—">
+                            </div>
+                            <div class="gv-prop-field gv-prop-col-2">
+                                <label for="prop-load-type">Load type</label>
+                                <select id="prop-load-type" data-field="protein_load_type" class="form-select form-select-sm">
+                                    <option value="" ${!lane.protein_load_type ? 'selected' : ''}>—</option>
+                                    <option value="TOTAL" ${lane.protein_load_type === 'TOTAL' ? 'selected' : ''}>Total Protein</option>
+                                    <option value="POI" ${lane.protein_load_type === 'POI' ? 'selected' : ''}>Protein of Interest</option>
+                                    <option value="HOST_CELL" ${lane.protein_load_type === 'HOST_CELL' ? 'selected' : ''}>Host Cell Protein</option>
+                                    <option value="OTHER" ${lane.protein_load_type === 'OTHER' ? 'selected' : ''}>Other</option>
+                                </select>
+                            </div>
+                            <div class="gv-prop-field gv-prop-col-2">
+                                <label for="prop-notes">Notes</label>
+                                <textarea id="prop-notes" data-field="notes" class="form-control form-control-sm" rows="2" placeholder="Optional">${lane.notes || ''}</textarea>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="gv-prop-section">
+                        <h6 class="gv-prop-section-title">
+                            <i class="bi bi-bounding-box"></i> Position
+                        </h6>
+                        <div class="gv-prop-grid">
+                            <div class="gv-prop-field"><label for="prop-dim-x">X</label>
+                                <input type="number" id="prop-dim-x" data-field="x" class="form-control form-control-sm" value="${lane.x || 0}" min="0" step="1"></div>
+                            <div class="gv-prop-field"><label for="prop-dim-y">Y</label>
+                                <input type="number" id="prop-dim-y" data-field="y" class="form-control form-control-sm" value="${lane.y || 0}" min="0" step="1"></div>
+                            <div class="gv-prop-field"><label for="prop-dim-w">Width</label>
+                                <input type="number" id="prop-dim-w" data-field="width" class="form-control form-control-sm" value="${lane.width || 0}" min="1" step="1"></div>
+                            <div class="gv-prop-field"><label for="prop-dim-h">Height</label>
+                                <input type="number" id="prop-dim-h" data-field="height" class="form-control form-control-sm" value="${lane.height || 0}" min="1" step="1"></div>
+                        </div>
+                    </section>
+
+                    <section class="gv-prop-section">
+                        <div class="gv-prop-section-title-row">
+                            <h6 class="gv-prop-section-title gv-prop-section-title--inline">Bands</h6>
+                            <span class="gv-prop-pill" id="prop-band-count">0</span>
+                        </div>
+                        <div class="gv-band-list" id="prop-band-list"></div>
+                    </section>
+
+                    <div class="gv-prop-actions">
                         <button class="btn btn-sm btn-outline-danger" id="prop-delete-lane-btn">
-                            <i class="bi bi-trash"></i> Delete
+                            <i class="bi bi-trash"></i> Delete lane
                         </button>
-                    </div>
-
-                    <!-- Bands Section -->
-                    <div class="gv-lane-bands-section mt-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label mb-0">Bands in Lane</label>
-                            <span class="badge bg-secondary" id="prop-band-count">0</span>
-                        </div>
-                        <div class="gv-band-list" id="prop-band-list">
-                            <!-- Band items will be rendered here -->
-                        </div>
                     </div>
                 </div>
             `;
@@ -505,9 +491,17 @@
             const templateSection = document.getElementById('prop-template-section');
             const templateSelect = document.getElementById('prop-ladder-template');
 
+            // Update the type badge in the header
+            const typeBadge = document.getElementById('prop-lane-type-badge');
+            if (typeBadge) {
+                const labels = { SAMPLE: 'Sample', LADDER: 'MW Ladder', EMPTY: 'Empty', CONTROL: 'Control', DOT: 'Dot' };
+                typeBadge.textContent = labels[newType] || 'Sample';
+                typeBadge.className = `gv-prop-type-badge gv-prop-type-${(newType || 'sample').toLowerCase()}`;
+            }
+
             if (newType === 'LADDER') {
-                // Show template section
-                if (templateSection) templateSection.style.display = 'block';
+                // Show template section (clear inline display so the .gv-prop-field flex layout applies)
+                if (templateSection) templateSection.style.display = '';
 
                 // Get default template and auto-assign if no template selected
                 const defaultId = await this._getDefaultTemplateId();
@@ -624,15 +618,50 @@
                 value = value === '' ? 0 : Math.round(parseInt(value, 10));
                 if (isNaN(value) || value < 0) return;
                 if ((field === 'width' || field === 'height') && value < 1) return;
+            } else if (field === 'sample_name') {
+                value = String(value || '').trim();
             }
 
-            // Update via callback
+            // Update via callback (mutates local state + marks dirty for batched save)
             if (this.onUpdateLane) {
                 this.onUpdateLane(id, { [field]: value });
             }
 
+            // Auto-persist text fields immediately — user expects "type and forget"
+            // for free-text identifiers like sample_name.
+            if (field === 'sample_name' && this.apiClient) {
+                this._autoPersistField(id, input, { sample_name: value });
+            }
+
             // Emit event for table sync
             this.eventBus.emit(Events.LANE_PROPERTY_CHANGED, { id, field, value });
+        }
+
+        /**
+         * Persist a single lane field to the API immediately, with a save-flash
+         * on the input. Debounced per (lane, field) so rapid typing collapses
+         * to a single PUT.
+         */
+        _autoPersistField(laneId, input, payload) {
+            if (!this._fieldSaveTimers) this._fieldSaveTimers = {};
+            const key = `${laneId}:${Object.keys(payload)[0]}`;
+            if (this._fieldSaveTimers[key]) clearTimeout(this._fieldSaveTimers[key]);
+            this._fieldSaveTimers[key] = setTimeout(async () => {
+                try {
+                    await this.apiClient.updateLane(laneId, payload);
+                    this._flashInput(input, true);
+                } catch (err) {
+                    console.error('Auto-save failed for lane field:', err);
+                    this._flashInput(input, false);
+                }
+            }, 350);
+        }
+
+        _flashInput(input, ok) {
+            if (!input) return;
+            const cls = ok ? 'gv-field-saved' : 'gv-field-save-error';
+            input.classList.add(cls);
+            setTimeout(() => input.classList.remove(cls), 700);
         }
 
         /**

@@ -30,7 +30,6 @@
     const BandTablePanel = global.GelViewer.BandTablePanel;
     const AdjustmentsPanel = global.GelViewer.AdjustmentsPanel;
     const ContextMenu = global.GelViewer.ContextMenu;
-    const SampleSelector = global.GelViewer.SampleSelector;
     // Phase 3: YOLO Inference
     const InferenceEngine = global.GelViewer.InferenceEngine;
     const ReviewPanel = global.GelViewer.ReviewPanel;
@@ -97,7 +96,6 @@
             this.bandTablePanel = null;
             this.adjustmentsPanel = null;
             this.contextMenu = null;
-            this.sampleSelector = null;
 
             // Phase 3: YOLO Inference
             this.inferenceEngine = null;
@@ -258,7 +256,6 @@
                 onHideBandTablePanel: () => this.bandTablePanel?.hide(),
                 onHideAdjustmentsPanel: () => this.adjustmentsPanel?.hide(),
                 onHideContextMenu: () => this.contextMenu?.hide(),
-                onCloseSampleSelector: () => this.sampleSelector?.close(),
                 onCancelDrawing: () => this._cancelDrawing(),
                 onDeselect: () => this._deselect(),
                 onFitToView: () => this.viewport.fitToView(),
@@ -278,7 +275,6 @@
                 isTablePanelVisible: () => this.dataTablePanel?.isVisible() || false,
                 isBandTablePanelVisible: () => this.bandTablePanel?.isVisible() || false,
                 isAdjustmentsPanelVisible: () => this.adjustmentsPanel?.isVisible() || false,
-                isSampleSelectorOpen: () => this.sampleSelector?.isOpen() || false,
                 isDetectionPanelVisible: () => this.detectionPanel?.isOpen() || false,
                 isCV2DetectionPanelVisible: () => this.cv2DetectionPanel?.isOpen() || false,
                 isCalibrationPanelVisible: () => this.calibrationPanel?.isOpen() || false,
@@ -291,7 +287,6 @@
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 apiClient: this.apiClient,
-                onOpenSampleSelector: (laneId) => this._openSampleSelector(laneId),
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
@@ -302,9 +297,9 @@
             this.dataTablePanel = new DataTablePanel({
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
+                apiClient: this.apiClient,
                 onSelectAnnotation: (type, id) => this._selectAnnotation(type, id),
-                onUpdateLane: (id, data, silent) => this._updateLane(id, data, silent),
-                onOpenSampleSelector: (laneId) => this._openSampleSelector(laneId)
+                onUpdateLane: (id, data, silent) => this._updateLane(id, data, silent)
             });
 
             this.bandTablePanel = new BandTablePanel({
@@ -336,22 +331,7 @@
                 getSelectedAnnotation: () => ({ type: this.selectedType, id: this.selectedId })
             });
 
-            this.sampleSelector = new SampleSelector({
-                eventBus: this.eventBus,
-                apiClient: this.apiClient,
-                onSampleSelected: (laneId, sampleData) => this._handleSampleSelected(laneId, sampleData),
-                getLaneData: (laneId) => {
-                    const lane = this.stateManager.getLane(laneId);
-                    if (!lane) return null;
-                    return {
-                        sample_name: lane.process_sample?.sample_id || lane.sample_name || '',
-                        process_sample_id: lane.process_sample?.id || lane.process_sample_id || null,
-                        display_name: lane.process_sample?.sample_id || lane.sample_name || '',
-                    };
-                },
-            });
-
-            // Electropherogram Panel (Plotly.js intensity profile) — init before DetectionPanel
+// Electropherogram Panel (Plotly.js intensity profile) — init before DetectionPanel
             if (ElectropherogramPanel) {
                 this.electropherogramPanel = new ElectropherogramPanel({
                     eventBus: this.eventBus,
@@ -1545,38 +1525,6 @@
 
             // Switch back to select tool
             this.toolManager.setTool('select');
-        }
-
-        // =====================================================================
-        // Sample Selection
-        // =====================================================================
-
-        _openSampleSelector(laneId) {
-            // Get lane context for pre-populating the modal
-            const lane = this.stateManager.getLane(laneId);
-            let context = null;
-            if (lane) {
-                context = {
-                    sample_name: lane.process_sample?.sample_id || lane.sample_name || '',
-                    process_sample_id: lane.process_sample?.id || lane.process_sample_id || null,
-                };
-            }
-            this.sampleSelector?.open(laneId, context);
-        }
-
-        _handleSampleSelected(laneId, sampleData) {
-            // display_name is always set, sample_name is empty when ProcessSample is selected
-            const displayName = sampleData.display_name || sampleData.sample_name || sampleData.name || '';
-            const data = {
-                sample_name: displayName,
-                process_sample_id: sampleData.process_sample_id || sampleData.id || null
-            };
-
-            this._updateLane(laneId, data);
-
-            // Update UI
-            this.propertiesPanel.updateSampleName(displayName);
-            this.dataTablePanel.updateSampleCell(laneId, displayName);
         }
 
         // =====================================================================

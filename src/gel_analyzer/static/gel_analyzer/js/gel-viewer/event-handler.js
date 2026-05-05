@@ -44,7 +44,6 @@
             this.onHideBandTablePanel = options.onHideBandTablePanel;
             this.onHideAdjustmentsPanel = options.onHideAdjustmentsPanel;
             this.onHideContextMenu = options.onHideContextMenu;
-            this.onCloseSampleSelector = options.onCloseSampleSelector;
             this.onCancelDrawing = options.onCancelDrawing;
             this.onDeselect = options.onDeselect;
             this.onFitToView = options.onFitToView;
@@ -65,7 +64,6 @@
             this.isTablePanelVisible = options.isTablePanelVisible || (() => false);
             this.isBandTablePanelVisible = options.isBandTablePanelVisible || (() => false);
             this.isAdjustmentsPanelVisible = options.isAdjustmentsPanelVisible || (() => false);
-            this.isSampleSelectorOpen = options.isSampleSelectorOpen || (() => false);
             this.isDetectionPanelVisible = options.isDetectionPanelVisible || (() => false);
             this.isCV2DetectionPanelVisible = options.isCV2DetectionPanelVisible || (() => false);
             this.isCalibrationPanelVisible = options.isCalibrationPanelVisible || (() => false);
@@ -494,8 +492,6 @@
                 if (this.onHideTablePanel) this.onHideTablePanel();
             } else if (this.isAdjustmentsPanelVisible()) {
                 if (this.onHideAdjustmentsPanel) this.onHideAdjustmentsPanel();
-            } else if (this.isSampleSelectorOpen()) {
-                if (this.onCloseSampleSelector) this.onCloseSampleSelector();
             } else {
                 // Cancel current operations
                 if (this.onHideContextMenu) this.onHideContextMenu();
