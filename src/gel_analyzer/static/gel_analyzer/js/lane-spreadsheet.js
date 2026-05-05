@@ -11,7 +11,6 @@
  *       analysisId: 'uuid',
  *       csrfToken: '...',
  *       canEdit: true,
- *       onSampleClick: function(laneId, laneNumber) { ... },
  *   });
  *
  * @module gel_analyzer/lane-spreadsheet
@@ -85,17 +84,16 @@
         Handsontable.renderers.TextRenderer.apply(this, arguments);
         td.innerHTML = '';
         if (value && value !== '\u2014') {
-            var link = document.createElement('span');
-            link.style.cssText = 'font-weight:600;color:#1e293b;font-size:0.8rem;';
-            link.textContent = value;
-            td.appendChild(link);
+            var span = document.createElement('span');
+            span.style.cssText = 'font-weight:600;color:#1e293b;font-size:0.8rem;';
+            span.textContent = value;
+            td.appendChild(span);
         } else {
             td.style.color = '#94a3b8';
             td.style.fontStyle = 'italic';
             td.style.fontSize = '0.75rem';
-            td.textContent = 'Click to assign...';
+            td.textContent = 'Click to name...';
         }
-        td.style.cursor = 'pointer';
     }
 
     // ── Save flash effect ──────────────────────────────────────
@@ -120,7 +118,6 @@
         this.analysisId = opts.analysisId;
         this.csrfToken = opts.csrfToken;
         this.canEdit = opts.canEdit !== false;
-        this.onSampleClick = opts.onSampleClick || function() {};
         this.hot = null;
         this._saveTimers = {};
 
@@ -133,13 +130,14 @@
 
         this.hot = new Handsontable(this.container, {
             data: data,
+            themeName: 'ht-theme-main',
             colHeaders: ['Lane', 'Type', 'Sample', 'Condition', 'Load (\u00B5g)', 'Load Type', 'Bands', 'POI (kDa)', 'Purity'],
             columns: [
                 { data: 'lane_number', type: 'numeric', readOnly: true, renderer: laneNumberRenderer, width: 55 },
                 { data: 'lane_type', type: 'dropdown', source: LANE_TYPES, readOnly: !this.canEdit, width: 90 },
-                { data: 'sample_display', readOnly: true, renderer: sampleRenderer, width: 150 },
+                { data: 'sample_display', readOnly: !this.canEdit, renderer: sampleRenderer, width: 150 },
                 { data: 'condition', type: 'dropdown', source: CONDITIONS, readOnly: !this.canEdit, width: 110 },
-                { data: 'protein_load_ug', type: 'numeric', numericFormat: { pattern: '0.0' }, readOnly: !this.canEdit, width: 85 },
+                { data: 'protein_load_ug', type: 'numeric', numericFormat: { minimumFractionDigits: 1, maximumFractionDigits: 1 }, readOnly: !this.canEdit, width: 85 },
                 { data: 'load_type', type: 'dropdown', source: LOAD_TYPES, readOnly: !this.canEdit, width: 120 },
                 { data: 'band_count', type: 'numeric', readOnly: true, renderer: readOnlyNumericRenderer, width: 65 },
                 { data: 'poi_kda', type: 'numeric', readOnly: true, renderer: readOnlyNumericRenderer, width: 80 },
@@ -168,15 +166,6 @@
                     self._saveCell(row, prop, newVal);
                 });
             },
-            afterOnCellMouseDown: function(event, coords) {
-                // Sample column click → open sample selector
-                if (coords.col === 2 && self.canEdit) {
-                    var laneData = self.lanes[coords.row];
-                    if (laneData) {
-                        self.onSampleClick(laneData.id, laneData.lane_number, coords.row);
-                    }
-                }
-            },
             cells: function(row, col) {
                 var cellProperties = {};
                 if (col === 0) cellProperties.renderer = laneNumberRenderer;
@@ -193,7 +182,7 @@
                 id: lane.id,
                 lane_number: lane.lane_number,
                 lane_type: LANE_TYPE_REVERSE[lane.lane_type] || 'Sample',
-                sample_display: (lane.process_sample ? lane.process_sample.sample_id : lane.sample_name) || '',
+                sample_display: lane.sample_name || '',
                 condition: CONDITION_REVERSE[String(lane.is_reduced)] || '\u2014',
                 protein_load_ug: lane.protein_load_ug,
                 load_type: LOAD_TYPE_REVERSE[lane.protein_load_type || ''] || '\u2014',
@@ -216,6 +205,9 @@
         switch (prop) {
             case 'lane_type':
                 payload.lane_type = LANE_TYPE_MAP[value] || 'SAMPLE';
+                break;
+            case 'sample_display':
+                payload.sample_name = (value == null) ? '' : String(value).trim();
                 break;
             case 'condition':
                 payload.is_reduced = CONDITION_MAP[value];
@@ -270,13 +262,6 @@
             console.error('Lane save error:', err);
             flashCell(self.hot, row, col, false);
         });
-    };
-
-    // ── Update sample for a lane (called after sample modal) ───
-
-    LaneSpreadsheet.prototype.updateSample = function(row, sampleId, sampleDisplay) {
-        if (row < 0 || row >= this.lanes.length) return;
-        this.hot.setDataAtRowProp(row, 'sample_display', sampleDisplay || '');
     };
 
     // ── Destroy ────────────────────────────────────────────────

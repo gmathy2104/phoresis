@@ -3,8 +3,155 @@
 
 {% block title %}{{ analysis.name|default:"Analysis" }} — Phoresis{% endblock %}
 
+{% block head %}
+    <link rel="stylesheet" href="{% static 'gel_analyzer/js/vendor/handsontable/handsontable.min.css' %}">
+    <link rel="stylesheet" href="{% static 'gel_analyzer/js/vendor/handsontable/ht-theme-main.min.css' %}">
+    <style>
+        /* Gel preview — read-only annotated viewer */
+        .gp-root { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+        .gp-stage {
+            position: relative;
+            margin: 0 auto;
+            background: #0f172a;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+            cursor: zoom-in;
+            max-width: 100%;
+        }
+        .gp-stage--inline { max-height: 420px; }       /* compact card view */
+        .gp-stage--modal  { max-height: calc(100vh - 8rem); cursor: zoom-out; }
+        .gp-image {
+            display: block;
+            max-width: 100%;
+            max-height: inherit;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            user-select: none;
+        }
+        .gp-overlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .gp-overlay .gv-lane,
+        .gp-overlay .gv-band { pointer-events: auto; }
+        .gp-stage--inline .gp-overlay .gv-lane,
+        .gp-stage--inline .gp-overlay .gv-band { pointer-events: none; }
+        .gp-zoom-hint {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            background: rgba(15,23,42,0.7);
+            color: #f8fafc;
+            border-radius: 0.375rem;
+            font-size: 0.7rem;
+            pointer-events: none;
+        }
+        .gp-stage--modal .gp-zoom-hint { display: none; }
+
+        /* Modal — z-index must beat Handsontable's sticky/fixed overlays
+           (handsontable goes up to z-index:9999 internally). */
+        .gp-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 100000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            background: rgba(15,23,42,0.85);
+            backdrop-filter: blur(2px);
+        }
+        .gp-modal[hidden] { display: none; }
+        .gp-modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            width: 2.25rem;
+            height: 2.25rem;
+            border-radius: 9999px;
+            background: rgba(255,255,255,0.1);
+            color: #f8fafc;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+        .gp-modal-close:hover { background: rgba(255,255,255,0.2); }
+
+        /* Lane shapes */
+        .gp-overlay .gv-lane { fill: rgba(59,130,246,0.06); stroke: rgba(59,130,246,0.55); stroke-width: 1; cursor: pointer; transition: filter .15s; }
+        .gp-overlay .gv-lane.sample  { fill: rgba(59,130,246,0.06); stroke: rgba(59,130,246,0.6); }
+        .gp-overlay .gv-lane.ladder  { fill: rgba(249,115,22,0.07); stroke: rgba(249,115,22,0.65); }
+        .gp-overlay .gv-lane.control { fill: rgba(34,197,94,0.06);  stroke: rgba(34,197,94,0.65); }
+        .gp-overlay .gv-lane.empty   { fill: rgba(107,114,128,0.04); stroke: rgba(107,114,128,0.5); stroke-dasharray: 4 2; }
+        .gp-overlay .gv-lane:hover   { filter: brightness(1.15); }
+
+        /* Bands */
+        .gp-overlay .gv-band { stroke-width: 0.5; cursor: pointer; transition: filter .15s; }
+        .gp-overlay .gv-band.poi          { fill: rgba(168,85,247,0.18); stroke: rgba(168,85,247,0.7); }
+        .gp-overlay .gv-band.mw_reference { fill: rgba(249,115,22,0.18); stroke: rgba(249,115,22,0.7); }
+        .gp-overlay .gv-band.other        { fill: rgba(34,197,94,0.18);  stroke: rgba(34,197,94,0.7); }
+        .gp-overlay .gv-band:hover        { filter: brightness(1.2); }
+
+        /* Tooltip */
+        .gp-tooltip {
+            position: absolute;
+            z-index: 10;
+            background: rgba(15,23,42,0.94);
+            color: #f8fafc;
+            font-size: 0.75rem;
+            line-height: 1.35;
+            padding: 0.4rem 0.6rem;
+            border-radius: 0.375rem;
+            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            max-width: 240px;
+        }
+        .gp-tooltip[hidden] { display: none; }
+
+        /* Legend */
+        .gp-legend {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--color-text-muted, #64748b);
+            padding: 0 0.25rem;
+        }
+        .gp-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+        .gp-legend-swatch {
+            display: inline-block;
+            width: 14px;
+            height: 10px;
+            border-radius: 2px;
+            border: 1px solid;
+        }
+        .gp-legend-swatch.gv-lane.sample  { background: rgba(59,130,246,0.18);  border-color: rgba(59,130,246,0.7); }
+        .gp-legend-swatch.gv-lane.ladder  { background: rgba(249,115,22,0.18);  border-color: rgba(249,115,22,0.7); }
+        .gp-legend-swatch.gv-lane.control { background: rgba(34,197,94,0.18);   border-color: rgba(34,197,94,0.7); }
+        .gp-legend-swatch.gv-lane.empty   { background: rgba(107,114,128,0.12); border-color: rgba(107,114,128,0.6); border-style: dashed; }
+        .gp-legend-swatch.gv-band.poi          { background: rgba(168,85,247,0.3); border-color: rgba(168,85,247,0.8); }
+        .gp-legend-swatch.gv-band.mw_reference { background: rgba(249,115,22,0.3); border-color: rgba(249,115,22,0.8); }
+        .gp-legend-swatch.gv-band.other        { background: rgba(34,197,94,0.3);  border-color: rgba(34,197,94,0.8); }
+        .gp-legend-sep { width: 1px; height: 14px; background: var(--color-border, #e2e8f0); margin: 0 0.25rem; }
+    </style>
+{% endblock %}
+
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-6 min-w-0">
     <header class="flex items-end justify-between gap-4">
         <div class="min-w-0">
             <h1 class="text-2xl font-semibold">{{ analysis.name|default:"(unnamed)" }}</h1>
@@ -36,78 +183,97 @@
         </div>
     {% endif %}
 
-    {# Data quality warnings #}
-    {% if warnings %}
-        <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            <div class="flex items-center gap-2 font-medium">
-                {% icon "alert-triangle" size=16 %}
-                <span>{{ warnings|length }} data quality issue{{ warnings|length|pluralize }}</span>
-            </div>
-            <ul class="mt-2 list-disc pl-6 text-xs text-amber-700/80">
-                {% for warning in warnings|slice:":10" %}
-                    <li>{{ warning.message }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-    {% endif %}
+    {# Top row: compact stats + warnings (left half) · annotated gel (right half) #}
+    <section class="grid gap-4 lg:grid-cols-2">
 
-    <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {% kpi "Lanes" analysis.total_lanes icon="layers" %}
-        {% kpi "Bands" analysis.total_bands icon="band" %}
-        {% kpi "Calibration" calibration_info.ladder_count|default:0 icon="ladder" accent="success" %}
-        {% kpi "POI purity" densitometry_info.average_purity|default:"—" icon="trending-up" accent="band" %}
+        {# Left column: stats + data quality #}
+        <div class="space-y-4 min-w-0">
+            <div class="rounded-lg border border-border bg-surface">
+                <div class="border-b border-border px-4 py-2">
+                    <h2 class="text-xs font-medium uppercase tracking-wide text-text-muted">Overview</h2>
+                </div>
+                <dl class="divide-y divide-border text-sm">
+                    <div class="flex items-center justify-between px-4 py-2.5">
+                        <dt class="flex items-center gap-2 text-text-muted">
+                            {% icon "layers" size=14 %}<span>Lanes</span>
+                        </dt>
+                        <dd class="font-semibold tabular-nums">{{ analysis.total_lanes }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between px-4 py-2.5">
+                        <dt class="flex items-center gap-2 text-text-muted">
+                            {% icon "band" size=14 %}<span>Bands</span>
+                        </dt>
+                        <dd class="font-semibold tabular-nums">{{ analysis.total_bands }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between px-4 py-2.5">
+                        <dt class="flex items-center gap-2 text-text-muted">
+                            {% icon "ladder" size=14 %}<span>Calibration</span>
+                        </dt>
+                        <dd class="font-semibold tabular-nums {% if calibration_info.ladder_count %}text-emerald-600{% endif %}">
+                            {{ calibration_info.ladder_count|default:0 }}
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between px-4 py-2.5">
+                        <dt class="flex items-center gap-2 text-text-muted">
+                            {% icon "trending-up" size=14 %}<span>POI purity</span>
+                        </dt>
+                        <dd class="font-semibold tabular-nums">
+                            {% if densitometry_info.average_purity %}{{ densitometry_info.average_purity }}%{% else %}—{% endif %}
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+
+            {# Data quality warnings #}
+            {% if warnings %}
+                <details class="rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-700" open>
+                    <summary class="flex cursor-pointer items-center justify-between gap-2 px-4 py-2.5 font-medium">
+                        <span class="flex items-center gap-2">
+                            {% icon "alert-triangle" size=14 %}
+                            {{ warnings|length }} data quality issue{{ warnings|length|pluralize }}
+                        </span>
+                        <span class="text-xs text-amber-600">click to toggle</span>
+                    </summary>
+                    <ul class="border-t border-amber-200 px-5 py-2 list-disc pl-8 space-y-0.5 text-xs text-amber-700/90">
+                        {% for warning in warnings|slice:":10" %}
+                            <li>{{ warning.message }}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endif %}
+        </div>
+
+        {# Right column: annotated gel #}
+        {% if analysis.gel_image %}
+            <div class="rounded-lg border border-border bg-surface min-w-0">
+                <div class="flex items-center justify-between border-b border-border px-4 py-2">
+                    <h2 class="text-xs font-medium uppercase tracking-wide text-text-muted">Annotated gel</h2>
+                    {% if analysis.is_editable %}
+                        <a class="text-xs text-accent-600 hover:underline" href="{% url 'gel_analyzer:analysis_annotate' pk=analysis.id %}">
+                            Edit →
+                        </a>
+                    {% endif %}
+                </div>
+                <div class="p-3">
+                    <div id="gel-preview"></div>
+                </div>
+            </div>
+        {% endif %}
     </section>
 
-    {# Lanes overview #}
+    {# Lanes spreadsheet #}
     <section class="rounded-lg border border-border bg-surface">
         <div class="flex items-center justify-between border-b border-border px-4 py-3">
             <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">
-                {% if lane_data %}{{ lane_data|length }} sample lane{{ lane_data|length|pluralize }}{% else %}Lanes{% endif %}
+                Lanes
             </h2>
+            {% if can_edit_samples %}
+                <span class="text-xs text-text-muted">Click any cell to edit · Tab/arrows to navigate</span>
+            {% endif %}
         </div>
-        {% if lane_data %}
-            <div class="divide-y divide-border">
-                {% for ld in lane_data %}
-                    <div class="flex items-center gap-3 px-4 py-3 hover:bg-surface-elevated">
-                        <span class="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-accent-600 text-xs font-bold text-white">
-                            {{ ld.lane.lane_number }}
-                        </span>
-                        <div class="min-w-0 flex-1">
-                            <div class="text-sm font-medium">
-                                {% if ld.lane.process_sample %}
-                                    {{ ld.lane.process_sample.sample_id }}
-                                {% elif ld.lane.sample_name %}
-                                    {{ ld.lane.sample_name }}
-                                {% else %}
-                                    <span class="italic text-text-muted">No sample</span>
-                                {% endif %}
-                            </div>
-                            <div class="mt-0.5 flex flex-wrap gap-1 text-xs text-text-muted">
-                                {% if ld.lane.lane_type == 'CONTROL' %}{% badge "Control" variant="primary" %}{% endif %}
-                                {% if ld.lane.is_reduced is not None %}
-                                    {% if ld.lane.is_reduced %}{% badge "Reduced" variant="info" %}{% else %}{% badge "Non-reduced" variant="muted" %}{% endif %}
-                                {% endif %}
-                                {% if ld.lane.protein_load_ug %}
-                                    <span>{{ ld.lane.protein_load_ug|floatformat:1 }} μg</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-6 text-center text-xs">
-                            <div>
-                                <div class="text-base font-semibold text-accent-600">{{ ld.band_count }}</div>
-                                <div class="text-text-muted">Bands</div>
-                            </div>
-                            <div>
-                                <div class="text-base font-semibold {% if ld.poi_kda %}{% else %}text-text-muted{% endif %}">{% if ld.poi_kda %}{{ ld.poi_kda|floatformat:0 }}{% else %}—{% endif %}</div>
-                                <div class="text-text-muted">POI kDa</div>
-                            </div>
-                            <div>
-                                <div class="text-base font-semibold {% if ld.purity is not None %}{% if ld.purity >= 90 %}text-emerald-600{% elif ld.purity >= 70 %}text-amber-600{% else %}text-red-600{% endif %}{% else %}text-text-muted{% endif %}">{% if ld.purity is not None %}{{ ld.purity|floatformat:1 }}%{% else %}—{% endif %}</div>
-                                <div class="text-text-muted">Purity</div>
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
+        {% if lanes %}
+            <div class="overflow-x-auto p-2">
+                <div id="lane-spreadsheet" class="ga-lane-hot-wrap"></div>
             </div>
         {% else %}
             <div class="px-4 py-8 text-center text-sm text-text-muted">
@@ -120,4 +286,55 @@
     </section>
 </div>
 {% csrf_token %}
+
+{% if lanes %}
+    <script src="{% static 'gel_analyzer/js/vendor/svg.min.js' %}"></script>
+    <script src="{% static 'gel_analyzer/js/gel-preview.js' %}"></script>
+    <script src="{% static 'gel_analyzer/js/vendor/handsontable/handsontable.full.min.js' %}"></script>
+    <script src="{% static 'gel_analyzer/js/lane-spreadsheet.js' %}"></script>
+    <script id="lanes-data" type="application/json">{{ lanes_json }}</script>
+    <script>
+    (function() {
+        'use strict';
+        const sheetContainer = document.getElementById('lane-spreadsheet');
+        const previewContainer = document.getElementById('gel-preview');
+        const dataEl = document.getElementById('lanes-data');
+        const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+        if (!dataEl || !csrfToken) return;
+
+        const lanes = JSON.parse(dataEl.textContent);
+
+        let sheet = null;
+        if (sheetContainer) {
+            sheet = new LaneSpreadsheet({
+                container: sheetContainer,
+                lanes: lanes,
+                analysisId: '{{ analysis.id }}',
+                csrfToken: csrfToken,
+                canEdit: {{ can_edit_samples|yesno:"true,false" }},
+            });
+        }
+
+        if (previewContainer) {
+            new GelPreview({
+                container: previewContainer,
+                imageUrl: '{% url "gel_analyzer:api_image_proxy" pk=analysis.gel_image.pk %}',
+                imageWidth: {{ analysis.gel_image.width|default:800 }},
+                imageHeight: {{ analysis.gel_image.height|default:600 }},
+                lanes: lanes,
+            });
+
+            // Click a lane in the preview → focus the matching row in the spreadsheet
+            previewContainer.addEventListener('gelpreview:lane-clicked', (e) => {
+                if (!sheet || !sheet.hot) return;
+                const rowIdx = lanes.findIndex(l => l.id === e.detail.laneId);
+                if (rowIdx >= 0) {
+                    sheet.hot.selectRows(rowIdx);
+                    sheetContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        }
+    })();
+    </script>
+{% endif %}
 {% endblock %}

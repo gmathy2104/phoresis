@@ -223,14 +223,12 @@
                     <div class="mb-2">
                         <label class="form-label">Sample</label>
                         <div class="input-group input-group-sm">
-                            <span class="input-group-text" id="prop-sample-icon" title="${lane.process_sample ? 'Process Dev sample' : 'Custom sample'}">
-                                <i class="bi bi-${lane.process_sample ? 'flask' : 'pencil'}"></i>
+                            <span class="input-group-text">
+                                <i class="bi bi-pencil"></i>
                             </span>
-                            <input type="text" class="form-control" id="prop-sample-name"
-                                   value="${lane.process_sample?.sample_id || lane.sample_name || ''}" placeholder="Click to search..." readonly>
-                            <button class="btn btn-outline-primary" type="button" id="prop-sample-search-btn">
-                                <i class="bi bi-search"></i>
-                            </button>
+                            <input type="text" class="form-control form-control-sm" id="prop-sample-name"
+                                   data-field="sample_name"
+                                   value="${lane.sample_name || ''}" placeholder="Sample name (optional)" maxlength="255">
                         </div>
                     </div>
 
@@ -541,17 +539,6 @@
          * @param {string|number} id - Lane ID
          */
         _setupLaneListeners(id) {
-            // Sample search button
-            const sampleSearchBtn = document.getElementById('prop-sample-search-btn');
-            const sampleInput = document.getElementById('prop-sample-name');
-
-            if (sampleSearchBtn && this.onOpenSampleSelector) {
-                sampleSearchBtn.addEventListener('click', () => this.onOpenSampleSelector(id));
-            }
-            if (sampleInput && this.onOpenSampleSelector) {
-                sampleInput.addEventListener('click', () => this.onOpenSampleSelector(id));
-            }
-
             // Delete button
             const deleteBtn = document.getElementById('prop-delete-lane-btn');
             if (deleteBtn && this.onDeleteLane) {

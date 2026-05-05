@@ -307,15 +307,29 @@ def analysis_detail_view(request: HttpRequest, pk) -> HttpResponse:
     # Convert to list for multiple iterations in helper functions
     lanes_list = list(lanes)
 
-    # Serialize lanes for JavaScript SVG rendering
-    # Use mark_safe() to prevent Django from escaping quotes in JSON
-    lanes_json = mark_safe(json.dumps([lane_to_dict(lane) for lane in lanes_list]))
-
     # Get context data for display
     calibration_info = _get_calibration_info(analysis)
     densitometry_info = _get_densitometry_info(analysis, lanes_list)
     completion_info = _get_completion_info(analysis, lanes_list)
     warnings = _get_warnings(analysis, lanes_list)
+
+    # Serialize lanes for JavaScript (SVG renderer + spreadsheet).
+    # Augment each dict with derived read-only stats so the spreadsheet
+    # can display POI kDa / purity / band count without re-fetching.
+    densitometry_by_lane = {d["lane_number"]: d for d in densitometry_info.get("lanes", [])}
+    serialized_lanes = []
+    for lane in lanes_list:
+        lane_dict = lane_to_dict(lane)
+        lane_dict["_band_count"] = lane.bands.count()
+        poi_kda = None
+        for band in lane.bands.all():
+            if band.band_type == "POI" and band.estimated_mw_kda:
+                poi_kda = float(band.estimated_mw_kda)
+                break
+        lane_dict["poi_kda"] = poi_kda
+        lane_dict["purity"] = densitometry_by_lane.get(lane.lane_number, {}).get("poi_percentage")
+        serialized_lanes.append(lane_dict)
+    lanes_json = mark_safe(json.dumps(serialized_lanes))
 
     # Pre-compute lane data for card/table views
     lane_data = []
