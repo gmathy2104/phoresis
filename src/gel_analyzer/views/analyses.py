@@ -260,9 +260,8 @@ def analysis_create_view(request: HttpRequest, image_pk) -> HttpResponse:
                 user=request.user.username,
                 gel_image_id=str(gel_image.id),
             )
-            messages.success(request, "Analysis created — open it to start annotating.")
-            # Phase 4 redirects to detail; Phase 3 redirects to image detail.
-            return redirect("gel_analyzer:image_detail", pk=gel_image.id)
+            messages.success(request, "Analysis created — start annotating below.")
+            return redirect("gel_analyzer:analysis_annotate", pk=analysis.id)
     else:
         form = GelAnalysisCreateForm(initial={"name": gel_image.original_filename})
 
