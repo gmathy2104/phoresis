@@ -1202,7 +1202,7 @@
                     continue;
                 }
 
-                // Data points
+                // Active markers used in the fit
                 const xValues = points.map(p => p.rf);
                 const yValues = points.map(p => Math.log10(p.mw_kda));
 
@@ -1219,6 +1219,45 @@
                     hovertemplate: 'Rf: %{x:.3f}<br>MW: %{customdata:.1f} kDa<extra></extra>',
                     customdata: points.map(p => p.mw_kda),
                 });
+
+                // Excluded markers — keep them on the chart as ghost points so
+                // the user sees what was dropped without losing visual context.
+                // Rf is computed in this ladder's frame (lane_top/lane_bottom)
+                // for consistency with the active markers.
+                if (cal.lane_top != null && cal.lane_bottom != null && cal.lane_bottom > cal.lane_top) {
+                    const ghostX = [], ghostY = [], ghostMW = [];
+                    for (const id of this.excludedBandIds) {
+                        const band = this._lookupLadderBand(id);
+                        if (!band) continue;
+                        // Only add to this ladder's trace if the band belongs to this lane
+                        if (band.lane_id !== cal.lane_id && band._parentLaneId !== cal.lane_id) continue;
+                        if (band.position_y == null || !band.estimated_mw_kda || band.estimated_mw_kda <= 0) continue;
+                        const rf = (band.position_y - cal.lane_top) / (cal.lane_bottom - cal.lane_top);
+                        if (rf < 0 || rf > 1) continue;
+                        ghostX.push(rf);
+                        ghostY.push(Math.log10(band.estimated_mw_kda));
+                        ghostMW.push(band.estimated_mw_kda);
+                    }
+                    if (ghostX.length > 0) {
+                        traces.push({
+                            x: ghostX,
+                            y: ghostY,
+                            mode: 'markers',
+                            type: 'scatter',
+                            name: i === 0 ? 'Excluded' : '',
+                            showlegend: i === 0,
+                            marker: {
+                                color: colors[i % colors.length],
+                                size: 9,
+                                opacity: 0.25,
+                                symbol: 'circle-open',
+                                line: { color: colors[i % colors.length], width: 1.5 },
+                            },
+                            hovertemplate: 'Excluded · Rf: %{x:.3f}<br>MW: %{customdata:.1f} kDa<extra></extra>',
+                            customdata: ghostMW,
+                        });
+                    }
+                }
 
                 // Fit line
                 if (xValues.length > 1 && cal.coefficients) {
@@ -1256,8 +1295,12 @@
                 }
             }
 
+            const hasExcluded = traces.some(t => t.name === 'Excluded');
+            const showLegend = calibrations.length > 1 || hasExcluded;
+
             const layout = {
-                margin: { l: 50, r: 20, t: 20, b: 45 },
+                // Right-side legend → leaves the high-MW corner (top-left) clear.
+                margin: { l: 50, r: showLegend ? 110 : 20, t: 20, b: 45 },
                 xaxis: {
                     title: { text: 'Rf (Relative Migration)', font: { size: 12, color: '#5b21b6' } },
                     tickfont: { size: 10, color: '#4b5563' },
@@ -1278,12 +1321,16 @@
                     zeroline: true,
                     zerolinecolor: '#d1d5db',
                 },
-                showlegend: calibrations.length > 1,
+                showlegend: showLegend,
                 legend: {
                     font: { size: 10 },
-                    x: 0.02,
-                    y: 0.98,
+                    x: 1.02,
+                    xanchor: 'left',
+                    y: 1,
+                    yanchor: 'top',
                     bgcolor: 'rgba(255,255,255,0.9)',
+                    bordercolor: '#e9d5ff',
+                    borderwidth: 1,
                 },
                 paper_bgcolor: '#ffffff',
                 plot_bgcolor: '#ffffff',

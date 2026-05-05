@@ -5668,6 +5668,7 @@ body.ga-minimal {
     align-items: center;
     gap: 10px;
     margin-top: 10px;
+    margin-bottom: 14px;  /* breathe before the Run button */
 }
 
 .gv-calibration-method label {
