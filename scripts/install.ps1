@@ -199,10 +199,36 @@ Write-Sub "Provisioning 'phoresis' database + user on port $DBPort"
 if ($DBPort -ne 5432) {
     Write-Sub "Non-default port detected -- make sure Postgres 17 is reachable at 127.0.0.1:$DBPort"
 }
-$pgPassword = Read-Host "Postgres superuser ('postgres') password (port $DBPort)" -AsSecureString
-$pgPasswordPlain = ConvertFrom-SecureToPlain -Secure $pgPassword
 
-$env:PGPASSWORD = $pgPasswordPlain
+# Authentication loop -- re-prompt the password up to 3 times if wrong, then
+# bail out cleanly. Without this, every failed attempt consumed a Read-Host
+# round but the script kept marching forward, producing a cryptic cascade
+# of psql auth errors and ultimately a broken install.
+$authOk = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    $pgPassword = Read-Host "Postgres superuser ('postgres') password (port $DBPort)" -AsSecureString
+    $pgPasswordPlain = ConvertFrom-SecureToPlain -Secure $pgPassword
+    $env:PGPASSWORD = $pgPasswordPlain
+    # Cheapest possible auth probe -- SELECT 1 on the postgres DB.
+    & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -tAc "SELECT 1" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $authOk = $true
+        break
+    }
+    $env:PGPASSWORD = $null
+    if ($attempt -lt 3) {
+        Write-Warn "Authentication failed (attempt $attempt/3). Try again."
+    }
+}
+if (-not $authOk) {
+    Write-Err "Could not authenticate as 'postgres' on 127.0.0.1:$DBPort after 3 attempts."
+    Write-Sub "Verify: 1) the Postgres service is running, 2) you remember the postgres password set during install,"
+    Write-Sub "        3) the port is correct (the installer may have picked 5433 if 5432 was already taken)."
+    Write-Sub "Reset the postgres password if needed via pgAdmin or:"
+    Write-Sub "    runas /user:Administrator `"`"C:\Program Files\PostgreSQL\17\bin\psql.exe`"`" -U postgres -d postgres -c \`"ALTER USER postgres WITH PASSWORD 'newpwd';\`"`"`""
+    exit 1
+}
+
 # 1. Role (idempotent via DO block)
 $roleSql = @"
 DO `$`$
@@ -214,11 +240,26 @@ END
 `$`$;
 "@
 $roleSql | psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "Role creation failed (exit $LASTEXITCODE) -- this should not happen if auth just succeeded."
+    $env:PGPASSWORD = $null
+    exit 1
+}
 
 # 2. Database (CREATE DATABASE can't run inside a DO block -- check then create)
 $dbExists = & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='phoresis'"
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "Database existence check failed (exit $LASTEXITCODE)"
+    $env:PGPASSWORD = $null
+    exit 1
+}
 if ($dbExists -ne '1') {
     & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -c "CREATE DATABASE phoresis OWNER phoresis"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "CREATE DATABASE failed (exit $LASTEXITCODE)"
+        $env:PGPASSWORD = $null
+        exit 1
+    }
 }
 $env:PGPASSWORD = $null
 Write-Ok "phoresis DB + user ready on port $DBPort"
