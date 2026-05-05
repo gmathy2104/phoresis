@@ -55,7 +55,7 @@ The script is **idempotent** — re-runnable safely if anything is interrupted. 
 | 7 | Creates `%USERPROFILE%\Phoresis-Data\media\` (host bind-mount) | overridable with `-DataDir D:\Phoresis-Data` |
 | 8 | Migrates from a legacy `phoresis_media` Docker volume if present | one-shot |
 | 9 | Generates `.env` (asks: admin email/password, primary lab user email/password/name) | only on first run; delete `.env` to regenerate |
-| 10 | **CPU**: pulls `ghcr.io/gmathy2104/phoresis-{web,worker}:latest-cpu` from GHCR<br>**CUDA**: builds the images locally with `docker compose build` (~15-25 min one-time, fast on subsequent updates thanks to layer cache) | CUDA images are NOT shipped via CI by design — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §"CI/CD flow" |
+| 10 | **CPU**: pulls `ghcr.io/gmathy2104/phoresis-app:latest-cpu` from GHCR (single shared image for web/worker/scheduler)<br>**CUDA**: builds locally with `docker compose build` (~15-25 min one-time, fast on subsequent updates thanks to layer cache; uv installs torch cu128 directly from download.pytorch.org/whl/cu128) | CUDA images are NOT shipped via CI by design — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §"CI/CD flow" |
 | 11 | `docker compose up -d` brings up Caddy + Django + Celery worker + Celery beat + Redis + Watchtower | |
 | 12 | Waits for `https://phoresis/healthz/live/` to return 200 | up to 90 s |
 | 13 | Trusts Caddy's self-signed root CA so the browser accepts `https://phoresis/` | |

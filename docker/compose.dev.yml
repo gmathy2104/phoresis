@@ -24,7 +24,7 @@ name: phoresis
 services:
 
   web:
-    image: ${PHORESIS_WEB_IMAGE:-ghcr.io/gmathy2104/phoresis-web:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    image: ${PHORESIS_APP_IMAGE:-ghcr.io/gmathy2104/phoresis-app:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
     environment:
       DJANGO_SETTINGS_MODULE: phoresis.settings.dev
       DJANGO_DEBUG: "true"

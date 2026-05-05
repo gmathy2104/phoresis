@@ -38,7 +38,6 @@ dependencies = [
     "opencv-python>=4.10",
     "tifffile>=2024.7",
     "scikit-image>=0.24",
-    "torch>=2.4",
     "onnxruntime>=1.19",
     # Phase 4 — report generation
     "python-docx>=1.1",
@@ -47,7 +46,25 @@ dependencies = [
     "matplotlib>=3.9",          # used by report charts (terrain, poi_purity)
 ]
 
+# torch (+ torchvision + ultralytics) live in two mutually-exclusive extras so
+# wheels come from the right index in one shot — no more "install CPU then
+# swap to cu128" dance. Pick one at install time:
+#   uv sync --extra cpu   (developer laptops without an NVIDIA GPU)
+#   uv sync --extra cuda  (production worker on a Blackwell sm_120 box, etc.)
+# torchvision + ultralytics are kept available so the Celery worker can run
+# server-side YOLO inference (planned auto-lane detection pipeline) — they
+# install zero-bandwidth on top of torch since their wheels are tiny.
 [project.optional-dependencies]
+cpu = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "ultralytics>=8.3",
+]
+cuda = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "ultralytics>=8.3",
+]
 dev = [
     "pytest>=8.3",
     "pytest-django>=4.9",
@@ -61,6 +78,38 @@ dev = [
     "playwright>=1.48",
     "pytest-playwright>=0.5",
 ]
+
+# uv 0.5+ per-package indices: tells uv where to fetch torch from depending on
+# the active extra. With `explicit = true`, the index is *only* consulted for
+# packages explicitly mapped to it via [tool.uv.sources] — the rest of the
+# dep tree still resolves from PyPI.
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "cuda" },
+    ],
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu128", extra = "cuda" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu128", extra = "cuda" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

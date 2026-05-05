@@ -28,7 +28,12 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "false"   # Caddy not auto-updated by Watchtower
 
-  # ────────────────────── Django web ──────────────────────
+  # ────────────────────── Phoresis app (shared image) ──────────────────────
+  # web, worker, and scheduler all run the SAME image (phoresis-app) — they
+  # differ only by their CMD and a couple of SKIP_* env flags. This halves
+  # build/pull/storage cost vs the legacy two-image split (Dockerfile.web +
+  # Dockerfile.worker).
+  #
   # Default: public GHCR image (no docker login required).
   # For private-image deployments:
   #   1. Set the GHCR package visibility to Private in GitHub Packages.
@@ -37,13 +42,13 @@ services:
   #   3. Add WATCHTOWER_AUTH_USERNAME + WATCHTOWER_AUTH_PASSWORD env vars to the
   #      watchtower service below (or mount ~/.docker/config.json read-only).
   web:
-    image: ${PHORESIS_WEB_IMAGE:-ghcr.io/gmathy2104/phoresis-web:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    image: &phoresis_image ${PHORESIS_APP_IMAGE:-ghcr.io/gmathy2104/phoresis-app:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
     # `build:` lets `docker compose build` produce a local image tagged with
     # the `image:` value above. CPU builds normally pull from GHCR; CUDA users
     # build locally (cu128 wheels too big for GitHub-runner disk).
-    build:
+    build: &phoresis_build
       context: ..
-      dockerfile: docker/Dockerfile.web
+      dockerfile: docker/Dockerfile
       args:
         TORCH_VARIANT: ${PHORESIS_IMAGE_VARIANT:-cpu}
     restart: unless-stopped
@@ -76,13 +81,14 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   # ────────────────────── Celery worker ──────────────────────
+  # Same image as web; different CMD + SKIP_* envs. NO `build:` block here —
+  # if both web and worker declared a build, `docker compose build` would
+  # build the same image twice (BuildKit caches the 2nd, but it's wasteful
+  # and confusing). With the build only on web, `compose build` produces a
+  # single image tagged `phoresis-app:…`; `compose up` then starts worker
+  # and scheduler from that locally-tagged image without re-pulling.
   worker:
-    image: ${PHORESIS_WORKER_IMAGE:-ghcr.io/gmathy2104/phoresis-worker:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
-      args:
-        TORCH_VARIANT: ${PHORESIS_IMAGE_VARIANT:-cpu}
+    image: *phoresis_image
     restart: unless-stopped
     env_file: ../.env
     environment:
@@ -102,12 +108,21 @@ services:
       - "host.docker.internal:host-gateway"
     networks: [phoresis_net]
     command: ["celery", "-A", "phoresis_core.celery_app", "worker", "--loglevel=info", "-Q", "default,heavy", "--concurrency=2"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A phoresis_core.celery_app inspect ping --timeout 3 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
   # ────────────────────── Celery beat (scheduler) ──────────────────────
+  # Same image as web/worker; different CMD. No healthcheck (beat has no
+  # equivalent ping endpoint — its liveness is implied by the worker still
+  # picking up scheduled tasks).
   scheduler:
-    image: ${PHORESIS_WORKER_IMAGE:-ghcr.io/gmathy2104/phoresis-worker:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
+    image: *phoresis_image
     restart: unless-stopped
     env_file: ../.env
     environment:
@@ -124,7 +139,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [phoresis_net]
-    command: ["celery", "-A", "phoresis_core.celery_app", "beat", "--loglevel=info"]
+    # `--schedule /home/phoresis/celerybeat-schedule.db` redirects beat's
+    # persistence file out of WORKDIR (/app, owned by root) into the phoresis
+    # user's home directory (writable). Default behaviour writes to ./, which
+    # silently crashloops with `[Errno 13] Permission denied` because /app is
+    # not writable for non-root users. The schedule file is regenerated from
+    # settings on every start, so no volume mount is needed for persistence.
+    command: ["celery", "-A", "phoresis_core.celery_app", "beat", "--loglevel=info", "--schedule", "/home/phoresis/celerybeat-schedule.db"]
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 

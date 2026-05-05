@@ -16,12 +16,12 @@ This guide is for contributors working on the Phoresis codebase: cloning the rep
 ```bash
 git clone https://github.com/gmathy2104/phoresis.git
 cd phoresis
-git lfs pull        # pulls the synthetic gel fixtures used by tests
-uv sync --extra dev # creates .venv/ and installs dev + runtime deps
-npm install         # Tailwind 4 + sprite tooling
+git lfs pull                      # pulls the synthetic gel fixtures used by tests
+uv sync --extra dev --extra cpu   # creates .venv/ and installs dev + runtime deps
+npm install                       # Tailwind 4 + sprite tooling
 ```
 
-`uv sync --extra dev` resolves `pyproject.toml` against the committed `uv.lock` so every contributor gets the same versions. Pre-commit hooks (`ruff`, `trailing-whitespace`, `end-of-file-fixer`, secret scanner) are installed automatically by:
+`uv sync --extra dev --extra cpu` resolves `pyproject.toml` against the committed `uv.lock` so every contributor gets the same versions. The `--extra cpu` is what selects the CPU-only torch wheel from `download.pytorch.org/whl/cpu` — without it, `torch` is not installed (it lives in mutually-exclusive `cpu`/`cuda` extras so the right wheel comes from the right index in one shot, no `--reinstall-package` swap). On a workstation with a CUDA GPU you can use `--extra cuda` instead, which fetches torch cu128 directly. Pre-commit hooks (`ruff`, `trailing-whitespace`, `end-of-file-fixer`, secret scanner) are installed automatically by:
 
 ```bash
 uv run pre-commit install

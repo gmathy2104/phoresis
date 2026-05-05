@@ -131,6 +131,7 @@ jobs:
       - run: uv run pytest tests/e2e/ -m e2e -v
 
   # ───────────────────────── docker image build (smoke) ─────────────────────────
+  # One unified phoresis-app image (was: two separate -web and -worker builds).
   build-cpu:
     name: Build CPU image (smoke)
     runs-on: ubuntu-24.04
@@ -139,26 +140,14 @@ jobs:
       - uses: actions/checkout@v5
         with: { lfs: true }
       - uses: docker/setup-buildx-action@v3
-      - name: Build phoresis-web (cpu)
+      - name: Build phoresis-app (cpu)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.web
+          file: docker/Dockerfile
           build-args: TORCH_VARIANT=cpu
           push: false
-          tags: phoresis-web:ci-cpu
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          load: true
-          outputs: type=docker
-      - name: Build phoresis-worker (cpu)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.worker
-          build-args: TORCH_VARIANT=cpu
-          push: false
-          tags: phoresis-worker:ci-cpu
+          tags: phoresis-app:ci-cpu
           cache-from: type=gha
           cache-to: type=gha,mode=max
           load: true
@@ -172,20 +161,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
-      - name: Rebuild web image (uses cache)
+      - name: Rebuild app image (uses cache)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.web
+          file: docker/Dockerfile
           build-args: TORCH_VARIANT=cpu
           push: false
-          tags: phoresis-web:trivy
+          tags: phoresis-app:trivy
           cache-from: type=gha
           load: true
       - name: Trivy scan
         uses: aquasecurity/trivy-action@0.30.0
         with:
-          image-ref: phoresis-web:trivy
+          image-ref: phoresis-app:trivy
           format: table
           severity: CRITICAL,HIGH
           exit-code: 1

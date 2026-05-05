@@ -33,11 +33,11 @@ We don't enable `--reuse-db` by default in `pyproject.toml` because it's a frequ
 2. `release-please` opens a PR titled "chore(main): release X.Y.Z" with the bumped version + auto-generated CHANGELOG entries.
 3. Review and merge the PR.
 4. Merging tags `vX.Y.Z` and triggers `release.yml`, which:
-   - Builds 4 images: `(cpu, cuda) × (web, worker)`.
-   - Pushes to `ghcr.io/gmathy2104/phoresis-{web,worker}:{vX.Y.Z, latest}-{cpu, cuda}`.
+   - Builds **one** unified image (CPU only — CUDA users build locally).
+   - Pushes to `ghcr.io/gmathy2104/phoresis-app:{vX.Y.Z, latest}-cpu`.
    - Creates a GitHub Release with auto-generated notes.
-   - Attaches the CPU web image SBOM.
-5. Watchtower (running on every Phoresis install) detects the new `:latest-{variant}` digest at 03:00 daily and self-updates.
+   - Attaches the SBOM.
+5. Watchtower (running on every Phoresis install) detects the new `:latest-{variant}` digest at 03:00 daily and self-updates the web/worker/scheduler containers (all three run the same image).
 
 ## Manual rollback
 
@@ -94,7 +94,7 @@ The [README.md](README.md) cross-links to all the above; keep its "Documentation
 
 ## Image visibility (public/private)
 
-Phoresis images on `ghcr.io/gmathy2104/phoresis-{web,worker}` are PUBLIC by
+The Phoresis image on `ghcr.io/gmathy2104/phoresis-app` is PUBLIC by
 default. The image content is open-source code + open-weights ML models —
 no secrets, no proprietary data. Public eliminates `docker login` friction
 in `install.ps1`.

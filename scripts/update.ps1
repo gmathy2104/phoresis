@@ -31,18 +31,23 @@ if ($Rollback) {
         exit 1
     }
     Write-Step "Pinning to $Rollback-$variant"
-    $envMap['PHORESIS_IMAGE_TAG']    = $Rollback
-    $envMap['PHORESIS_WEB_IMAGE']    = "ghcr.io/gmathy2104/phoresis-web:$Rollback-$variant"
-    $envMap['PHORESIS_WORKER_IMAGE'] = "ghcr.io/gmathy2104/phoresis-worker:$Rollback-$variant"
+    $envMap['PHORESIS_IMAGE_TAG'] = $Rollback
+    $envMap['PHORESIS_APP_IMAGE'] = "ghcr.io/gmathy2104/phoresis-app:$Rollback-$variant"
     Write-EnvFile -Path $envPath -Map $envMap
     Write-Ok ".env updated"
 } else {
-    # Clear any pin set by a previous rollback
-    if ($envMap.ContainsKey('PHORESIS_IMAGE_TAG')) {
-        Write-Sub "Clearing previous version pin"
-        $envMap.Remove('PHORESIS_IMAGE_TAG') | Out-Null
-        $envMap.Remove('PHORESIS_WEB_IMAGE') | Out-Null
+    # Clear any pin set by a previous rollback. Older versions (<= v1.0.x)
+    # used the legacy two-image split (PHORESIS_WEB_IMAGE / PHORESIS_WORKER_IMAGE);
+    # we strip those too in case we're upgrading from one of those installs.
+    if ($envMap.ContainsKey('PHORESIS_IMAGE_TAG') -or
+        $envMap.ContainsKey('PHORESIS_WEB_IMAGE') -or
+        $envMap.ContainsKey('PHORESIS_WORKER_IMAGE') -or
+        $envMap.ContainsKey('PHORESIS_APP_IMAGE')) {
+        Write-Sub "Clearing previous version pin (and any legacy two-image vars)"
+        $envMap.Remove('PHORESIS_IMAGE_TAG')    | Out-Null
+        $envMap.Remove('PHORESIS_WEB_IMAGE')    | Out-Null
         $envMap.Remove('PHORESIS_WORKER_IMAGE') | Out-Null
+        $envMap.Remove('PHORESIS_APP_IMAGE')    | Out-Null
         Write-EnvFile -Path $envPath -Map $envMap
     }
 }

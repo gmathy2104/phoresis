@@ -36,18 +36,19 @@ jobs:
           manifest-file: .github/.release-please-manifest.json
 
   # ───────────────────────── build + push (CPU only) ─────────────────────────
-  # Ship pre-built CPU images via GHCR. CUDA images are NOT built in CI by design:
-  # GPU users build them locally during `install.ps1` (the build is fast enough on
-  # a workstation with a real GPU, and avoids GitHub-runner disk-space/build-time
-  # ceilings + matrix complexity). See `docs/INSTALL.md` for the user-side flow.
+  # Ship a single pre-built CPU image (phoresis-app) via GHCR. The same image
+  # runs as web (gunicorn), worker (celery worker), and scheduler (celery
+  # beat) — they differ only by the runtime CMD set in compose. This halved
+  # the CI matrix vs the legacy two-image split (phoresis-web + phoresis-worker)
+  # and eliminated duplicate cu128 wheel downloads on the user's machine.
+  #
+  # CUDA images are NOT built in CI by design: GPU users build them locally
+  # during `install.ps1` (cu128 wheels are too big for GitHub-runner disk +
+  # build-time ceilings). See `docs/INSTALL.md` for the user-side flow.
   build-and-push:
-    name: ${{ matrix.image }}-cpu
+    name: phoresis-app-cpu
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        image: [web, worker]
     steps:
       - uses: actions/checkout@v5
         with: { lfs: true }
@@ -69,18 +70,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push phoresis-${{ matrix.image }}:{tag,latest}-cpu
+      - name: Build + push phoresis-app:{tag,latest}-cpu
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.${{ matrix.image }}
+          file: docker/Dockerfile
           build-args: TORCH_VARIANT=cpu
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:${{ steps.tag.outputs.value }}-cpu
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:latest-cpu
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:buildcache-cpu
-          cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-${{ matrix.image }}:buildcache-cpu,mode=max
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-app:${{ steps.tag.outputs.value }}-cpu
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-app:latest-cpu
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-app:buildcache-cpu
+          cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-app:buildcache-cpu,mode=max
           provenance: true
           sbom: true
 
@@ -103,16 +104,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull SBOM (web cpu) and write to file
+      - name: Pull SBOM (phoresis-app cpu) and write to file
         run: |
           docker buildx imagetools inspect \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-web:${{ steps.tag.outputs.value }}-cpu \
-            --format '{{ json .SBOM.SPDX }}' > sbom-web-cpu.json
-          ls -lh sbom-web-cpu.json
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/phoresis-app:${{ steps.tag.outputs.value }}-cpu \
+            --format '{{ json .SBOM.SPDX }}' > sbom-phoresis-app-cpu.json
+          ls -lh sbom-phoresis-app-cpu.json
 
       - name: Upload SBOM to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.value }}
-          files: sbom-web-cpu.json
+          files: sbom-phoresis-app-cpu.json
           fail_on_unmatched_files: false

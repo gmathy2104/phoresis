@@ -1,15 +1,26 @@
 # syntax=docker/dockerfile:1.7
 ###############################################################################
-# Phoresis web container — multi-stage build with CPU/CUDA variants.
+# Phoresis unified container — runs as web (gunicorn), worker (celery worker)
+# or scheduler (celery beat) depending on the runtime CMD set in compose.
 #
 # Build args:
 #   TORCH_VARIANT  cpu (default) | cuda
 #   PYTHON_VERSION 3.12
 #
 # CPU build:
-#   docker build -f docker/Dockerfile.web --build-arg TORCH_VARIANT=cpu  -t phoresis-web:cpu  .
-# CUDA build:
-#   docker build -f docker/Dockerfile.web --build-arg TORCH_VARIANT=cuda -t phoresis-web:cuda .
+#   docker build -f docker/Dockerfile --build-arg TORCH_VARIANT=cpu  -t phoresis-app:cpu  .
+# CUDA build (Blackwell sm_120 / RTX 50-series):
+#   docker build -f docker/Dockerfile --build-arg TORCH_VARIANT=cuda -t phoresis-app:cuda .
+#
+# Why a single image (vs the legacy Dockerfile.web + Dockerfile.worker split)?
+# web + worker + scheduler share 99% of their dependency tree (Django, Celery,
+# torch, scipy, …). Building them as two separate images meant downloading
+# and compiling the cu128 torch wheel twice (~3 GB × 2) because BuildKit
+# can't dedupe layers across two Dockerfiles with separate COPY contexts.
+# A single image cuts build time and bandwidth in half, and Watchtower has
+# a single tag to poll. The runtime distinction is just a different CMD
+# (gunicorn vs celery worker vs celery beat) plus per-service env flags
+# (SKIP_COLLECTSTATIC=1 / SKIP_SEEDS=1 for non-web roles).
 ###############################################################################
 
 ARG TORCH_VARIANT=cpu
@@ -17,6 +28,7 @@ ARG PYTHON_VERSION=3.12
 
 # ============================================================================
 # Stage 1: Frontend builder — compile Tailwind CSS bundle.
+# Variant-agnostic (Tailwind has nothing to do with CUDA).
 # ============================================================================
 FROM node:20-bookworm-slim AS frontend
 WORKDIR /build
@@ -30,15 +42,16 @@ RUN npm run build:css
 
 # ============================================================================
 # Stage 2A: Python deps (CPU variant).
+# Debian slim-bookworm ships Python 3.12 in its packages; using the official
+# python image saves us the apt-get python3.12 dance.
 # ============================================================================
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-cpu
 WORKDIR /app
 # UV_PROJECT_ENVIRONMENT pins `uv sync` to /opt/venv. Without it, uv sync
 # silently creates `.venv` in the project root and installs deps there,
-# leaving /opt/venv empty (even when the venv is activated -- uv sync ignores
-# VIRTUAL_ENV in favour of its own project-discovery logic).
-# UV_HTTP_TIMEOUT bumped to 300 s for the same reason as the CUDA stage:
-# some PyPI mirrors / NVIDIA's CDN can be slow on big wheels.
+# leaving /opt/venv empty (uv ignores VIRTUAL_ENV in favour of project
+# discovery). UV_HTTP_TIMEOUT is bumped because PyPI / NVIDIA CDNs can be
+# sluggish for big wheels (esp. behind VPN).
 ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv UV_HTTP_TIMEOUT=300
 
 # apt cache mount keeps the package archive between builds — when the apt
@@ -55,13 +68,15 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock ./
-# uv cache mount: when pyproject.toml or uv.lock change marginally (e.g. add
-# one dep), uv reuses already-downloaded wheels for the unchanged deps. Drops
-# rebuild from ~5 min to ~20 s for a minor lockfile bump.
+# Single-shot install: `--extra cpu` tells uv to read the [tool.uv.sources]
+# mapping in pyproject.toml and pull torch + torchvision from
+# download.pytorch.org/whl/cpu (instead of the standard PyPI wheel which is
+# ~2x bigger because it bundles CUDA stubs even on CPU). All other packages
+# resolve from PyPI as usual.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/venv && \
-    uv sync --no-dev --no-install-project --frozen && \
-    /opt/venv/bin/python -c "import django; print('django', django.__version__, 'OK')"
+    uv sync --no-dev --no-install-project --frozen --extra cpu && \
+    /opt/venv/bin/python -c "import django, celery, torch; print('django', django.__version__, '/ celery', celery.__version__, '/ torch', torch.__version__, '(cpu)')"
 
 # ============================================================================
 # Stage 2B: Python deps (CUDA variant).
@@ -70,12 +85,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS python-cuda
 WORKDIR /app
-# UV_PROJECT_ENVIRONMENT: see python-cpu stage above for why this is required.
-# UV_HTTP_TIMEOUT (seconds, default 30) is bumped to 300 because some PyTorch
-# cu128 sub-deps live on pypi.nvidia.com, whose CDN is occasionally slow;
-# the default 30 s timeout caused build failures on `nvidia-nvshmem-cu12`
-# (~50 MB) during install validation. 300 s + uv's 3 retries = ~15 min worst
-# case, plenty of headroom.
 ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv UV_HTTP_TIMEOUT=300 DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -93,23 +102,17 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock ./
-# Step order matters here:
-# 1. `uv sync --frozen` installs ALL deps from the lockfile (CPU torch from PyPI ~700 MB).
-#    The lockfile has `torch==X.Y.Z` (no local version tag) — must run first so the
-#    venv state matches the lockfile exactly, otherwise --frozen rejects the mismatch.
-# 2. `uv pip install --reinstall-package torch --reinstall-package torchvision` then
-#    swaps both packages for their cu128 builds (~3 GB). Sub-deps (nvidia-cublas etc.)
-#    pull from the cu128 index automatically.
-# Net cost: ~700 MB of redundant CPU torch download. Tradeoff: lockfile remains the
-# single source of truth for the rest of the dep tree.
+# Single-shot install: `--extra cuda` makes uv resolve torch + torchvision
+# directly from download.pytorch.org/whl/cu128 thanks to the
+# [tool.uv.sources] declarations in pyproject.toml. No more two-step "install
+# CPU torch then swap to cu128" hack — saves ~700 MB of redundant download
+# per build and keeps the lockfile as the single source of truth (the lock
+# pins both torch +cpu and +cu128 variants; uv picks the right one based on
+# the active extra).
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --python 3.12 /opt/venv && \
-    uv sync --no-dev --no-install-project --frozen && \
-    uv pip install --python /opt/venv/bin/python \
-        --reinstall-package torch --reinstall-package torchvision \
-        --extra-index-url https://download.pytorch.org/whl/cu128 \
-        torch torchvision && \
-    /opt/venv/bin/python -c "import django, torch; print('django', django.__version__, '/ torch', torch.__version__, '(cuda)' if torch.cuda.is_available() else '(no cuda runtime in builder)')"
+    uv sync --no-dev --no-install-project --frozen --extra cuda && \
+    /opt/venv/bin/python -c "import django, celery, torch; print('django', django.__version__, '/ celery', celery.__version__, '/ torch', torch.__version__, '(cuda build; runtime gpu detect skipped in builder)')"
 
 # ============================================================================
 # Stage 3: Variant selector.
@@ -117,7 +120,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python-${TORCH_VARIANT} AS python-base
 
 # ============================================================================
-# Stage 4: Final runtime image.
+# Stage 4: Final runtime image — used by web, worker, and scheduler.
 # ============================================================================
 FROM python-base AS runtime
 
@@ -131,10 +134,11 @@ ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
     PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT} \
     PYTHONPATH=/app/src
 # PYTHONPATH=/app/src so gunicorn (`phoresis.wsgi:application`) and any direct
-# Python invocations can import `phoresis` and `phoresis_core` without going
-# through manage.py's sys.path injection. manage.py still works the same way.
+# Python invocations (celery -A phoresis_core.celery_app …) can import
+# `phoresis` and `phoresis_core` without going through manage.py's sys.path
+# injection. manage.py still works the same way.
 
-# Non-root user
+# Non-root user.
 # Ubuntu 24.04 (CUDA stage base) ships with a default 'ubuntu' user at UID 1000.
 # Remove it first so we can claim UID 1000 for 'phoresis' — keeps host-side
 # bind-mount permissions consistent (Windows host UID maps to phoresis inside).
@@ -149,12 +153,15 @@ COPY --chown=phoresis:phoresis src/ ./src/
 COPY --chown=phoresis:phoresis docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chown=phoresis:phoresis docker/gunicorn.conf.py /etc/gunicorn.conf.py
 
-# Built CSS from Stage 1
+# Built CSS from Stage 1 (frontend) — present in every variant of the image,
+# but only the web container actually serves it (collectstatic + Caddy).
+# Worker / scheduler ignore it; the few hundred KB are noise vs the GB-scale
+# torch wheels.
 COPY --from=frontend --chown=phoresis:phoresis \
     /build/src/phoresis_ui/static/phoresis_ui/css/output.css \
     /app/src/phoresis_ui/static/phoresis_ui/css/output.css
 
-# Static + media volume mountpoints + entrypoint normalization.
+# Mountpoints + entrypoint normalization.
 # `sed -i 's/\r$//'` strips Windows CRLF line endings that git on Windows can
 # inject (core.autocrlf=true). Without this, Linux reads the shebang as
 # `#!/bin/sh\r` and fails with "no such file or directory" on container start.
@@ -163,16 +170,19 @@ RUN mkdir -p /srv/staticfiles /srv/media && \
     sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && \
     chmod +x /usr/local/bin/entrypoint.sh
 
-# Caddy serves static from this path; collectstatic in entrypoint writes here.
+# Caddy serves static from this path; collectstatic in entrypoint writes here
+# (skipped via SKIP_COLLECTSTATIC=1 in worker/scheduler).
 ENV STATIC_ROOT=/srv/staticfiles MEDIA_ROOT=/srv/media
 
 USER phoresis
 EXPOSE 8000
 
-# start-period 180s covers collectstatic (~60-90s for the manifest backend
-# hashing + gzipping ~700 files) + DB seeds + gunicorn boot. See compose.yml.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/live/', timeout=3).status == 200 else 1)"
+# No HEALTHCHECK at the image level — both `web` and `worker` declare their
+# own service-level healthcheck in docker-compose.yml (web: HTTP probe on
+# /healthz/live/, worker: `celery inspect ping`). A single image-level HC
+# would fit one role and silently mismatch the other.
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Default CMD is the web role (gunicorn). Worker/scheduler override `command:`
+# in compose — same image, different process.
 CMD ["gunicorn", "-c", "/etc/gunicorn.conf.py", "phoresis.wsgi:application"]
