@@ -44,6 +44,14 @@ dependencies = [
     "openpyxl>=3.1",
     "python-pptx>=1.0",
     "matplotlib>=3.9",          # used by report charts (terrain, poi_purity)
+    # Phase 5 — Playwright PDF rendering (renders the live web report
+    # page through headless Chromium so the PDF stays pixel-identical
+    # with what the user sees in the browser, see
+    # phoresis_core/reporting/playwright_renderer.py). Runtime dep
+    # because the Celery worker needs it; chromium binary is fetched in
+    # the Dockerfile.
+    "playwright>=1.48",
+    "PyJWT>=2.9",               # short-lived signed token for the print session
 ]
 
 # torch (+ torchvision + ultralytics) live in two mutually-exclusive extras so

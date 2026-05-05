@@ -78,6 +78,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-install-project --frozen --extra cpu && \
     /opt/venv/bin/python -c "import django, celery, torch; print('django', django.__version__, '/ celery', celery.__version__, '/ torch', torch.__version__, '(cpu)')"
 
+# Playwright Chromium browser binary + system libs.
+# Installed in a stable cache dir under /opt so the runtime user can read it
+# without re-downloading. Worker only — web/scheduler don't need a browser
+# but the binary lives in the shared image (~280 MB) so all roles share it.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    /opt/venv/bin/python -m playwright install --with-deps chromium
+
 # ============================================================================
 # Stage 2B: Python deps (CUDA variant).
 # CUDA 12.8 + cu128 PyTorch wheel for Blackwell (sm_120, RTX 50-series) support.
@@ -114,6 +123,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-install-project --frozen --extra cuda && \
     /opt/venv/bin/python -c "import django, celery, torch; print('django', django.__version__, '/ celery', celery.__version__, '/ torch', torch.__version__, '(cuda build; runtime gpu detect skipped in builder)')"
 
+# Playwright Chromium — same as CPU stage. See cpu stage for rationale.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    /opt/venv/bin/python -m playwright install --with-deps chromium
+
 # ============================================================================
 # Stage 3: Variant selector.
 # ============================================================================
@@ -132,7 +147,8 @@ ENV DJANGO_SETTINGS_MODULE=phoresis.settings.prod \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/venv/bin:$PATH \
     PHORESIS_IMAGE_VARIANT=${TORCH_VARIANT} \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 # PYTHONPATH=/app/src so gunicorn (`phoresis.wsgi:application`) and any direct
 # Python invocations (celery -A phoresis_core.celery_app …) can import
 # `phoresis` and `phoresis_core` without going through manage.py's sys.path
