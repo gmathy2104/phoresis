@@ -159,14 +159,3 @@ STORAGES = {
 
 # Phase 1 — STALE_TASK_REGISTRY is empty until gel_analyzer lands in Phase 2.
 STALE_TASK_TIMEOUT_HOURS = 2
-
-# Internal base URL the headless-Chromium renderer in
-# phoresis_core/reporting/playwright_renderer.py uses to load the print
-# views. The worker container talks to the web container directly
-# (e.g. http://web:8000) instead of going through Caddy + the public
-# hostname — avoids the round-trip and the self-signed-cert dance.
-# Local dev runserver falls back to 127.0.0.1:8000.
-PHORESIS_INTERNAL_BASE_URL = os.environ.get(
-    "PHORESIS_INTERNAL_BASE_URL",
-    "http://127.0.0.1:8000",
-)

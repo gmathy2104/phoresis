@@ -90,11 +90,6 @@ from .densitometry_api import (  # Peak Detection API
 )
 from .images import image_delete_view, image_detail_view, image_list_view, image_upload_view
 from .report_api import api_generate_analysis_report, api_generate_comparison_report, api_generate_densitometry_report
-from .report_print import (
-    analysis_report_print_view,
-    comparison_report_print_view,
-    densitometry_report_print_view,
-)
 from .studio import (
     api_studio_auto_assign,
     api_studio_lanes_available,
@@ -219,10 +214,6 @@ __all__ = [
     "api_generate_analysis_report",
     "api_generate_comparison_report",
     "api_generate_densitometry_report",
-    # Print views (loaded by Playwright)
-    "analysis_report_print_view",
-    "comparison_report_print_view",
-    "densitometry_report_print_view",
     # Status Workflow API
     "api_analysis_status_transition",
 ]

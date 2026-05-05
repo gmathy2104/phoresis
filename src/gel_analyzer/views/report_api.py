@@ -274,17 +274,12 @@ def api_generate_comparison_report(request, pk: UUID):
     # Dispatch to correct builder
     if report_format == "docx":
         builder = ComparisonReportBuilder(data, sections=sections, band_overlay=band_overlay)
-        doc_buffer = builder.build()
     elif report_format == "xlsx":
         builder = ComparisonExcelBuilder(data, sections=sections, band_overlay=band_overlay)
-        doc_buffer = builder.build()
     elif report_format == "pptx":
         builder = ComparisonPowerPointBuilder(data, sections=sections, band_overlay=band_overlay)
-        doc_buffer = builder.build()
-    elif report_format == "pdf":
-        from gel_analyzer.services.report.pdf_builder import build_comparison_pdf
 
-        doc_buffer = build_comparison_pdf(comparison.id, request.user)
+    doc_buffer = builder.build()
 
     # Generate filename
     name = comparison.name.replace(" ", "_")[:30] if comparison.name else "comparison"
@@ -376,17 +371,12 @@ def api_generate_densitometry_report(request, pk: UUID):
     # Dispatch to correct builder
     if report_format == "docx":
         builder = DensitometryReportBuilder(data, sections=sections, band_overlay=band_overlay)
-        doc_buffer = builder.build()
     elif report_format == "xlsx":
         builder = DensitometryExcelBuilder(data, sections=sections, band_overlay=band_overlay)
-        doc_buffer = builder.build()
     elif report_format == "pptx":
         builder = DensitometryPowerPointBuilder(data, sections=sections, band_overlay=band_overlay)
-        doc_buffer = builder.build()
-    elif report_format == "pdf":
-        from gel_analyzer.services.report.pdf_builder import build_densitometry_pdf
 
-        doc_buffer = build_densitometry_pdf(analysis.id, request.user)
+    doc_buffer = builder.build()
 
     # Generate filename
     name = analysis.name.replace(" ", "_")[:30] if analysis.name else "densitometry"

@@ -14,9 +14,6 @@ from gel_analyzer.views import (
     analysis_create_view,
     analysis_detail_view,
     analysis_list_view,
-    analysis_report_print_view,
-    comparison_report_print_view,
-    densitometry_report_print_view,
     api_analysis_apply_calibration,
     api_analysis_apply_multi_calibration,
     api_analysis_calibrate,
@@ -274,24 +271,6 @@ urlpatterns = [
         "api/analyses/<uuid:pk>/densitometry/report/generate/",
         api_generate_densitometry_report,
         name="api_generate_densitometry_report",
-    ),
-    # Print views — loaded by the Playwright renderer to produce the
-    # PDF (and the SVG/PNG figure crops the DOCX/PPTX builders embed).
-    # Same routes also work in a browser session for layout debugging.
-    path(
-        "analyses/<uuid:pk>/report/print/",
-        analysis_report_print_view,
-        name="analysis_report_print",
-    ),
-    path(
-        "comparisons/<uuid:pk>/report/print/",
-        comparison_report_print_view,
-        name="comparison_report_print",
-    ),
-    path(
-        "analyses/<uuid:pk>/densitometry/report/print/",
-        densitometry_report_print_view,
-        name="densitometry_report_print",
     ),
     # Status Workflow API
     path("api/analyses/<uuid:pk>/status/", api_analysis_status_transition, name="api_analysis_status_transition"),
