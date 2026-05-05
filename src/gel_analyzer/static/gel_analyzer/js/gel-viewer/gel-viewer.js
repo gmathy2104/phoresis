@@ -1363,10 +1363,18 @@
             }
         }
 
-        _splitBand(bandId, splitY) {
+        async _splitBand(bandId, splitY) {
             const band = this.stateManager.getBand(bandId);
             if (!band) {
                 this._showMessage('Band not found');
+                return;
+            }
+
+            // Reject splits on bands that haven't been persisted yet — the
+            // server roundtrip we use below would have nothing to delete and
+            // the resulting state would diverge from the DB.
+            if (String(bandId).startsWith('temp_')) {
+                this._showMessage('Save the analysis before splitting new bands');
                 return;
             }
 
@@ -1467,10 +1475,8 @@
                 return;
             }
 
-            // Delete the original band
-            this._deleteBand(bandId);
-
-            // Create upper band
+            // Build the two band payloads up-front so we don't half-commit if
+            // serialization throws.
             const upperBandData = {
                 polygon: sortedUpper,
                 position_y: Math.round(upperBbox.y + upperBbox.height / 2),
@@ -1482,9 +1488,6 @@
                 label: band.label ? `${band.label} (upper)` : '',
                 notes: band.notes || ''
             };
-            this._createBand(parentLaneId, upperBandData);
-
-            // Create lower band
             const lowerBandData = {
                 polygon: sortedLower,
                 position_y: Math.round(lowerBbox.y + lowerBbox.height / 2),
@@ -1496,9 +1499,29 @@
                 label: band.label ? `${band.label} (lower)` : '',
                 notes: band.notes || ''
             };
-            this._createBand(parentLaneId, lowerBandData);
 
-            this._showMessage('Band split into two');
+            // Drive all three calls through awaited apiClient calls (NOT the
+            // optimistic-fire-and-forget _deleteBand/_createBand helpers). Their
+            // background DELETE only console.errors on failure, which is what
+            // led to "split creates new bands but old one stays" bugs visible
+            // after a reload. We then DATA_RELOAD_REQUESTED so the renderer,
+            // electropherogram, calibration panel, band table, etc. all rebuild
+            // from canonical server state in one shot.
+            this._showMessage('Splitting band…');
+            try {
+                await this.apiClient.deleteBand(bandId);
+                await this.apiClient.createBand(parentLaneId, upperBandData);
+                await this.apiClient.createBand(parentLaneId, lowerBandData);
+
+                this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
+                this._showMessage('Band split into two');
+            } catch (error) {
+                console.error('[GelViewer] Split failed:', error);
+                this._showMessage(`Split failed: ${error.message || error}`);
+                // Server may be in a half-state (delete OK, one create failed).
+                // Reload to surface ground truth rather than leave stale UI.
+                this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
+            }
 
             // Switch back to select tool
             this.toolManager.setTool('select');
