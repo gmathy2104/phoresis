@@ -151,19 +151,12 @@
                     </div>
                 </div>
 
-                <!-- Warnings + unmatched -->
+                <!-- Calibration warnings only — pure fit-quality concerns.
+                     Template-completeness ("you haven't annotated band X") is
+                     an *annotation* concern, surfaced in the Band Editor /
+                     template-apply flow, not here. Keeping the calibration
+                     modal focused on the regression itself. -->
                 <div class="gv-calibration-warnings" id="calibration-warnings" style="display: none;"></div>
-
-                <div class="gv-calibration-unmatched" id="calibration-unmatched" style="display: none;">
-                    <div class="gv-calibration-unmatched-header">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        <span id="calibration-unmatched-title">Template bands not detected</span>
-                    </div>
-                    <div class="gv-calibration-unmatched-list" id="calibration-unmatched-list"></div>
-                    <div class="gv-calibration-unmatched-note">
-                        <small>These bands are excluded from calibration.</small>
-                    </div>
-                </div>
 
             </div>
         </div>

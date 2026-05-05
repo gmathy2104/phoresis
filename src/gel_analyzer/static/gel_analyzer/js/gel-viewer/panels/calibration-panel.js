@@ -59,7 +59,6 @@
             this.matchResults = [];
             this.calibrationResult = null;
             this.isMultiLadder = false;
-            this.unmatchedTemplateBands = [];
             this.isStale = false;  // True when calibration may be out of date
 
             // Per-marker exclusion: ladder band UUIDs the user has dropped from
@@ -1138,16 +1137,12 @@
                 // Clear stale state - calibration is now fresh
                 this._clearStaleState();
 
-                // Store unmatched template bands
-                this.unmatchedTemplateBands = result.unmatched_template_bands || [];
-
                 // Show Step 4 (Results) now that calibration is complete
                 this._showResultsStep();
 
                 this._updateCalibrationChart(result);
                 this._updateR2Display(result);
                 this._updateCalibrationStatus(result);
-                this._renderUnmatchedBands();
                 this._renderCalibrationWarnings(result.warnings);
                 this._renderMarkersTable(result);
                 this._enableApplyButton();
@@ -1403,51 +1398,6 @@
         }
 
         /**
-         * Render unmatched template bands warning.
-         * Shows which template bands were not detected and are excluded from calibration.
-         */
-        _renderUnmatchedBands() {
-            const container = document.getElementById('calibration-unmatched');
-            const title = document.getElementById('calibration-unmatched-title');
-            const list = document.getElementById('calibration-unmatched-list');
-
-            if (!container || !list) return;
-
-            // Hide if no unmatched bands
-            if (!this.unmatchedTemplateBands || this.unmatchedTemplateBands.length === 0) {
-                container.style.display = 'none';
-                return;
-            }
-
-            // Update title
-            const count = this.unmatchedTemplateBands.length;
-            if (title) {
-                title.textContent = `${count} template band${count > 1 ? 's' : ''} not detected`;
-            }
-
-            // Render the list of unmatched bands
-            list.innerHTML = this.unmatchedTemplateBands.map(band => `
-                <span class="gv-calibration-unmatched-item">
-                    <i class="bi bi-x"></i>
-                    ${band.mw_kda} kDa
-                </span>
-            `).join('');
-
-            container.style.display = 'block';
-        }
-
-        /**
-         * Hide unmatched bands section.
-         */
-        _hideUnmatchedBands() {
-            const container = document.getElementById('calibration-unmatched');
-            if (container) {
-                container.style.display = 'none';
-            }
-            this.unmatchedTemplateBands = [];
-        }
-
-        /**
          * Render calibration warnings from API response.
          * @param {string[]} warnings - Array of warning messages
          */
@@ -1643,12 +1593,10 @@
             this.selectedTemplate = null;
             this.matchResults = [];
             this.calibrationResult = null;
-            this.unmatchedTemplateBands = [];
             this.excludedBandIds.clear();
             this._clearStaleState();
 
             // Reset UI
-            this._hideUnmatchedBands();
             this._hideCalibrationWarnings();
             const templateSelect = document.getElementById('calibration-template');
             if (templateSelect) templateSelect.value = '';
