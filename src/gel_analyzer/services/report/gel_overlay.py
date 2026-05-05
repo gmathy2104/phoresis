@@ -120,8 +120,15 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
     except Exception:
         return None
 
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
+    # Two overlay layers so lane outlines paint ON TOP of band rectangles
+    # (otherwise full-width bands overwrite the lane's vertical edge
+    # strokes and the lanes look invisible — confirmed in the report
+    # rendering). Bands go on the lower layer; lane outline + label go
+    # on the upper one. Both alpha-composite onto the original gel.
+    band_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    lane_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    band_draw = ImageDraw.Draw(band_layer)
+    lane_draw = ImageDraw.Draw(lane_layer)
 
     font, font_small = _font_pair(img.width)
 
@@ -145,47 +152,12 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
         stroke = palette["stroke"]
         dashed = palette["dashed"]
 
-        # Filled lane shape (low-alpha, like the live SVG)
-        draw.polygon(lane_pts, fill=fill)
+        # Lane fill goes on the BAND layer so band fills can sit on top
+        # of it. The lane's outline + label go on the LANE layer (drawn
+        # below — so it ends up visually above the bands).
+        band_draw.polygon(lane_pts, fill=fill)
 
-        # Border — solid for most types, dashed for EMPTY (matches CSS)
-        if dashed:
-            _draw_dashed_polygon(draw, lane_pts, stroke, width=lane_stroke_w, dash=8, gap=5)
-        else:
-            for i in range(len(lane_pts)):
-                a, b = lane_pts[i], lane_pts[(i + 1) % len(lane_pts)]
-                draw.line([a, b], fill=stroke, width=lane_stroke_w)
-
-        # Lane number label — white-stroked dark text at top-left,
-        # mirroring gel-preview.js (no "L" prefix, no black pill).
-        label = str(lane.lane_number)
-        anchor_x = min(p[0] for p in lane_pts) + 4
-        anchor_y = min(p[1] for p in lane_pts) + 4
-        draw.text(
-            (anchor_x, anchor_y),
-            label,
-            fill=label_ink,
-            font=font,
-            stroke_width=2,
-            stroke_fill=label_stroke,
-        )
-
-        # Optional sample name below the lane, in muted dark text on a
-        # subtle white pill (only when there is one). Centred.
-        sample = getattr(lane, "sample_name", "") or ""
-        if sample and not all(v is not None and v >= 0 for v in (lane.x,)):
-            sample = ""  # bbox must exist for label placement
-        if sample:
-            short = sample[:24]
-            bbox = draw.textbbox((0, 0), short, font=font_small)
-            sw, sh = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            cx = lane.x + (lane.width - sw) // 2
-            cy = lane.y + lane.height + 4
-            pad = 3
-            draw.rectangle([cx - pad, cy, cx + sw + pad, cy + sh + 4], fill=(255, 255, 255, 210))
-            draw.text((cx, cy + 2), short, fill=mw_pill_fg, font=font_small)
-
-        # Bands
+        # Bands first (still on the band layer)
         if draw_band_overlay:
             for band in getattr(lane, "bands", []):
                 band_pts = _shape_points(
@@ -194,27 +166,64 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
                 if band_pts is None:
                     continue
                 bp = band_colors(getattr(band, "band_type_code", None) or "OTHER")
-                draw.polygon(band_pts, fill=bp["fill"])
+                band_draw.polygon(band_pts, fill=bp["fill"])
                 for i in range(len(band_pts)):
                     a, b = band_pts[i], band_pts[(i + 1) % len(band_pts)]
-                    draw.line([a, b], fill=bp["stroke"], width=band_stroke_w)
+                    band_draw.line([a, b], fill=bp["stroke"], width=band_stroke_w)
 
-                # Calibrated MW pill on the right edge
                 if band.estimated_mw_kda:
                     mw_label = f"{band.estimated_mw_kda:.0f} kDa"
-                    mbbox = draw.textbbox((0, 0), mw_label, font=font_small)
+                    mbbox = band_draw.textbbox((0, 0), mw_label, font=font_small)
                     mw_w = mbbox[2] - mbbox[0]
                     mw_h = mbbox[3] - mbbox[1]
                     rx = max(p[0] for p in band_pts) + 4
                     ry = (min(p[1] for p in band_pts) + max(p[1] for p in band_pts)) // 2 - mw_h // 2
-                    draw.rectangle(
+                    band_draw.rectangle(
                         [rx - 2, ry - 2, rx + mw_w + 4, ry + mw_h + 2],
                         fill=mw_pill_bg,
                         outline=(15, 23, 42, 80),
                     )
-                    draw.text((rx + 1, ry), mw_label, fill=mw_pill_fg, font=font_small)
+                    band_draw.text((rx + 1, ry), mw_label, fill=mw_pill_fg, font=font_small)
 
-    composed = Image.alpha_composite(img, overlay).convert("RGB")
+        # Lane outline on the upper layer so band rectangles cannot
+        # overdraw the vertical edge strokes.
+        if dashed:
+            _draw_dashed_polygon(lane_draw, lane_pts, stroke, width=lane_stroke_w, dash=8, gap=5)
+        else:
+            for i in range(len(lane_pts)):
+                a, b = lane_pts[i], lane_pts[(i + 1) % len(lane_pts)]
+                lane_draw.line([a, b], fill=stroke, width=lane_stroke_w)
+
+        # Lane number label
+        label = str(lane.lane_number)
+        anchor_x = min(p[0] for p in lane_pts) + 4
+        anchor_y = min(p[1] for p in lane_pts) + 4
+        lane_draw.text(
+            (anchor_x, anchor_y),
+            label,
+            fill=label_ink,
+            font=font,
+            stroke_width=2,
+            stroke_fill=label_stroke,
+        )
+
+        sample = getattr(lane, "sample_name", "") or ""
+        if sample and not all(v is not None and v >= 0 for v in (lane.x,)):
+            sample = ""
+        if sample:
+            short = sample[:24]
+            bbox = lane_draw.textbbox((0, 0), short, font=font_small)
+            sw, sh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            cx = lane.x + (lane.width - sw) // 2
+            cy = lane.y + lane.height + 4
+            pad = 3
+            lane_draw.rectangle(
+                [cx - pad, cy, cx + sw + pad, cy + sh + 4], fill=(255, 255, 255, 210)
+            )
+            lane_draw.text((cx, cy + 2), short, fill=mw_pill_fg, font=font_small)
+
+    composed = Image.alpha_composite(img, band_layer)
+    composed = Image.alpha_composite(composed, lane_layer).convert("RGB")
     buf = BytesIO()
     composed.save(buf, format="PNG", quality=95)
     buf.seek(0)
