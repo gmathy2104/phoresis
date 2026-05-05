@@ -146,7 +146,7 @@
         btn.disabled = true;
         btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Training…';
         try {
-            const resp = await fetch(`/gel-analyzer/api/admin/templates/${templateId}/train-now/`, {
+            const resp = await fetch(`/api/admin/templates/${templateId}/train-now/`, {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': csrfToken,

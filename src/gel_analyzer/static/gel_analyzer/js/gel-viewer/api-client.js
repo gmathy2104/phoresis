@@ -39,7 +39,7 @@
             this.eventBus.emit(GelViewer.Events.DATA_LOADING);
 
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/data/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/data/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -69,7 +69,7 @@
          */
         async createLane(data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/lanes/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -119,7 +119,7 @@
          */
         async updateLane(id, data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${id}/`, {
+                const response = await fetch(`/api/lanes/${id}/`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -144,7 +144,7 @@
          */
         async deleteLane(id) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${id}/`, {
+                const response = await fetch(`/api/lanes/${id}/`, {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },
                 });
@@ -167,7 +167,7 @@
          */
         async createLanesBulk(lanes) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/lanes/bulk/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/bulk/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -196,7 +196,7 @@
          */
         async updateLanesBulk(lanes) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/lanes/bulk-update/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/bulk-update/`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -225,7 +225,7 @@
          */
         async deleteLanesBulk(laneIds) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/lanes/bulk-delete/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/bulk-delete/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -273,7 +273,7 @@
          */
         async deleteAllBands() {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/bands/bulk-delete/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/bands/bulk-delete/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -307,7 +307,7 @@
          */
         async createBand(laneId, data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/bands/`, {
+                const response = await fetch(`/api/lanes/${laneId}/bands/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -344,7 +344,7 @@
          */
         async updateBand(id, data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/bands/${id}/`, {
+                const response = await fetch(`/api/bands/${id}/`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -369,7 +369,7 @@
          */
         async deleteBand(id) {
             try {
-                const response = await fetch(`/gel-analyzer/api/bands/${id}/`, {
+                const response = await fetch(`/api/bands/${id}/`, {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },
                 });
@@ -391,7 +391,7 @@
          */
         async updateBandPolygonsBulk(updates) {
             try {
-                const response = await fetch('/gel-analyzer/api/bands/bulk-update-polygons/', {
+                const response = await fetch('/api/bands/bulk-update-polygons/', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -427,7 +427,7 @@
          */
         async searchSamples(params = {}) {
             try {
-                const url = new URL('/gel-analyzer/api/samples/search/', window.location.origin);
+                const url = new URL('/api/samples/search/', window.location.origin);
 
                 if (params.query) url.searchParams.append('q', params.query);
                 if (params.drugSubstanceId) url.searchParams.append('drug_substance', params.drugSubstanceId);
@@ -456,7 +456,7 @@
          */
         async getSampleFilterOptions() {
             try {
-                const response = await fetch('/gel-analyzer/api/samples/filter-options/', {
+                const response = await fetch('/api/samples/filter-options/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -486,7 +486,7 @@
          */
         async saveYoloResults(results) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/yolo-results/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/yolo-results/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -521,7 +521,7 @@
          */
         async getDetectionParams() {
             try {
-                const response = await fetch('/gel-analyzer/api/detection/params/', {
+                const response = await fetch('/api/detection/params/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -545,7 +545,7 @@
          */
         async previewBandDetection(laneId, params = {}) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-bands/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-bands/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -575,7 +575,7 @@
          */
         async detectAndSaveBands(laneId, params = {}) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-bands/save/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-bands/save/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -605,7 +605,7 @@
          */
         async detectBandsBulkAsync(laneIds, params = {}) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/detect-bands/async/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands/async/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -637,7 +637,7 @@
             try {
                 const body = { params };
                 if (bgType && bgType !== 'auto') body.bg_type = bgType;
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-bands-cv2/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-bands-cv2/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -663,7 +663,7 @@
             try {
                 const body = { params, delete_existing: deleteExisting };
                 if (bgType && bgType !== 'auto') body.bg_type = bgType;
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-bands-cv2/save/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-bands-cv2/save/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -693,7 +693,7 @@
                     save_results: saveResults,
                 };
                 if (bgType && bgType !== 'auto') body.bg_type = bgType;
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/detect-bands-cv2/async/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands-cv2/async/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -717,7 +717,7 @@
 
         async getCV2CalibratedParams() {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/detect-bands-cv2/calibrate/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands-cv2/calibrate/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -743,7 +743,7 @@
 
         async detectBandsHybridPreview(laneId, params = {}) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-bands-hybrid/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-bands-hybrid/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -767,7 +767,7 @@
 
         async detectBandsHybridSave(laneId, params = {}, deleteExisting = true) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-bands-hybrid/save/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-bands-hybrid/save/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -791,7 +791,7 @@
 
         async detectBandsHybridAsync(laneIds, params = {}, saveResults = true) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/detect-bands-hybrid/async/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands-hybrid/async/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -824,7 +824,7 @@
          */
         async getTaskStatus(taskId) {
             try {
-                const response = await fetch(`/gel-analyzer/api/tasks/${taskId}/status/`, {
+                const response = await fetch(`/api/tasks/${taskId}/status/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -850,7 +850,7 @@
          */
         async getLadderTemplates() {
             try {
-                const response = await fetch('/gel-analyzer/api/ladder-templates/', {
+                const response = await fetch('/api/ladder-templates/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -872,7 +872,7 @@
          */
         async getDefaultLadderTemplate() {
             try {
-                const response = await fetch('/gel-analyzer/api/ladder-templates/default/', {
+                const response = await fetch('/api/ladder-templates/default/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -895,7 +895,7 @@
          */
         async getLadderTemplate(templateId) {
             try {
-                const response = await fetch(`/gel-analyzer/api/ladder-templates/${templateId}/`, {
+                const response = await fetch(`/api/ladder-templates/${templateId}/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -920,7 +920,7 @@
          */
         async matchTemplate(laneId, templateId) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/match-template/`, {
+                const response = await fetch(`/api/lanes/${laneId}/match-template/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -951,7 +951,7 @@
          */
         async calibrateSingle(laneId, templateId, method = 'LOG_LINEAR') {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/calibrate/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/calibrate/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -985,7 +985,7 @@
          */
         async calibrateMulti(templateId, method = 'LOG_LINEAR') {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/calibrate-multi/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-multi/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1016,7 +1016,7 @@
          */
         async applyCalibration() {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/apply-calibration/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/apply-calibration/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1043,7 +1043,7 @@
          */
         async applyMultiCalibration() {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/apply-multi-calibration/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/apply-multi-calibration/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1070,7 +1070,7 @@
          */
         async getCalibration() {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/calibration/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/calibration/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -1092,7 +1092,7 @@
          */
         async getMultiCalibration() {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/multi-calibration/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/multi-calibration/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -1115,7 +1115,7 @@
          */
         async estimateBandMW(bandId) {
             try {
-                const response = await fetch(`/gel-analyzer/api/bands/${bandId}/estimate-mw/`, {
+                const response = await fetch(`/api/bands/${bandId}/estimate-mw/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1158,7 +1158,7 @@
         async detectPeaksFromProfile(laneId, params = {}) {
             throw new Error('Profile Peak Detection is unplugged — use Auto (d1/d2) detection instead');
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/detect-peaks-profile/`, {
+                const response = await fetch(`/api/lanes/${laneId}/detect-peaks-profile/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1191,7 +1191,7 @@
         async detectPeaksProfileAsync(analysisId, laneIds, params = {}) {
             throw new Error('Profile Peak Detection is unplugged — use Auto (d1/d2) detection instead');
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${analysisId}/detect-peaks-profile/async/`, {
+                const response = await fetch(`/api/analyses/${analysisId}/detect-peaks-profile/async/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1235,7 +1235,7 @@
          */
         async cropImage(cropData) {
             try {
-                const response = await fetch(`/gel-analyzer/api/images/${this.imageId}/crop/`, {
+                const response = await fetch(`/api/images/${this.imageId}/crop/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1268,7 +1268,7 @@
          */
         async calibrateDetection(regions) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/calibrate-detection/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-detection/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1303,7 +1303,7 @@
          */
         async getLaneProfile(laneId) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/profile/`, {
+                const response = await fetch(`/api/lanes/${laneId}/profile/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -1332,7 +1332,7 @@
          */
         async previewCrossLaneConsensus(analysisId, params) {
             const response = await fetch(
-                `/gel-analyzer/analyses/${analysisId}/cross-lane-consensus/`,
+                `/analyses/${analysisId}/cross-lane-consensus/`,
                 {
                     method: 'POST',
                     headers: {
@@ -1357,7 +1357,7 @@
          */
         async applyCrossLaneConsensus(analysisId, params) {
             const response = await fetch(
-                `/gel-analyzer/analyses/${analysisId}/cross-lane-consensus/`,
+                `/analyses/${analysisId}/cross-lane-consensus/`,
                 {
                     method: 'POST',
                     headers: {
@@ -1382,7 +1382,7 @@
          */
         async undoCrossLaneConsensus(analysisId, runId) {
             const response = await fetch(
-                `/gel-analyzer/analyses/${analysisId}/cross-lane-consensus/?run_id=${encodeURIComponent(runId)}`,
+                `/analyses/${analysisId}/cross-lane-consensus/?run_id=${encodeURIComponent(runId)}`,
                 {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },

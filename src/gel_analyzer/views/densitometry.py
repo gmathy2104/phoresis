@@ -10,6 +10,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils.safestring import mark_safe
 
 from gel_analyzer.models import (
@@ -164,10 +165,10 @@ def densitometry_view(request, pk):
         "lane_ids_csv": lane_ids_csv,
         # URLs for API calls
         "api_urls": {
-            "densitometry": f"/gel-analyzer/api/analyses/{analysis.id}/densitometry/",
-            "run": f"/gel-analyzer/api/analyses/{analysis.id}/densitometry/run/",
-            "run_async": f"/gel-analyzer/api/analyses/{analysis.id}/densitometry/async/",
-            "export": f"/gel-analyzer/api/analyses/{analysis.id}/densitometry/export/",
+            "densitometry": reverse("gel_analyzer:api_densitometry", kwargs={"pk": analysis.id}),
+            "run": reverse("gel_analyzer:api_run_densitometry", kwargs={"pk": analysis.id}),
+            "run_async": reverse("gel_analyzer:api_run_densitometry_async", kwargs={"pk": analysis.id}),
+            "export": reverse("gel_analyzer:api_export_densitometry", kwargs={"pk": analysis.id}),
         },
         # Page settings
         "page_title": f"Densitometry - {analysis.name}",

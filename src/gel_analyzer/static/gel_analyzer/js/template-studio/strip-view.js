@@ -70,7 +70,7 @@
 
         let cropStyle = 'background: repeating-linear-gradient(45deg,#1e293b,#1e293b 6px,#0f172a 6px,#0f172a 12px);';
         if (r.gel_image_id) {
-            const imgUrl = `/gel-analyzer/api/images/${r.gel_image_id}/proxy/`;
+            const imgUrl = `/api/images/${r.gel_image_id}/proxy/`;
             cropStyle = `background-image: url(${imgUrl});`
                 + `background-size: ${bgW.toFixed(1)}px ${bgH.toFixed(1)}px;`
                 + `background-position: ${offX.toFixed(1)}px ${offY.toFixed(1)}px;`

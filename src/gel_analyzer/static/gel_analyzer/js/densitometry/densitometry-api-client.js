@@ -19,7 +19,7 @@
         constructor(options) {
             this.analysisId = options.analysisId;
             this.csrfToken = options.csrfToken;
-            this.baseUrl = '/gel-analyzer/api';
+            this.baseUrl = '/api';
         }
 
         /**

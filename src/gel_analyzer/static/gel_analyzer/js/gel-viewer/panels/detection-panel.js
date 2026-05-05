@@ -1103,7 +1103,7 @@
 
             try {
                 const response = await fetch(
-                    `/gel-analyzer/api/lanes/${lane.id}/detect-bands/diagnostic/`,
+                    `/api/lanes/${lane.id}/detect-bands/diagnostic/`,
                     {
                         method: 'POST',
                         headers: {

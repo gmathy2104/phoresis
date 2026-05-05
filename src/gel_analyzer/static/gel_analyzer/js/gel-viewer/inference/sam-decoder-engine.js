@@ -135,7 +135,7 @@
                 console.log('SAMDecoderEngine: Fetching embeddings from server...');
 
                 // Fetch embeddings from API
-                const url = `/gel-analyzer/api/analyses/${this.analysisId}/sam-embeddings/` +
+                const url = `/api/analyses/${this.analysisId}/sam-embeddings/` +
                     (forceRefresh ? '?force=true' : '');
 
                 const response = await fetch(url, {

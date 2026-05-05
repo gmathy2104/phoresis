@@ -522,7 +522,7 @@
             }
 
             try {
-                const response = await fetch('/gel-analyzer/api/ladder-templates/');
+                const response = await fetch('/api/ladder-templates/');
                 if (!response.ok) {
                     throw new Error('Failed to load templates');
                 }
@@ -654,7 +654,7 @@
             }
 
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${this.currentLaneId}/apply-ladder-template/`, {
+                const response = await fetch(`/api/lanes/${this.currentLaneId}/apply-ladder-template/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

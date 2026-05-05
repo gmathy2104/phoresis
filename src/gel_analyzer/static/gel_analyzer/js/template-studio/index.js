@@ -239,7 +239,7 @@
             bus.emit('save:complete', result);
             // Optional: redirect back to the detail page so the user sees new Rf stats.
             setTimeout(() => {
-                window.location.href = `/gel-analyzer/admin/templates/${ctx.templateId}/calibrate/`;
+                window.location.href = `/admin/templates/${ctx.templateId}/calibrate/`;
             }, 1500);
         } catch (err) {
             console.error('[LTS] save failed:', err);

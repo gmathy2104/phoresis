@@ -118,7 +118,7 @@
             const bgH = r.gel_image_height * scale;
             const offX = -bbox.x * scale + Math.max(0, (CROP_W - bbox.width * scale) / 2);
             const offY = -bbox.y * scale;
-            const imgUrl = `/gel-analyzer/api/images/${r.gel_image_id}/proxy/`;
+            const imgUrl = `/api/images/${r.gel_image_id}/proxy/`;
             cropStyle = `background-image: url(${imgUrl});`
                 + `background-size: ${bgW.toFixed(1)}px ${bgH.toFixed(1)}px;`
                 + `background-position: ${offX.toFixed(1)}px ${offY.toFixed(1)}px;`

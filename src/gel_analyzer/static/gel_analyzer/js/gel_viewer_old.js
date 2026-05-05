@@ -1794,7 +1794,7 @@
             this._showLoading('Loading annotations...');
 
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/data/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/data/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -2342,7 +2342,7 @@
          */
         async _serverCreateLane(data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/analyses/${this.analysisId}/lanes/`, {
+                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2386,7 +2386,7 @@
          */
         async _serverUpdateLane(id, data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${id}/`, {
+                const response = await fetch(`/api/lanes/${id}/`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2409,7 +2409,7 @@
          */
         async _serverDeleteLane(id) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${id}/`, {
+                const response = await fetch(`/api/lanes/${id}/`, {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },
                 });
@@ -2429,7 +2429,7 @@
          */
         async _serverCreateBand(laneId, data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/lanes/${laneId}/bands/`, {
+                const response = await fetch(`/api/lanes/${laneId}/bands/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2463,7 +2463,7 @@
          */
         async _serverUpdateBand(id, data) {
             try {
-                const response = await fetch(`/gel-analyzer/api/bands/${id}/`, {
+                const response = await fetch(`/api/bands/${id}/`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2486,7 +2486,7 @@
          */
         async _serverDeleteBand(id) {
             try {
-                const response = await fetch(`/gel-analyzer/api/bands/${id}/`, {
+                const response = await fetch(`/api/bands/${id}/`, {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },
                 });
@@ -3616,7 +3616,7 @@
          */
         async _loadFilterOptions() {
             try {
-                const response = await fetch('/gel-analyzer/api/samples/filter-options/');
+                const response = await fetch('/api/samples/filter-options/');
                 if (!response.ok) return;
 
                 const data = await response.json();
@@ -3678,7 +3678,7 @@
                 if (dsId) params.append('ds', dsId);
                 if (sheetId) params.append('sheet', sheetId);
 
-                const response = await fetch(`/gel-analyzer/api/samples/search/?${params}`);
+                const response = await fetch(`/api/samples/search/?${params}`);
                 if (!response.ok) throw new Error('Search failed');
 
                 const data = await response.json();

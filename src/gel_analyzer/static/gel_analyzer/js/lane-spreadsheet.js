@@ -19,7 +19,7 @@
 (function(global) {
     'use strict';
 
-    var API_BASE = '/gel-analyzer/api';
+    var API_BASE = '/api';
 
     // ── Field mappings ─────────────────────────────────────────
 

@@ -17,7 +17,8 @@
     <!-- Header -->
     <header class="dm-header">
         <div class="dm-header-left">
-            <a href="{{ back_url|default:'/gel-analyzer/comparisons/' }}" class="dm-back-link">
+            {% url 'gel_analyzer:comparison_list' as comparison_list_url %}
+            <a href="{{ back_url|default:comparison_list_url }}" class="dm-back-link">
                 {% icon "arrow-left" size=16 %}
             </a>
             <div class="dm-title-group">
@@ -806,7 +807,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             try {
                 // Fetch lanes from analysis data endpoint
-                const response = await fetch(`/gel-analyzer/api/analyses/${analysisId}/data/`);
+                const response = await fetch(`/api/analyses/${analysisId}/data/`);
                 const data = await response.json();
 
                 if (data.lanes && data.lanes.length > 0) {
