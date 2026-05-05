@@ -14,8 +14,10 @@
             <span class="font-mono">{{ path }}</span> didn't match any route.
         </p>
         <div class="flex justify-center gap-2">
-            {% btn "Back to dashboard" href="/" variant="primary" icon="layout-dashboard" %}
-            {% btn "Browse gels" href="/images/" variant="secondary" icon="image" %}
+            {% url 'dashboard:home' as dashboard_home_url %}
+            {% url 'gel_analyzer:image_list' as image_list_url %}
+            {% btn "Back to dashboard" href=dashboard_home_url variant="primary" icon="layout-dashboard" %}
+            {% btn "Browse gels" href=image_list_url variant="secondary" icon="image" %}
         </div>
     </div>
 </div>

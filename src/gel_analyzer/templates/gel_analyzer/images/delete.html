@@ -42,7 +42,8 @@
 
             <form method="post" class="mt-6 flex justify-between gap-2">
                 {% csrf_token %}
-                {% btn "Cancel" href="/images/"|add:gel_image.id|stringformat:"s"|add:"/" variant="secondary" icon="arrow-left" %}
+                {% url 'gel_analyzer:image_detail' pk=gel_image.id as image_detail_url %}
+                {% btn "Cancel" href=image_detail_url variant="secondary" icon="arrow-left" %}
                 {% btn "Delete Image" type_="submit" variant="danger" icon="trash-2" %}
             </form>
         </div>

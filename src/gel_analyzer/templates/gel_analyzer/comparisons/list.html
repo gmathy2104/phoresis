@@ -11,7 +11,8 @@
             <p class="mt-1 text-sm text-text-muted">Compare gel densitometry results across multiple samples or lanes.</p>
         </div>
         <div class="flex flex-shrink-0 gap-2">
-            {% btn "Start New Comparison" href="/gel-analyzer/comparisons/new/" icon="plus-circle" %}
+            {% url 'gel_analyzer:sample_comparison' as sample_comparison_url %}
+            {% btn "Start New Comparison" href=sample_comparison_url icon="plus-circle" %}
         </div>
     </header>
 
@@ -118,7 +119,8 @@
                 </tbody>
             </table>
         {% else %}
-            {% empty_state "No analyses with densitometry yet" message="Run densitometry on an analysis to enable comparisons." icon="inbox" cta_label="View All Analyses" cta_href="/analyses/" %}
+            {% url 'gel_analyzer:analysis_list' as analysis_list_url %}
+            {% empty_state "No analyses with densitometry yet" message="Run densitometry on an analysis to enable comparisons." icon="inbox" cta_label="View All Analyses" cta_href=analysis_list_url %}
         {% endif %}
     </section>
 </div>

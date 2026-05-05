@@ -24,7 +24,8 @@
             <textarea name="notes" rows="3" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">{{ form.notes.value|default:'' }}</textarea>
         </div>
         <div class="flex justify-end gap-2 pt-2">
-            {% btn "Cancel" href="/images/"|add:gel_image.id|stringformat:'s'|add:"/" variant="ghost" %}
+            {% url 'gel_analyzer:image_detail' pk=gel_image.id as image_detail_url %}
+            {% btn "Cancel" href=image_detail_url variant="ghost" %}
             {% btn "Create analysis" type_="submit" variant="primary" %}
         </div>
     </form>

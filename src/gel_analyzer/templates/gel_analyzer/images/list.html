@@ -10,7 +10,8 @@
             <h1 class="text-2xl font-semibold">Gel images</h1>
             <p class="mt-1 text-sm text-text-muted">{{ kpis.total }} gels uploaded · {{ kpis.non_analyzed }} pending analysis</p>
         </div>
-        {% btn "Upload gel" href="/images/upload/" icon="upload" %}
+        {% url 'gel_analyzer:image_upload' as image_upload_url %}
+        {% btn "Upload gel" href=image_upload_url icon="upload" %}
     </header>
 
     <form method="get" class="flex flex-wrap gap-2">
@@ -33,7 +34,7 @@
     {% if images %}
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {% for gel in images %}
-                <a href="/images/{{ gel.id }}/" class="group block rounded-lg border border-border bg-surface p-4 transition-transform hover:-translate-y-[2px] hover:shadow">
+                <a href="{% url 'gel_analyzer:image_detail' pk=gel.id %}" class="group block rounded-lg border border-border bg-surface p-4 transition-transform hover:-translate-y-[2px] hover:shadow">
                     <div class="mb-3 aspect-video overflow-hidden rounded-md bg-surface-elevated">
                         {% if gel.thumbnail %}
                             <img src="{{ gel.thumbnail.url }}" alt="" class="h-full w-full object-cover">
@@ -58,7 +59,8 @@
             </nav>
         {% endif %}
     {% else %}
-        {% empty_state "No gels match" message="Try a different filter or upload a new gel." icon="image" cta_label="Upload gel" cta_href="/images/upload/" %}
+        {% url 'gel_analyzer:image_upload' as image_upload_url %}
+        {% empty_state "No gels match" message="Try a different filter or upload a new gel." icon="image" cta_label="Upload gel" cta_href=image_upload_url %}
     {% endif %}
 </div>
 {% endblock %}

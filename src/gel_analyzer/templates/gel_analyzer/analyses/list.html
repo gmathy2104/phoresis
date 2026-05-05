@@ -40,7 +40,7 @@
                 <tbody class="divide-y divide-border">
                     {% for a in analyses %}
                         <tr class="hover:bg-surface-elevated">
-                            <td class="px-4 py-3"><a href="/analyses/{{ a.id }}/" class="font-medium hover:underline">{{ a.name|default:"(unnamed)" }}</a></td>
+                            <td class="px-4 py-3"><a href="{% url 'gel_analyzer:analysis_detail' pk=a.id %}" class="font-medium hover:underline">{{ a.name|default:"(unnamed)" }}</a></td>
                             <td class="px-4 py-3 text-text-muted">{{ a.gel_image.original_filename|truncatechars:32 }}</td>
                             <td class="px-4 py-3">{% badge a.get_status_display variant="muted" %}</td>
                             <td class="px-4 py-3">{{ a.total_lanes }}</td>
@@ -52,7 +52,8 @@
             </table>
         </div>
     {% else %}
-        {% empty_state "No analyses yet" message="Open a gel image to create your first analysis." icon="layers" cta_label="Browse gels" cta_href="/images/" %}
+        {% url 'gel_analyzer:image_list' as image_list_url %}
+        {% empty_state "No analyses yet" message="Open a gel image to create your first analysis." icon="layers" cta_label="Browse gels" cta_href=image_list_url %}
     {% endif %}
 </div>
 {% endblock %}

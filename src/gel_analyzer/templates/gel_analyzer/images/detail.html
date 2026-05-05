@@ -14,7 +14,8 @@
             </p>
         </div>
         <div class="flex gap-2">
-            {% btn "New analysis" href="/images/"|add:gel_image.id|stringformat:'s'|add:"/analyses/create/" icon="plus" %}
+            {% url 'gel_analyzer:analysis_create' image_pk=gel_image.id as analysis_create_url %}
+            {% btn "New analysis" href=analysis_create_url icon="plus" %}
             {% btn "Delete" variant="danger" icon="trash-2" %}
         </div>
     </header>
@@ -34,7 +35,7 @@
                     <ul class="space-y-2 text-sm">
                         {% for a in analyses %}
                             <li class="flex items-center justify-between">
-                                <a href="/analyses/{{ a.id }}/" class="hover:underline">{{ a.name|default:"(unnamed)" }}</a>
+                                <a href="{% url 'gel_analyzer:analysis_detail' pk=a.id %}" class="hover:underline">{{ a.name|default:"(unnamed)" }}</a>
                                 {% badge a.get_status_display variant="muted" %}
                             </li>
                         {% endfor %}

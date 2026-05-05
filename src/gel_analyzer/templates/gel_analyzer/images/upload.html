@@ -93,7 +93,8 @@
             <textarea name="description" rows="3" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" placeholder="Optional notes…"></textarea>
         </div>
         <div class="flex justify-end gap-2 pt-2">
-            {% btn "Cancel" href="/images/" variant="ghost" %}
+            {% url 'gel_analyzer:image_list' as image_list_url %}
+            {% btn "Cancel" href=image_list_url variant="ghost" %}
             {% btn "Upload" type_="submit" variant="primary" icon="upload" %}
         </div>
     </form>

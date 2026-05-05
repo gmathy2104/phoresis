@@ -15,7 +15,8 @@
             something in the form data or URL was malformed.
         </p>
         <div class="flex justify-center gap-2">
-            {% btn "Back to dashboard" href="/" variant="primary" icon="layout-dashboard" %}
+            {% url 'dashboard:home' as dashboard_home_url %}
+            {% btn "Back to dashboard" href=dashboard_home_url variant="primary" icon="layout-dashboard" %}
             {% btn "Go back" href=path variant="secondary" icon="chevron-left" %}
         </div>
     </div>

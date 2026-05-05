@@ -10,7 +10,8 @@
             <h1 class="text-2xl font-semibold">Welcome back, {{ request.user.first_name|default:request.user.username }}.</h1>
             <p class="mt-1 text-sm text-text-muted">Here's a snapshot of your gel analysis activity.</p>
         </div>
-        {% btn "Upload gel" href="/images/upload/" icon="upload" %}
+        {% url 'gel_analyzer:image_upload' as image_upload_url %}
+        {% btn "Upload gel" href=image_upload_url icon="upload" %}
     </header>
 
     <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -23,12 +24,13 @@
     <section>
         <header class="mb-4 flex items-center justify-between">
             <h2 class="text-lg font-semibold">Recent gels</h2>
-            {% btn "View all" href="/images/" variant="ghost" size="sm" %}
+            {% url 'gel_analyzer:image_list' as image_list_url %}
+            {% btn "View all" href=image_list_url variant="ghost" size="sm" %}
         </header>
         {% if recent_gels %}
             <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {% for gel in recent_gels %}
-                    <a href="/images/{{ gel.id }}/" class="block rounded-lg border border-border bg-surface p-4 transition-transform hover:-translate-y-[2px] hover:shadow">
+                    <a href="{% url 'gel_analyzer:image_detail' pk=gel.id %}" class="block rounded-lg border border-border bg-surface p-4 transition-transform hover:-translate-y-[2px] hover:shadow">
                         <div class="mb-3 aspect-video overflow-hidden rounded-md bg-surface-elevated">
                             {% if gel.thumbnail %}
                                 <img src="{{ gel.thumbnail.url }}" alt="" class="h-full w-full object-cover">
@@ -46,7 +48,7 @@
                 {% endfor %}
             </div>
         {% else %}
-            {% empty_state "No gels yet" message="Upload your first gel image to start analyzing." icon="image" cta_label="Upload gel" cta_href="/images/upload/" %}
+            {% empty_state "No gels yet" message="Upload your first gel image to start analyzing." icon="image" cta_label="Upload gel" cta_href=image_upload_url %}
         {% endif %}
     </section>
 </div>

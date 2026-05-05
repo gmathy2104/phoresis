@@ -19,10 +19,12 @@
         </div>
         <div class="flex flex-shrink-0 gap-2">
             {% if analysis.is_editable %}
-                {% btn "Annotate" href="/analyses/"|add:analysis.id|stringformat:"s"|add:"/annotate/" icon="edit" %}
+                {% url 'gel_analyzer:analysis_annotate' pk=analysis.id as annotate_url %}
+                {% btn "Annotate" href=annotate_url icon="edit" %}
             {% endif %}
             {% if analysis.total_bands > 0 %}
-                {% btn "Densitometry" href="/analyses/"|add:analysis.id|stringformat:"s"|add:"/densitometry/" variant="secondary" icon="trending-up" %}
+                {% url 'gel_analyzer:analysis_densitometry' pk=analysis.id as densitometry_url %}
+                {% btn "Densitometry" href=densitometry_url variant="secondary" icon="trending-up" %}
             {% endif %}
         </div>
     </header>
@@ -111,7 +113,7 @@
             <div class="px-4 py-8 text-center text-sm text-text-muted">
                 No lanes annotated yet.
                 {% if analysis.is_editable %}
-                    <a class="ml-2 text-accent-600 hover:underline" href="/analyses/{{ analysis.id }}/annotate/">Add annotations →</a>
+                    <a class="ml-2 text-accent-600 hover:underline" href="{% url 'gel_analyzer:analysis_annotate' pk=analysis.id %}">Add annotations →</a>
                 {% endif %}
             </div>
         {% endif %}

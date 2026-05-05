@@ -18,8 +18,10 @@
             CSRF token mismatches also land here.
         </p>
         <div class="flex justify-center gap-2">
-            {% btn "Back to dashboard" href="/" variant="primary" icon="layout-dashboard" %}
-            {% btn "Sign in" href="/accounts/login/" variant="secondary" icon="log-in" %}
+            {% url 'dashboard:home' as dashboard_home_url %}
+            {% url 'accounts:login' as login_url %}
+            {% btn "Back to dashboard" href=dashboard_home_url variant="primary" icon="layout-dashboard" %}
+            {% btn "Sign in" href=login_url variant="secondary" icon="log-in" %}
         </div>
     </div>
 </div>
