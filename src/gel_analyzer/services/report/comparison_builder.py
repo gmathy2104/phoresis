@@ -276,11 +276,12 @@ class ComparisonReportBuilder(BaseReportBuilder):
             (99, 102, 241),  # indigo
         ]
 
-        PEAK_COLORS = {
-            "Protein of Interest": "#22C55E",
-            "Other": "#9E9E9E",
-            "MW Ladder": "#FFC107",
-        }
+        # Peak markers on the electropherogram — same hue as the matching
+        # gel-overlay band. Anchored on BAND_PALETTE_HEX (constants.py).
+        from .constants import BAND_PALETTE_HEX
+
+        def _peak_color(b):
+            return BAND_PALETTE_HEX.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE_HEX["OTHER"])
 
         # --- Determine X-axis data ---
         mw_values = profile.get("mw_values")
@@ -346,7 +347,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             idx = np.argmin(np.abs(x_values - bx))
             by = y_values[idx]
 
-            peak_color = PEAK_COLORS.get(band.band_type, "#9E9E9E")
+            peak_color = _peak_color(band)
             ax.plot(bx, by, "o", color=peak_color, markersize=6, markeredgecolor="white", markeredgewidth=1.5, zorder=5)
 
             # MW label above peak
@@ -470,17 +471,17 @@ class ComparisonReportBuilder(BaseReportBuilder):
         TEXT_DIM = (160, 160, 160)  # secondary text
         SCALE_LINE = (80, 80, 85)  # MW scale tick lines
 
-        BAND_COLORS = {
-            "Protein of Interest": (168, 85, 247),
-            "Other": (34, 197, 94),
-            "MW Ladder": (249, 115, 22),
-        }
+        # Band fill RGB picked by ENUM CODE so POI never falls back to OTHER green.
+        from .constants import BAND_PALETTE
+
+        def _band_rgb(b):
+            return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
 
         LANE_ACCENT_COLORS = [
-            (59, 130, 246),  # blue
-            (168, 85, 247),  # purple
-            (34, 197, 94),  # green
-            (249, 115, 22),  # orange
+            (37, 99, 235),   # accent-600 (live UI primary)
+            (168, 85, 247),  # purple — POI
+            (34, 197, 94),   # green — other
+            (249, 115, 22),  # orange — MW reference
             (236, 72, 153),  # pink
             (20, 184, 166),  # teal
             (245, 158, 11),  # amber
@@ -597,8 +598,8 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 else:
                     continue
 
-                # Band color
-                base_color = BAND_COLORS.get(band.band_type, BAND_COLORS["Other"])
+                # Band color (keyed on enum code, not display string)
+                base_color = _band_rgb(band)
 
                 # Opacity from intensity
                 opacity = 0.7
@@ -696,13 +697,15 @@ class ComparisonReportBuilder(BaseReportBuilder):
             (99, 102, 241),
         ]
 
-        # Band overlay colors (matching _annotate_gel_image)
-        BAND_OVERLAY_COLORS = {
-            "Protein of Interest": (168, 85, 247, 100),
-            "Other": (34, 197, 94, 100),
-            "MW Ladder": (249, 115, 22, 100),
-        }
-        BAND_LABEL_BG = (0, 0, 0, 160)
+        # Band overlay colours pulled from BAND_PALETTE so the digital gel,
+        # the annotated gel image, and the live UI all use the same hue
+        # mapping (POI=purple, MW_REFERENCE=orange, OTHER=green).
+        from .constants import BAND_PALETTE
+
+        def _band_overlay_color(b):
+            return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["fill"]
+
+        BAND_LABEL_BG = (15, 23, 42, 160)
         BAND_LABEL_FG = (255, 255, 255, 255)
 
         # --- Fonts ---
@@ -831,7 +834,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
                         if rx2 - rx < 1 or ry2 - ry < 1:
                             continue
 
-                        color = BAND_OVERLAY_COLORS.get(band.band_type, BAND_OVERLAY_COLORS["Other"])
+                        color = _band_overlay_color(band)
                         band_draw.rectangle(
                             [rx, ry, rx2, ry2],
                             fill=color,
@@ -926,13 +929,14 @@ class ComparisonReportBuilder(BaseReportBuilder):
         TEXT_DIM = (160, 160, 160)
         SCALE_LINE = (80, 80, 85)
 
-        BAND_COLORS = {
-            "Protein of Interest": (168, 85, 247),
-            "Other": (34, 197, 94),
-            "MW Ladder": (249, 115, 22),
-        }
+        # Band fill RGB picked by ENUM CODE (POI=purple, MW_REFERENCE=orange, OTHER=green)
+        from .constants import BAND_PALETTE
+
+        def _band_rgb(b):
+            return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
+
         ACCENT_COLORS = [
-            (59, 130, 246),
+            (37, 99, 235),   # accent-600
             (168, 85, 247),
             (34, 197, 94),
             (249, 115, 22),
@@ -1042,7 +1046,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             else:
                 continue
 
-            base_color = BAND_COLORS.get(band.band_type, BAND_COLORS["Other"])
+            base_color = _band_rgb(band)
             opacity = 0.7
             if band.relative_percent_lane is not None:
                 opacity = max(0.4, min(1.0, band.relative_percent_lane / 40.0))

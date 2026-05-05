@@ -56,26 +56,29 @@ IMAGE_DIGITAL_LANE_WIDTH = 2.0
 # Keyed by ENUM CODE (matches Lane.lane_type / Band.band_type in the
 # database — never on the get_*_display() string, which is fragile).
 #
-# Tuples are RGBA in the 0–255 range. The fill alpha is intentionally
-# low (~50–60) so the underlying gel image stays readable through the
-# overlay, mirroring what the live SVG does with rgba(...,0.06–0.10).
+# Tuples are RGBA in the 0–255 range. The live web app uses very low
+# fill alpha (CSS rgba(…,0.06) for lanes, 0.18 for bands) so the gel
+# image shows through. Pillow renders on dark backgrounds without the
+# CSS blend mode benefits, so we use slightly higher alphas — but not
+# much: the priority is keeping the gel image readable. Strokes carry
+# the colour signal; the fill is just a tint.
 #
 # Mirror of:
 #   .gv-lane.sample/.ladder/.control/.empty in gel_viewer_standalone.css
 #   .gv-band.poi/.mw_reference/.other       (idem)
 
 LANE_PALETTE = {
-    "SAMPLE":  {"fill": (59, 130, 246, 50),   "stroke": (59, 130, 246, 220),  "dashed": False},
-    "LADDER":  {"fill": (249, 115, 22, 55),   "stroke": (249, 115, 22, 230),  "dashed": False},
-    "CONTROL": {"fill": (34, 197, 94, 50),    "stroke": (34, 197, 94, 230),   "dashed": False},
-    "EMPTY":   {"fill": (107, 114, 128, 35),  "stroke": (107, 114, 128, 180), "dashed": True},
-    "DOT":     {"fill": (59, 130, 246, 50),   "stroke": (59, 130, 246, 220),  "dashed": False},
+    "SAMPLE":  {"fill": (59, 130, 246, 18),   "stroke": (59, 130, 246, 230),  "dashed": False},
+    "LADDER":  {"fill": (249, 115, 22, 22),   "stroke": (249, 115, 22, 235),  "dashed": False},
+    "CONTROL": {"fill": (34, 197, 94, 18),    "stroke": (34, 197, 94, 235),   "dashed": False},
+    "EMPTY":   {"fill": (107, 114, 128, 14),  "stroke": (107, 114, 128, 200), "dashed": True},
+    "DOT":     {"fill": (59, 130, 246, 18),   "stroke": (59, 130, 246, 230),  "dashed": False},
 }
 
 BAND_PALETTE = {
-    "POI":          {"fill": (168, 85, 247, 110), "stroke": (168, 85, 247, 220)},  # purple
-    "MW_REFERENCE": {"fill": (249, 115, 22, 110), "stroke": (249, 115, 22, 220)},  # orange
-    "OTHER":        {"fill": (34, 197, 94, 110),  "stroke": (34, 197, 94, 220)},   # green
+    "POI":          {"fill": (168, 85, 247, 40), "stroke": (168, 85, 247, 235)},  # purple
+    "MW_REFERENCE": {"fill": (249, 115, 22, 38), "stroke": (249, 115, 22, 235)},  # orange
+    "OTHER":        {"fill": (34, 197, 94, 38),  "stroke": (34, 197, 94, 235)},   # green
 }
 
 # Hex variants for matplotlib / Plotly equivalents

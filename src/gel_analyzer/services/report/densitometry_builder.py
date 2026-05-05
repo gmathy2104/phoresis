@@ -150,12 +150,10 @@ class DensitometryReportBuilder(BaseReportBuilder):
         TEXT_DIM = (160, 160, 160)
         SCALE_LINE = (80, 80, 85)
 
-        BAND_COLORS = {
-            "Protein of Interest": (168, 85, 247),
-            "Other": (34, 197, 94),
-            "MW Ladder": (249, 115, 22),
-            "MW Reference": (249, 115, 22),
-        }
+        from .constants import BAND_PALETTE
+
+        def _band_rgb(b):
+            return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
 
         LANE_ACCENT_COLORS = [
             (59, 130, 246),
@@ -273,7 +271,7 @@ class DensitometryReportBuilder(BaseReportBuilder):
                 else:
                     continue
 
-                base_color = BAND_COLORS.get(band.band_type, BAND_COLORS["Other"])
+                base_color = _band_rgb(band)
                 opacity = 0.7
                 if band.relative_percent_lane is not None:
                     opacity = max(0.4, min(1.0, band.relative_percent_lane / 40.0))
@@ -351,12 +349,10 @@ class DensitometryReportBuilder(BaseReportBuilder):
             (99, 102, 241),
         ]
 
-        PEAK_COLORS = {
-            "Protein of Interest": "#22C55E",
-            "Other": "#9E9E9E",
-            "MW Ladder": "#FFC107",
-            "MW Reference": "#FFC107",
-        }
+        from .constants import BAND_PALETTE_HEX
+
+        def _peak_color(b):
+            return BAND_PALETTE_HEX.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE_HEX["OTHER"])
 
         # Determine X-axis
         mw_values = profile.get("mw_values")
@@ -413,7 +409,7 @@ class DensitometryReportBuilder(BaseReportBuilder):
             idx = np.argmin(np.abs(x_values - bx))
             by = y_values[idx]
 
-            peak_color = PEAK_COLORS.get(band.band_type, "#9E9E9E")
+            peak_color = _peak_color(band)
             ax.plot(
                 bx,
                 by,

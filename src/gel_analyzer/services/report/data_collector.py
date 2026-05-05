@@ -22,6 +22,22 @@ from phoresis_core.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _user_display(user) -> str:
+    """Resolve a human-readable label for a Django User to put on the
+    report cover. Falls through full name → username → email → 'Unknown'.
+    """
+    if user is None:
+        return "Unknown"
+    full = getattr(user, "get_full_name", lambda: "")()
+    if full and full.strip():
+        return full.strip()
+    for attr in ("username", "email"):
+        val = getattr(user, attr, "") or ""
+        if val:
+            return str(val)
+    return str(user) or "Unknown"
+
+
 @dataclass
 class BandReportData:
     """Densitometry data for a single band."""
@@ -243,7 +259,7 @@ class ReportDataCollector:
             total_bands_count=sum(len(lane.bands) for lane in lane_data_list),
             # Report metadata
             report_generated_at=timezone.now().strftime("%B %d, %Y at %H:%M"),
-            report_generated_by=user.get_full_name() if hasattr(user, "get_full_name") else str(user),
+            report_generated_by=_user_display(user),
             software_version="GelAnalyzer v1.0",
         )
 

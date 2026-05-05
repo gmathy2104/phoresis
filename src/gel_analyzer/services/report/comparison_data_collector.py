@@ -16,7 +16,7 @@ from gel_analyzer.models import (
 )
 from phoresis_core.logging_config import get_logger
 
-from .data_collector import BandReportData, LaneReportData
+from .data_collector import BandReportData, LaneReportData, _user_display
 
 logger = get_logger(__name__)
 
@@ -244,7 +244,7 @@ class ComparisonDataCollector:
             created_at=comparison.created_at.strftime("%Y-%m-%d %H:%M") if comparison.created_at else "",
             # Report metadata
             report_generated_at=timezone.now().strftime("%B %d, %Y at %H:%M"),
-            report_generated_by=user.get_full_name() if hasattr(user, "get_full_name") else str(user),
+            report_generated_by=_user_display(user),
             software_version="GelAnalyzer v1.0",
         )
 

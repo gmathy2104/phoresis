@@ -125,6 +125,11 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
 
     font, font_small = _font_pair(img.width)
 
+    # Stroke widths scale with the gel image — a 1500px-wide gel needs a
+    # 4-5px lane outline to read; a 600px crop only needs 2-3px.
+    lane_stroke_w = max(3, img.width // 400)
+    band_stroke_w = max(2, img.width // 600)
+
     label_ink = (15, 23, 42, 255)            # PHORESIS_INK
     label_stroke = (255, 255, 255, 235)
     mw_pill_bg = (255, 255, 255, 220)
@@ -145,14 +150,11 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
 
         # Border — solid for most types, dashed for EMPTY (matches CSS)
         if dashed:
-            _draw_dashed_polygon(draw, lane_pts, stroke, width=2, dash=6, gap=4)
+            _draw_dashed_polygon(draw, lane_pts, stroke, width=lane_stroke_w, dash=8, gap=5)
         else:
-            draw.polygon(lane_pts, outline=stroke)
-            # Pillow 1px polygon outline can look thin on big gels;
-            # re-stroke to give the equivalent of stroke-width:2.
             for i in range(len(lane_pts)):
                 a, b = lane_pts[i], lane_pts[(i + 1) % len(lane_pts)]
-                draw.line([a, b], fill=stroke, width=2)
+                draw.line([a, b], fill=stroke, width=lane_stroke_w)
 
         # Lane number label — white-stroked dark text at top-left,
         # mirroring gel-preview.js (no "L" prefix, no black pill).
@@ -192,7 +194,10 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
                 if band_pts is None:
                     continue
                 bp = band_colors(getattr(band, "band_type_code", None) or "OTHER")
-                draw.polygon(band_pts, fill=bp["fill"], outline=bp["stroke"])
+                draw.polygon(band_pts, fill=bp["fill"])
+                for i in range(len(band_pts)):
+                    a, b = band_pts[i], band_pts[(i + 1) % len(band_pts)]
+                    draw.line([a, b], fill=bp["stroke"], width=band_stroke_w)
 
                 # Calibrated MW pill on the right edge
                 if band.estimated_mw_kda:
