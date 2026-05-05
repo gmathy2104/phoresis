@@ -88,18 +88,106 @@ document.addEventListener("alpine:init", () => {
   });
 
   // ---- command palette ----
-  // `items` is sourced from window.PHORESIS_PALETTE_ITEMS, which the topbar
-  // template populates inline at render time (so navigation registry data
-  // can be Django-rendered, then handed off to Alpine here without any
-  // alpine:init listener-ordering footguns).
+  // Static `pages` come from window.PHORESIS_PALETTE_ITEMS (server-rendered
+  // by the topbar from nav_registry). Entity matches (analyses, comparisons,
+  // gel images) are fetched on-the-fly from /api/search/ as the user types.
   Alpine.store("palette", {
     open: false,
     query: "",
-    items: window.PHORESIS_PALETTE_ITEMS || [],
+    pages: (window.PHORESIS_PALETTE_ITEMS || []).map((p) => ({
+      type: "page",
+      type_label: p.type === "action" ? "Action" : "Page",
+      name: p.name,
+      url: p.url,
+      icon: p.icon,
+    })),
+    entities: [],
+    activeIndex: 0,
+    loading: false,
+    _abort: null,
+    _debounce: null,
 
-    show()  { this.open = true; },
-    hide()  { this.open = false; this.query = ""; },
+    show()  { this.open = true; this.activeIndex = 0; },
+    hide()  {
+      this.open = false;
+      this.query = "";
+      this.entities = [];
+      this.activeIndex = 0;
+      if (this._abort) { this._abort.abort(); this._abort = null; }
+    },
     toggle() { this.open ? this.hide() : this.show(); },
+
+    /** Filter the static page list against the current query. */
+    get filteredPages() {
+      const q = this.query.trim().toLowerCase();
+      if (!q) return this.pages.slice(0, 8);
+      return this.pages.filter((p) => p.name.toLowerCase().includes(q));
+    },
+
+    /** Combined visible result list (pages first, then entities). */
+    get results() {
+      return [...this.filteredPages, ...this.entities];
+    },
+
+    /** Trigger an /api/search/ fetch (debounced). Bound to query via x-effect. */
+    onQueryChanged() {
+      const q = this.query.trim();
+      this.activeIndex = 0;
+      if (this._debounce) clearTimeout(this._debounce);
+      if (!q) {
+        this.entities = [];
+        this.loading = false;
+        if (this._abort) { this._abort.abort(); this._abort = null; }
+        return;
+      }
+      this._debounce = setTimeout(() => this._fetch(q), 180);
+    },
+
+    async _fetch(q) {
+      if (this._abort) this._abort.abort();
+      this._abort = new AbortController();
+      this.loading = true;
+      try {
+        const resp = await fetch(`/api/search/?q=${encodeURIComponent(q)}`, {
+          signal: this._abort.signal,
+          headers: { Accept: "application/json" },
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (data.query === this.query.trim()) {
+          this.entities = data.results || [];
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Search failed:", err);
+          this.entities = [];
+        }
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    move(delta) {
+      const max = this.results.length - 1;
+      if (max < 0) return;
+      this.activeIndex = Math.max(0, Math.min(max, this.activeIndex + delta));
+      // Keep the highlighted item visible inside the scrollable result list
+      requestAnimationFrame(() => {
+        const list = document.querySelector('[data-palette-list]');
+        const active = list?.querySelector('[data-palette-active="true"]');
+        if (active && typeof active.scrollIntoView === "function") {
+          active.scrollIntoView({ block: "nearest" });
+        }
+      });
+    },
+
+    activate() {
+      const item = this.results[this.activeIndex];
+      if (item && item.url) {
+        this.hide();
+        window.location.href = item.url;
+      }
+    },
   });
 });
 

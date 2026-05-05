@@ -10,38 +10,57 @@ for multi-line.)
      x-show="$store.palette.open"
      x-cloak
      x-transition.opacity
-     class="fixed inset-0 z-50 grid place-items-start bg-black/40 p-4 pt-[10vh] backdrop-blur"
+     class="fixed inset-0 z-[100000] flex items-start justify-center bg-black/40 p-4 pt-[10vh] backdrop-blur"
      @click.self="$store.palette.hide()"
      @keydown.escape.window="$store.palette.hide()">
     <div x-show="$store.palette.open"
          x-transition:enter="transition duration-200 ease-out"
          x-transition:enter-start="opacity-0 -translate-y-2"
          x-transition:enter-end="opacity-100 translate-y-0"
-         class="w-full max-w-xl rounded-xl bg-surface shadow-xl ring-1 ring-border">
+         class="w-full max-w-2xl rounded-xl bg-surface shadow-xl ring-1 ring-border">
         <div class="flex items-center gap-3 border-b border-border px-4 py-3">
             {% icon "search" size=18 class_="text-text-muted" %}
             <input x-model="$store.palette.query"
+                   x-effect="$store.palette.onQueryChanged()"
                    x-ref="paletteInput"
                    x-init="$watch('$store.palette.open', v => v && $nextTick(() => $refs.paletteInput.focus()))"
+                   @keydown.down.prevent="$store.palette.move(1)"
+                   @keydown.up.prevent="$store.palette.move(-1)"
+                   @keydown.enter.prevent="$store.palette.activate()"
                    class="w-full border-0 bg-transparent p-0 text-sm focus:outline-none focus:ring-0"
-                   placeholder="Search pages and actions…">
+                   placeholder="Search pages, analyses, comparisons, gel images…">
+            <span x-show="$store.palette.loading" class="text-xs text-text-muted">searching…</span>
             <kbd class="rounded border border-border bg-bg px-1.5 py-0.5 text-xs text-text-muted">ESC</kbd>
         </div>
-        <ul class="max-h-[60vh] divide-y divide-border overflow-y-auto p-2">
-            <template x-for="item in $store.palette.items.filter(it => $store.palette.query === '' || it.name.toLowerCase().includes($store.palette.query.toLowerCase()))" :key="item.url">
-                <li>
+
+        <ul class="max-h-[60vh] overflow-y-auto p-2" data-palette-list>
+            <template x-for="(item, idx) in $store.palette.results" :key="idx + ':' + item.url">
+                <li :data-palette-active="$store.palette.activeIndex === idx ? 'true' : 'false'">
                     <a :href="item.url"
                        @click="$store.palette.hide()"
-                       class="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-elevated">
-                        <span class="text-text-muted text-xs uppercase tracking-wide" x-text="item.type"></span>
-                        <span x-text="item.name"></span>
+                       @mouseenter="$store.palette.activeIndex = idx"
+                       :class="['flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                                $store.palette.activeIndex === idx ? 'bg-surface-elevated' : 'hover:bg-surface-elevated']">
+                        <span class="inline-flex w-20 flex-shrink-0 items-center text-xs font-medium uppercase tracking-wide text-text-muted"
+                              x-text="item.type_label"></span>
+                        <span class="flex-1 min-w-0 truncate" x-text="item.name"></span>
+                        <span x-show="item.subtitle"
+                              class="ml-2 max-w-[40%] truncate text-xs text-text-muted"
+                              x-text="item.subtitle"></span>
                     </a>
                 </li>
             </template>
-            <li x-show="$store.palette.items.filter(it => $store.palette.query === '' || it.name.toLowerCase().includes($store.palette.query.toLowerCase())).length === 0"
+            <li x-show="$store.palette.results.length === 0 && !$store.palette.loading"
                 class="px-3 py-6 text-center text-sm text-text-muted">
-                No results.
+                <span x-show="$store.palette.query === ''">Start typing to search…</span>
+                <span x-show="$store.palette.query !== ''">No results for "<span x-text="$store.palette.query"></span>"</span>
             </li>
         </ul>
+
+        <div class="flex items-center justify-end gap-3 border-t border-border px-4 py-2 text-xs text-text-muted">
+            <span><kbd class="rounded border border-border bg-bg px-1 py-0.5">↑↓</kbd> navigate</span>
+            <span><kbd class="rounded border border-border bg-bg px-1 py-0.5">Enter</kbd> open</span>
+            <span><kbd class="rounded border border-border bg-bg px-1 py-0.5">Esc</kbd> close</span>
+        </div>
     </div>
 </div>
