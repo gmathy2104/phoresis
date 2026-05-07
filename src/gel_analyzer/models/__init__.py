@@ -24,7 +24,7 @@ from .densitometry import (
     LaneDensitometrySummary,
 )
 from .gel_image import GelImage
-from .quantification import ProteinQuantCalibrationPoint
+from .quantification import ProteinQuantCalibration, ProteinQuantCalibrationPoint
 from .ladder_templates import (
     BandColor,
     CalibrationMethod,
@@ -62,4 +62,5 @@ __all__ = [
     "SavedComparisonLane",
     # Protein quantification models
     "ProteinQuantCalibrationPoint",
+    "ProteinQuantCalibration",
 ]

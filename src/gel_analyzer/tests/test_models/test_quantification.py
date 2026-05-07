@@ -67,3 +67,53 @@ class TestProteinQuantCalibrationPoint:
             ProteinQuantCalibrationPoint.objects.create(
                 band=calibration_band, load_amount=20.0, load_unit="UG"
             )
+
+
+class TestProteinQuantCalibration:
+    def test_create_active(self, sample_analysis, test_user):
+        from gel_analyzer.models import ProteinQuantCalibration
+        calib = ProteinQuantCalibration.objects.create(
+            analysis=sample_analysis,
+            method="LINEAR",
+            unit="UG",
+            coefficients={"a": 0.0021, "b": 0.43},
+            r_squared=0.98,
+            equation="y = 0.0021·area + 0.43",
+            created_by=test_user,
+        )
+        assert calib.is_active is True
+        assert calib.superseded_at is None
+
+    def test_only_one_active_per_analysis(self, sample_analysis, test_user):
+        from gel_analyzer.models import ProteinQuantCalibration
+        from django.db import IntegrityError
+        ProteinQuantCalibration.objects.create(
+            analysis=sample_analysis, method="LINEAR", unit="UG",
+            coefficients={"a": 1, "b": 0}, r_squared=0.99, equation="y=x",
+            created_by=test_user,
+        )
+        with pytest.raises(IntegrityError):
+            ProteinQuantCalibration.objects.create(
+                analysis=sample_analysis, method="LINEAR", unit="UG",
+                coefficients={"a": 2, "b": 0}, r_squared=0.99, equation="y=2x",
+                created_by=test_user, is_active=True,
+            )
+
+    def test_superseded_allows_new_active(self, sample_analysis, test_user):
+        """When the previous one is marked is_active=False, a new active is allowed."""
+        from gel_analyzer.models import ProteinQuantCalibration
+        from django.utils import timezone
+        old = ProteinQuantCalibration.objects.create(
+            analysis=sample_analysis, method="LINEAR", unit="UG",
+            coefficients={"a": 1, "b": 0}, r_squared=0.99, equation="y=x",
+            created_by=test_user,
+        )
+        old.is_active = False
+        old.superseded_at = timezone.now()
+        old.save()
+        new = ProteinQuantCalibration.objects.create(
+            analysis=sample_analysis, method="LINEAR", unit="UG",
+            coefficients={"a": 2, "b": 0}, r_squared=0.99, equation="y=2x",
+            created_by=test_user,
+        )
+        assert new.is_active is True
