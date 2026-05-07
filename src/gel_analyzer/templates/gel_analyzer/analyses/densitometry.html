@@ -99,6 +99,9 @@
             <button id="run-analysis-btn" class="dm-btn dm-btn-primary" data-tooltip="Run densitometry analysis on all bands" data-tooltip-pos="bottom">
                 <i class="bi bi-play-circle me-2"></i>Run Analysis
             </button>
+            <button id="open-quantification-modal" class="dm-btn dm-btn-outline" data-tooltip="Protein quantification calibration" data-tooltip-pos="bottom">
+                <i class="bi bi-droplet-half me-2"></i>Quantification
+            </button>
             <button id="export-csv-btn" class="dm-btn dm-btn-secondary" data-tooltip="Export measurements to CSV" data-tooltip-pos="bottom" {% if not has_results %}disabled{% endif %}>
                 <i class="bi bi-download me-2"></i>Export CSV
             </button>
@@ -666,6 +669,8 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
 
 <!-- Chart Tooltip (global) -->
 <div id="dm-chart-tooltip" class="dm-tooltip" style="display: none;"></div>
+
+{% include "gel_analyzer/includes/_quantification_modal.html" %}
 {% endblock %}
 
 {% block scripts %}

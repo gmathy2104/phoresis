@@ -1,0 +1,74 @@
+{% comment %}
+Quantification calibration modal — opened from densitometry.html toolbar.
+
+Shows a 2x2 grid:
+  - top-left:    calibration points + R² / N / equation stats
+  - top-right:   calibration curve canvas
+  - bottom-left: controls / QC table (out-of-spec rows highlighted)
+  - bottom-right: samples projected table
+
+The header carries the fit Method + amount Unit + a "Show controls on curve"
+toggle. Footer offers Cancel / Refit / Save & apply. Backed by
+QuantificationModal in panels/quantification-modal.js.
+{% endcomment %}
+<div class="dm-modal" id="quantification-modal" hidden>
+    <div class="dm-modal-backdrop" data-close></div>
+    <div class="dm-modal-card dm-modal-card--wide">
+        <header class="dm-modal-header">
+            <h3>Protein quantification calibration</h3>
+            <div class="dm-modal-toolbar">
+                <label>Method
+                    <select id="qcm-method">
+                        <option value="LINEAR">Linear</option>
+                        <option value="POLYNOMIAL_2">Polynomial (deg 2)</option>
+                        <option value="FOUR_PL">4-PL</option>
+                    </select>
+                </label>
+                <label>Unit
+                    <select id="qcm-unit">
+                        <option value="UG">µg</option>
+                        <option value="UG_ML">µg/mL</option>
+                    </select>
+                </label>
+                <label><input type="checkbox" id="qcm-show-controls-on-curve" checked> Show controls on curve</label>
+            </div>
+            <button class="dm-modal-close" data-close aria-label="Close">&times;</button>
+        </header>
+        <div class="dm-modal-grid dm-modal-grid--2x2">
+            <section class="dm-modal-cell">
+                <h4>Calibration points</h4>
+                <table class="dm-table" id="qcm-points-table">
+                    <thead><tr><th>Lane</th><th>Load</th><th>Area</th><th>Residual</th><th>&#10007;</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <div class="dm-modal-stats">
+                    R&sup2;: <span id="qcm-r2">&mdash;</span> &middot; N: <span id="qcm-n">&mdash;</span>
+                    <br>Eq: <code id="qcm-equation">&mdash;</code>
+                </div>
+            </section>
+            <section class="dm-modal-cell">
+                <h4>Calibration curve</h4>
+                <canvas id="qcm-curve-chart" width="500" height="350"></canvas>
+            </section>
+            <section class="dm-modal-cell">
+                <h4>Controls / QC</h4>
+                <table class="dm-table" id="qcm-controls-table">
+                    <thead><tr><th>Lane</th><th>Known</th><th>Predicted</th><th>%Recovery</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+            <section class="dm-modal-cell">
+                <h4>Samples projected</h4>
+                <table class="dm-table" id="qcm-samples-table">
+                    <thead><tr><th>Lane</th><th>Sample</th><th>Area</th><th>Estimated</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+        </div>
+        <footer class="dm-modal-footer">
+            <button class="dm-btn dm-btn-secondary" data-close>Cancel</button>
+            <button class="dm-btn dm-btn-outline" id="qcm-refit">Refit</button>
+            <button class="dm-btn dm-btn-primary" id="qcm-save">Save &amp; apply</button>
+        </footer>
+    </div>
+</div>
