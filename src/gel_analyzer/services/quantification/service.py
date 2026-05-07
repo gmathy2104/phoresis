@@ -5,9 +5,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from phoresis_core.logging_config import get_logger
 
-from .models import QuantParams, QuantPoint
+from . import fitters
+from .models import QuantParams, QuantPoint, QuantResult
 
 if TYPE_CHECKING:
     from gel_analyzer.models import Band, GelAnalysis
@@ -91,4 +94,76 @@ class ProteinQuantCalibrationService:
             load_amount=None,
             load_unit=None,
             corrected_area=densito.corrected_area if densito else None,
+        )
+
+    # ------------ Fit --------------------------------------------------------
+
+    def fit(
+        self,
+        points: list[QuantPoint],
+        excluded_band_ids: list[str] | None = None,
+    ) -> QuantResult:
+        excluded = set(excluded_band_ids or [])
+        for p in points:
+            p.is_excluded = p.band_id in excluded
+        non_excluded = [p for p in points if not p.is_excluded]
+        missing = [p.band_id for p in non_excluded if p.corrected_area is None]
+        if missing:
+            return QuantResult(
+                success=False, method=self.params.method, unit=self.params.unit,
+                error_message=f"Densitometry missing on {len(missing)} band(s); run densitometry first",
+                calibration_points=points,
+            )
+        if len(non_excluded) < 2:
+            return QuantResult(
+                success=False, method=self.params.method, unit=self.params.unit,
+                error_message=f"Need at least 2 non-excluded points, got {len(non_excluded)}",
+                calibration_points=points,
+            )
+        if self.params.method == "FOUR_PL" and len(non_excluded) < 4:
+            return QuantResult(
+                success=False, method=self.params.method, unit=self.params.unit,
+                error_message=f"4PL requires at least 4 non-excluded points, got {len(non_excluded)}",
+                calibration_points=points,
+            )
+
+        areas = np.array([p.corrected_area for p in non_excluded], dtype=float)
+        amounts = np.array([p.load_amount for p in non_excluded], dtype=float)
+
+        try:
+            if self.params.method == "LINEAR":
+                coeffs, r2, residuals = fitters.fit_linear(areas, amounts)
+                eq = fitters.linear_equation(coeffs, self.params.unit)
+            elif self.params.method == "POLYNOMIAL_2":
+                coeffs, r2, residuals = fitters.fit_poly2(areas, amounts)
+                eq = fitters.poly2_equation(coeffs, self.params.unit)
+            elif self.params.method == "FOUR_PL":
+                coeffs, r2, residuals = fitters.fit_4pl(areas, amounts)
+                eq = fitters.four_pl_equation(coeffs, self.params.unit)
+            else:
+                return QuantResult(
+                    success=False,
+                    error_message=f"Unknown method: {self.params.method}",
+                    calibration_points=points,
+                )
+        except Exception as e:
+            logger.error(f"Quantification fit failed: {e}")
+            return QuantResult(
+                success=False, method=self.params.method, unit=self.params.unit,
+                error_message=str(e), calibration_points=points,
+            )
+
+        # residuals = observed - predicted, so predicted = observed - residual
+        for p, r in zip(non_excluded, residuals, strict=False):
+            p.residual = float(r)
+            p.predicted_amount = float(p.load_amount - r)
+
+        return QuantResult(
+            success=True,
+            method=self.params.method,
+            unit=self.params.unit,
+            coefficients=coeffs,
+            r_squared=r2,
+            equation=eq,
+            calibration_points=points,
         )

@@ -93,3 +93,50 @@ class TestCollectCalibrationPoints:
         assert len(cal_points) == 1
         assert len(ctrl_points) == 1
         assert ctrl_points[0].role == "CONTROL"
+
+
+class TestFit:
+    def _make_points(self, areas, amounts, role="CALIBRATION"):
+        from gel_analyzer.services.quantification.models import QuantPoint
+        return [
+            QuantPoint(
+                band_id=f"b{i}", lane_id=i, lane_number=i, role=role,
+                load_amount=a, load_unit="UG", corrected_area=area,
+            )
+            for i, (area, a) in enumerate(zip(areas, amounts, strict=False), start=1)
+        ]
+
+    def test_linear_fit_perfect(self):
+        from gel_analyzer.services.quantification.models import QuantParams
+        svc = ProteinQuantCalibrationService(QuantParams(method="LINEAR", unit="UG"))
+        points = self._make_points([1000, 2000, 3000, 4000], [5, 10, 15, 20])
+        result = svc.fit(points)
+        assert result.success
+        assert result.r_squared == pytest.approx(1.0)
+        assert result.coefficients["a"] == pytest.approx(0.005)
+        assert result.coefficients["b"] == pytest.approx(0.0)
+
+    def test_excludes_outliers(self):
+        from gel_analyzer.services.quantification.models import QuantParams
+        svc = ProteinQuantCalibrationService(QuantParams(method="LINEAR", unit="UG"))
+        points = self._make_points([1000, 2000, 3000, 9999], [5, 10, 15, 20])
+        result = svc.fit(points, excluded_band_ids=["b4"])
+        assert result.success
+        assert result.r_squared == pytest.approx(1.0)
+        assert sum(1 for p in result.calibration_points if p.is_excluded) == 1
+
+    def test_rejects_when_missing_corrected_area(self):
+        from gel_analyzer.services.quantification.models import QuantParams
+        svc = ProteinQuantCalibrationService(QuantParams(method="LINEAR", unit="UG"))
+        points = self._make_points([1000, 2000, None, 4000], [5, 10, 15, 20])
+        result = svc.fit(points)
+        assert not result.success
+        assert "densitometry" in (result.error_message or "").lower()
+
+    def test_4pl_requires_4_points(self):
+        from gel_analyzer.services.quantification.models import QuantParams
+        svc = ProteinQuantCalibrationService(QuantParams(method="FOUR_PL", unit="UG"))
+        points = self._make_points([1000, 2000, 3000], [5, 10, 15])
+        result = svc.fit(points)
+        assert not result.success
+        assert "4" in (result.error_message or "")
