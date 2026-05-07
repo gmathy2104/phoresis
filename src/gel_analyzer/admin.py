@@ -20,6 +20,8 @@ from gel_analyzer.models import (
     LadderTemplate,
     Lane,
     MWMarker,
+    ProteinQuantCalibration,
+    ProteinQuantCalibrationPoint,
     SavedComparison,
     SavedComparisonLane,
 )
@@ -357,6 +359,7 @@ class LaneAdmin(admin.ModelAdmin):
             "EMPTY": "#6B7280",
             "CONTROL": "#14A44D",
             "DOT": "#8B5CF6",
+            "CALIBRATION": "#8B5CF6",
         }
         color = colors.get(obj.lane_type, "#6B7280")
         return format_html(
@@ -721,3 +724,19 @@ class SavedComparisonAdmin(SimpleHistoryAdmin):
         return obj.lanes.count()
 
     lane_count_display.short_description = "Lanes"
+
+
+@admin.register(ProteinQuantCalibration)
+class ProteinQuantCalibrationAdmin(admin.ModelAdmin):
+    list_display = ("id", "analysis", "method", "unit", "r_squared", "is_active", "created_at")
+    list_filter = ("method", "unit", "is_active")
+    search_fields = ("analysis__id",)
+    readonly_fields = ("id", "created_at", "superseded_at")
+
+
+@admin.register(ProteinQuantCalibrationPoint)
+class ProteinQuantCalibrationPointAdmin(admin.ModelAdmin):
+    list_display = ("band", "load_amount", "load_unit", "role", "is_excluded_from_fit", "created_at")
+    list_filter = ("role", "load_unit", "is_excluded_from_fit")
+    search_fields = ("band__id",)
+    readonly_fields = ("created_at",)
