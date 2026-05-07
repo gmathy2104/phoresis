@@ -454,6 +454,34 @@ All tests live under `src/gel_analyzer/tests/` (project convention — tests are
 - Uncertainty propagation / confidence intervals on estimated amounts — possible follow-up.
 - Splitting `properties-panel.js` (885 lines) or `densitometry.html` (2140 lines) — recognized debt, not in this feature's scope.
 
+## 13. Deferred follow-ups (post-merge tracking)
+
+Identified during the final code review (post-Phase 9) but deemed scope-creep
+for this branch — track separately:
+
+- **Quantification columns in comparison reports (Word / Excel / PowerPoint)**
+  — The HTML comparison view in `compare.html` got the full Quantification
+  column group (Phase 8). The three comparison-report builders
+  (`comparison_builder.py`, `comparison_excel_builder.py`,
+  `comparison_pptx_builder.py`) were not extended in Phase 9 — they still emit
+  the pre-quantification column set. A follow-up should mirror the densitometry
+  builder pattern: add a `collect_comparison_quantification_data` method or
+  reuse `collect_quantification_data` per analysis, then surface in each
+  builder.
+
+- **Sample residual flag in the densitometry results table**
+  — Spec §7.3 calls for a `⚠ if residual > 2σ in active calib fit` indicator on
+  SAMPLE rows. Phase 7 implemented only the CONTROL out-of-spec recovery flag.
+  To compute sample residuals against the active fit, the residual stddev
+  needs to be persisted on `ProteinQuantCalibration` (or computed on render
+  from `QuantResult`) and exposed via the densitometry results endpoint.
+
+- **Pre-existing CDN references** — `densitometry.html`, `compare.html`,
+  `annotate_standalone.html` import Three.js / D3 / Plotly from CDNs. AGENTS.md
+  §1 forbids this. The quantification feature did not introduce new CDN
+  references; the pre-existing ones should be vendored under
+  `static/<app>/{js,css}/vendor/` in a separate cleanup ticket.
+
 ---
 
 ## 13. Implementation order (high level)
