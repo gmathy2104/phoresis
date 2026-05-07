@@ -58,7 +58,7 @@ def purge_orphan_gel_images(self, ttl_hours: int | None = None) -> dict:
     )
     found = queryset.count()
     if not found:
-        logger.info("purge_orphan_gel_images: no orphans (TTL=%dh, cutoff=%s)", ttl, cutoff.isoformat())
+        logger.info(f"purge_orphan_gel_images: no orphans (TTL={ttl}h, cutoff={cutoff.isoformat()})")
         return {"found": 0, "deleted": 0, "ttl_hours": ttl}
 
     deleted = 0
@@ -79,12 +79,7 @@ def purge_orphan_gel_images(self, ttl_hours: int | None = None) -> dict:
         except Exception as exc:
             logger.warning(f"purge_orphan_gel_images: failed to delete GelImage {pk}: {exc}")
 
-    logger.info(
-        "purge_orphan_gel_images: removed %d/%d orphan rows (TTL=%dh)",
-        deleted,
-        found,
-        ttl,
-    )
+    logger.info(f"purge_orphan_gel_images: removed {deleted}/{found} orphan rows (TTL={ttl}h)")
     return {"found": found, "deleted": deleted, "ttl_hours": ttl}
 
 
