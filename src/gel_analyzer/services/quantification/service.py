@@ -191,7 +191,7 @@ class ProteinQuantCalibrationService:
             return float(d + (a - d) / (1 + (area / c) ** b))
         return None
 
-    def apply_to_analysis(self, calibration: "ProteinQuantCalibration") -> int:
+    def apply_to_analysis(self, calibration: ProteinQuantCalibration) -> int:
         """Persist DensitometryResult.estimated_amount{,_unit} for all SAMPLE/CONTROL
         bands of the calibration's analysis. Returns count of rows updated."""
         from gel_analyzer.models import Band, DensitometryResult, Lane
@@ -225,12 +225,12 @@ class ProteinQuantCalibrationService:
 
     def save_active(
         self,
-        analysis: "GelAnalysis",
+        analysis: GelAnalysis,
         result: QuantResult,
         *,
         user=None,
         notes: str = "",
-    ) -> "ProteinQuantCalibration":
+    ) -> ProteinQuantCalibration:
         from django.db import transaction
         from django.utils import timezone
 

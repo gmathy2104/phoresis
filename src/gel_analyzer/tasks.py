@@ -868,6 +868,17 @@ def run_densitometry_task(
                 }
             )
 
+        # Refit + reapply the active protein-quantification calibration if any.
+        # Imported lazily to keep tasks.py free of service-package imports during
+        # Celery worker boot. Wrapped in try/except so quantification refit
+        # failures NEVER break a densitometry run.
+        if save_results:
+            from gel_analyzer.services.quantification.invalidation import recompute_if_active
+            try:
+                recompute_if_active(analysis)
+            except Exception as exc:
+                logger.warning(f"Quantification recompute skipped after densitometry: {exc}")
+
         return response
 
     except Exception as e:
