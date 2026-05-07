@@ -114,9 +114,7 @@ def test_save_creates_active_calibration(authenticated_client, three_calib_point
 def test_save_then_save_supersedes_previous(authenticated_client, three_calib_points_analysis):
     analysis = three_calib_points_analysis
     url = f"/api/v1/analyses/{analysis.id}/quantification/"
-    r1 = authenticated_client.post(
-        url, {"method": "LINEAR", "unit": "UG", "excluded_band_ids": []}, format="json"
-    )
+    r1 = authenticated_client.post(url, {"method": "LINEAR", "unit": "UG", "excluded_band_ids": []}, format="json")
     assert r1.status_code == 201, r1.content
     r2 = authenticated_client.post(
         url, {"method": "POLYNOMIAL_2", "unit": "UG", "excluded_band_ids": []}, format="json"
@@ -138,9 +136,7 @@ def test_get_returns_active_or_null(authenticated_client, three_calib_points_ana
 def test_history_returns_supersedes(authenticated_client, three_calib_points_analysis):
     analysis = three_calib_points_analysis
     save_url = f"/api/v1/analyses/{analysis.id}/quantification/"
-    authenticated_client.post(
-        save_url, {"method": "LINEAR", "unit": "UG", "excluded_band_ids": []}, format="json"
-    )
+    authenticated_client.post(save_url, {"method": "LINEAR", "unit": "UG", "excluded_band_ids": []}, format="json")
     authenticated_client.post(
         save_url, {"method": "POLYNOMIAL_2", "unit": "UG", "excluded_band_ids": []}, format="json"
     )

@@ -3030,9 +3030,7 @@ def api_lane_comparison_data(request, pk):
                     "sample_name": lane.sample_name or None,
                     "is_reduced": lane.is_reduced,
                     "protein_load_ug": float(lane.protein_load_ug) if lane.protein_load_ug is not None else None,
-                    "loading_volume_ul": float(lane.loading_volume_ul)
-                    if lane.loading_volume_ul is not None
-                    else None,
+                    "loading_volume_ul": float(lane.loading_volume_ul) if lane.loading_volume_ul is not None else None,
                     "bbox": {
                         "x": lane.x,
                         "y": lane.y,
@@ -3060,9 +3058,7 @@ def api_lane_comparison_data(request, pk):
                             "id": str(active_quant.id),
                             "method": active_quant.method,
                             "unit": active_quant.unit,
-                            "r_squared": float(active_quant.r_squared)
-                            if active_quant.r_squared is not None
-                            else None,
+                            "r_squared": float(active_quant.r_squared) if active_quant.r_squared is not None else None,
                         }
                         if active_quant
                         else None
