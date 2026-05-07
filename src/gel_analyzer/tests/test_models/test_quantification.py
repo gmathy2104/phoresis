@@ -7,17 +7,6 @@ from gel_analyzer.models import Band, Lane, ProteinQuantCalibrationPoint
 pytestmark = pytest.mark.django_db
 
 
-# Aliases for plan-referenced fixtures (the project uses gel_analysis / band).
-@pytest.fixture
-def sample_analysis(gel_analysis):
-    return gel_analysis
-
-
-@pytest.fixture
-def sample_band(band):
-    return band
-
-
 @pytest.fixture
 def calibration_lane(sample_analysis, test_user):
     return Lane.objects.create(

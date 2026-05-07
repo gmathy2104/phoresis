@@ -135,6 +135,12 @@ def gel_analysis(db, gel_image, test_user):
 
 
 @pytest.fixture
+def sample_analysis(gel_analysis):
+    """Alias for plan-referenced fixture name; same as gel_analysis."""
+    return gel_analysis
+
+
+@pytest.fixture
 def sample_lane(db, gel_analysis):
     """Create a sample Lane instance."""
     return Lane.objects.create(
@@ -180,6 +186,12 @@ def band(db, sample_lane, test_user):
         intensity_normalized=75.5,
         created_by=test_user,
     )
+
+
+@pytest.fixture
+def sample_band(band):
+    """Alias for plan-referenced fixture name; same as band."""
+    return band
 
 
 @pytest.fixture
