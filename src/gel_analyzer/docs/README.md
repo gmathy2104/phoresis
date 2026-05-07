@@ -13,7 +13,7 @@ End-to-end pipeline for SDS-PAGE / Dot Blot / Western Blot images:
 - Lane comparison (electropherograms + 4-panel cross-lane view).
 - Report generation (Word, Excel, PowerPoint).
 
-## Models (14)
+## Models (16)
 
 | Model | Purpose | Notes |
 |---|---|---|
