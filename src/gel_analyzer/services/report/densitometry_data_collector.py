@@ -8,6 +8,7 @@ Reuses LaneReportData, BandReportData, CalibrationReportData from data_collector
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from gel_analyzer.models import (
     GelAnalysis,
@@ -62,6 +63,9 @@ class DensitometryReportData:
     # Densitometry aggregations
     average_purity: float | None = None
     densitometry_computed_at: str | None = None
+
+    # Protein quantification (None when no active calibration / fit failed)
+    quantification: dict[str, Any] | None = None
 
     # Report metadata
     report_generated_at: str = ""
@@ -147,6 +151,8 @@ class DensitometryDataCollector:
             # Densitometry aggregations
             average_purity=average_purity,
             densitometry_computed_at=densitometry_computed_at,
+            # Quantification (None if no active calibration / fit failed)
+            quantification=self.collect_quantification_data(analysis),
             # Report metadata
             report_generated_at=base_data.report_generated_at,
             report_generated_by=base_data.report_generated_by,
@@ -159,3 +165,93 @@ class DensitometryDataCollector:
         )
 
         return report_data
+
+    def collect_quantification_data(self, analysis: GelAnalysis) -> dict[str, Any] | None:
+        """Re-run the active protein-quantification fit and bundle everything
+        the report builders need into a single dict.
+
+        Re-runs the fit (and re-projects controls/samples) rather than reading
+        persisted ``estimated_amount`` values so the report stays consistent
+        with the current densitometry, even if the calibration was saved
+        before the bands changed.
+
+        Returns:
+            ``None`` if no active ``ProteinQuantCalibration`` exists for the
+            analysis (or its refit failed). Otherwise a dict with keys:
+
+            - ``calibration``: ``ProteinQuantCalibration`` row
+            - ``result``: refit ``QuantResult``
+            - ``controls``: list of ``QuantPoint`` (with ``predicted_amount``)
+            - ``samples``: list of ``QuantPoint`` (with ``predicted_amount``)
+            - ``curve_png``: PNG bytes for the calibration curve
+        """
+        from gel_analyzer.models import ProteinQuantCalibration
+        from gel_analyzer.services.quantification.models import QuantParams
+        from gel_analyzer.services.quantification.service import (
+            ProteinQuantCalibrationService,
+        )
+
+        active = (
+            ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
+        )
+        if active is None:
+            return None
+
+        try:
+            svc = ProteinQuantCalibrationService(
+                QuantParams(method=active.method, unit=active.unit)
+            )
+            cal = svc.collect_calibration_points(analysis)
+            result = svc.fit(cal, excluded_band_ids=active.excluded_band_ids)
+            if not result.success:
+                logger.warning(
+                    f"Quantification refit for analysis {analysis.id} failed: "
+                    f"{result.error_message}"
+                )
+                return None
+
+            ctrls = svc.collect_control_points(analysis)
+            for c in ctrls:
+                if c.corrected_area is not None:
+                    c.predicted_amount = svc.project(c.corrected_area, result)
+
+            samples = svc.collect_sample_bands(analysis)
+            for s in samples:
+                if s.corrected_area is not None:
+                    s.predicted_amount = svc.project(s.corrected_area, result)
+
+            from .quantification_chart import build_calibration_curve_png
+
+            png = build_calibration_curve_png(
+                points=[
+                    (p.corrected_area, p.load_amount)
+                    for p in result.calibration_points
+                    if not p.is_excluded
+                    and p.corrected_area is not None
+                    and p.load_amount is not None
+                ],
+                coeffs=active.coefficients,
+                method=active.method,
+                unit_label="ug" if active.unit == "UG" else "ug/mL",
+                controls=[
+                    (c.corrected_area, c.predicted_amount)
+                    for c in ctrls
+                    if c.corrected_area is not None and c.predicted_amount is not None
+                ],
+                samples=[
+                    (s.corrected_area, s.predicted_amount)
+                    for s in samples
+                    if s.corrected_area is not None and s.predicted_amount is not None
+                ],
+            )
+        except Exception as exc:
+            logger.error(f"Failed to collect quantification data: {exc}")
+            return None
+
+        return {
+            "calibration": active,
+            "result": result,
+            "controls": ctrls,
+            "samples": samples,
+            "curve_png": png,
+        }
