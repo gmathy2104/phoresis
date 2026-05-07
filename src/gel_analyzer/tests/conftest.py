@@ -16,6 +16,25 @@ from gel_analyzer.models import Band, GelAnalysis, GelImage, Lane, MWMarker
 User = get_user_model()
 
 
+@pytest.fixture(autouse=True)
+def isolate_media_root(tmp_path, settings):
+    """
+    Redirect MEDIA_ROOT to a per-test tmp dir so test uploads don't pollute
+    the dev media folder.
+
+    Without this, every test that builds a `GelImage` via SimpleUploadedFile
+    (the `gel_image` / `uploaded_gel_file` fixtures below, plus their
+    derivatives) writes a real file under MEDIA_ROOT/gel_images/... and
+    Django's storage backend silently appends a random suffix on filename
+    collision — so a single test run can leave hundreds of `test_gel.png`,
+    `test_gel_xxxxx.png`, `clc_test_*.png`, `e2e_*.png` orphans in
+    `C:\\dev\\phoresis\\media\\` that nothing references after the
+    test DB is rolled back. tmp_path is removed by pytest at the end of
+    the test, so the leak stops at the boundary of one test.
+    """
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+
+
 @pytest.fixture
 def test_user(db):
     """Create a test user."""

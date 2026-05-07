@@ -4,14 +4,88 @@ Celery tasks for Gel Analyzer module.
 Includes async tasks for derivative-based band detection on gel electrophoresis images.
 """
 
+import os
+from datetime import timedelta
+
 from celery import shared_task
 
 from django.db import transaction
+from django.db.models import Count
+from django.utils import timezone
 
 from phoresis_core.celery_utils import robust_task
 from phoresis_core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+# Default TTL for orphan GelImage rows (uploaded but never wired to a
+# GelAnalysis). Operator can override via env without code change.
+ORPHAN_GEL_IMAGE_TTL_HOURS = int(os.environ.get("PHORESIS_ORPHAN_GEL_IMAGE_TTL_HOURS", "24"))
+
+
+@robust_task(
+    soft_time_limit=300,  # 5 min — query is light, but file deletes can be slow on a slow disk
+    time_limit=360,
+)
+def purge_orphan_gel_images(self, ttl_hours: int | None = None) -> dict:
+    """
+    Delete GelImage rows that were uploaded more than ``ttl_hours`` ago and
+    have never been attached to a GelAnalysis (e.g. user uploaded then
+    closed the tab). The post_delete signal in
+    ``gel_analyzer.signals.delete_gel_image_files`` cascades the cleanup
+    to the original / display / thumbnail files on disk.
+
+    Args:
+        ttl_hours: How old (in hours) an unused GelImage must be before
+            it qualifies for purge. Defaults to PHORESIS_ORPHAN_GEL_IMAGE_TTL_HOURS
+            (24 by default).
+
+    Returns:
+        Dict with ``found`` (qualifying rows at task start) and ``deleted``
+        (rows actually removed; can be lower if a row was attached to an
+        analysis between query and delete, or if the file delete raised).
+    """
+    from gel_analyzer.models import GelImage
+
+    ttl = int(ttl_hours if ttl_hours is not None else ORPHAN_GEL_IMAGE_TTL_HOURS)
+    cutoff = timezone.now() - timedelta(hours=ttl)
+
+    queryset = (
+        GelImage.objects.annotate(_n_analyses=Count("analyses"))
+        .filter(_n_analyses=0, uploaded_at__lt=cutoff)
+        .order_by("uploaded_at")
+    )
+    found = queryset.count()
+    if not found:
+        logger.info("purge_orphan_gel_images: no orphans (TTL=%dh, cutoff=%s)", ttl, cutoff.isoformat())
+        return {"found": 0, "deleted": 0, "ttl_hours": ttl}
+
+    deleted = 0
+    # Iterate then delete one-by-one so a single bad row doesn't roll back
+    # the whole sweep. Each delete fires the post_delete signal -> file
+    # cleanup. Use the queryset PKs because the QuerySet is unstable across
+    # iteration (filtering on Count() forces re-evaluation).
+    for pk in list(queryset.values_list("pk", flat=True)):
+        try:
+            with transaction.atomic():
+                # Re-check: an analysis could have been attached between
+                # the count() and now (race). Skip if so.
+                img = GelImage.objects.annotate(_n=Count("analyses")).filter(pk=pk, _n=0).first()
+                if img is None:
+                    continue
+                img.delete()
+                deleted += 1
+        except Exception as exc:
+            logger.warning(f"purge_orphan_gel_images: failed to delete GelImage {pk}: {exc}")
+
+    logger.info(
+        "purge_orphan_gel_images: removed %d/%d orphan rows (TTL=%dh)",
+        deleted,
+        found,
+        ttl,
+    )
+    return {"found": found, "deleted": deleted, "ttl_hours": ttl}
 
 
 @robust_task(

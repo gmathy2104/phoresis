@@ -145,6 +145,23 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get("CELERY_WORKER_MAX_TASKS_PER_CHILD", "50"))
 CELERY_TIMEZONE = TIME_ZONE
 
+# Periodic tasks. Run by `celery beat` (the `scheduler` container). The
+# orphan-purge sweeps GelImage rows uploaded but never wired to an analysis
+# (closed-tab leaks). Default schedule: once per day at 03:30 local time —
+# off-peak relative to the Watchtower 03:00 image refresh, so the two
+# don't fight for resources at the same minute. The boot trigger lives in
+# phoresis_core.celery_app via the worker_ready signal so a fresh restart
+# doesn't have to wait until 03:30 to clear last-night's orphans.
+from celery.schedules import crontab  # noqa: E402
+
+CELERY_BEAT_SCHEDULE = {
+    "purge-orphan-gel-images-daily": {
+        "task": "gel_analyzer.tasks.purge_orphan_gel_images",
+        "schedule": crontab(hour=3, minute=30),
+        "options": {"queue": "default"},
+    },
+}
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
