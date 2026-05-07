@@ -19,7 +19,7 @@ import numpy as np
 
 from phoresis_core.logging_config import get_logger
 
-from .constants import BAND_PALETTE_HEX, BAND_TYPE_DISPLAY, LANE_PALETTE_HEX
+from .constants import BAND_TYPE_DISPLAY, CHART_BAND_PALETTE_HEX, CHART_PROFILE_COLOR
 
 logger = get_logger(__name__)
 
@@ -28,17 +28,17 @@ logger = get_logger(__name__)
 _BAND_DISPLAY_TO_CODE = {v: k for k, v in BAND_TYPE_DISPLAY.items()}
 _BAND_DISPLAY_TO_CODE["MW Ladder"] = "MW_REFERENCE"  # legacy display alias
 
-BAND_COLORS = {**BAND_PALETTE_HEX}
-BAND_COLORS.update({display: BAND_PALETTE_HEX[code] for display, code in _BAND_DISPLAY_TO_CODE.items()})
+BAND_COLORS = {**CHART_BAND_PALETTE_HEX}
+BAND_COLORS.update({display: CHART_BAND_PALETTE_HEX[code] for display, code in _BAND_DISPLAY_TO_CODE.items()})
 
-BASELINE_COLOR = LANE_PALETTE_HEX["SAMPLE"]  # accent-aligned baseline
+BASELINE_COLOR = CHART_PROFILE_COLOR  # matches Three.js DEFAULT vertex + ground plane
 
 
 def _band_color(band_type) -> str:
     """Resolve a band-type token (enum code or display string) to a hex color."""
     if band_type is None:
-        return BAND_PALETTE_HEX["OTHER"]
-    return BAND_COLORS.get(band_type, BAND_PALETTE_HEX["OTHER"])
+        return CHART_BAND_PALETTE_HEX["OTHER"]
+    return BAND_COLORS.get(band_type, CHART_BAND_PALETTE_HEX["OTHER"])
 
 
 def render_terrain_chart(
@@ -208,10 +208,10 @@ def render_terrain_chart(
             facecolors[zi, :, 3] = alpha_min + (0.9 - alpha_min) * edge_fade
 
         # ── Create figure ─────────────────────────────────────────────
-        bg_color = "#1a1a2e" if dark_theme else "#f8fafc"
-        text_color = "#c8d0e0" if dark_theme else "#334155"
-        grid_color = "#2a2a44" if dark_theme else "#cbd5e1"
-        pane_color = "#1e1e32" if dark_theme else "#f1f5f9"
+        bg_color = "#0f172a" if dark_theme else "#f8fafc"
+        text_color = "#94a3b8" if dark_theme else "#334155"
+        grid_color = "#475569" if dark_theme else "#cbd5e1"
+        pane_color = "#1e293b" if dark_theme else "#f1f5f9"
         contour_color = "#ffffff" if dark_theme else "#64748b"
 
         fig = plt.figure(figsize=figsize, dpi=dpi)

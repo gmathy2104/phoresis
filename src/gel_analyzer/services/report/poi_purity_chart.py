@@ -11,9 +11,17 @@ from io import BytesIO
 from phoresis_core.logging_config import get_logger
 
 from .constants import (
-    ACCENT_COLORS_HEX,
+    CHART_DARK_BG,
+    CHART_DARK_GRID,
+    CHART_DARK_TEXT,
+    CHART_LIGHT_BG,
+    CHART_LIGHT_GRID,
+    CHART_LIGHT_TEXT,
     POI_PURITY_MINIMUM,
     POI_PURITY_TARGET,
+    POI_PURITY_TIER_HIGH,
+    POI_PURITY_TIER_LOW,
+    POI_PURITY_TIER_MID,
 )
 
 logger = get_logger(__name__)
@@ -53,22 +61,29 @@ def render_poi_purity_chart(
     purities = [d["purity"] for d in filtered]
     n = len(labels)
 
-    # Assign accent colors
-    colors = [ACCENT_COLORS_HEX[i % len(ACCENT_COLORS_HEX)] for i in range(n)]
+    # Tier-based bar colours — matches the live densitometry POI-purity
+    # bar chart (>=target → green, >=minimum → amber, below → red).
+    def _tier_color(p: float) -> str:
+        if p >= POI_PURITY_TARGET:
+            return POI_PURITY_TIER_HIGH
+        if p >= POI_PURITY_MINIMUM:
+            return POI_PURITY_TIER_MID
+        return POI_PURITY_TIER_LOW
 
-    # Theme colors
+    colors = [_tier_color(p) for p in purities]
+
+    # Theme colors — same chart palette in both themes; only the canvas
+    # chrome flips. Threshold lines stay green/amber to mirror the web.
     if dark_theme:
-        bg_color = "#1e1e22"
-        text_color = "#e0e0e0"
-        grid_color = "#404040"
-        target_color = "#22C55E"
-        minimum_color = "#F59E0B"
+        bg_color = CHART_DARK_BG
+        text_color = CHART_DARK_TEXT
+        grid_color = CHART_DARK_GRID
     else:
-        bg_color = "#ffffff"
-        text_color = "#333333"
-        grid_color = "#e0e0e0"
-        target_color = "#16a34a"
-        minimum_color = "#d97706"
+        bg_color = CHART_LIGHT_BG
+        text_color = CHART_LIGHT_TEXT
+        grid_color = CHART_LIGHT_GRID
+    target_color = POI_PURITY_TIER_HIGH
+    minimum_color = POI_PURITY_TIER_MID
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     fig.patch.set_facecolor(bg_color)

@@ -264,24 +264,19 @@ class ComparisonReportBuilder(BaseReportBuilder):
         profile = lane.profile_data
         intensities = np.array(profile["intensities"], dtype=float)
 
-        # --- Accent color palette (same as digital gel) ---
-        ACCENT_COLORS = [
-            (59, 130, 246),  # blue
-            (168, 85, 247),  # purple
-            (34, 197, 94),  # green
-            (249, 115, 22),  # orange
-            (236, 72, 153),  # pink
-            (20, 184, 166),  # teal
-            (245, 158, 11),  # amber
-            (99, 102, 241),  # indigo
-        ]
-
-        # Peak markers on the electropherogram — same hue as the matching
-        # gel-overlay band. Anchored on BAND_PALETTE_HEX (constants.py).
-        from .constants import BAND_PALETTE_HEX
+        # Mirror the live densitometry chromatogram: single blue profile
+        # line, peak markers coloured by the chart-band palette
+        # (green/amber/gray) — see CHART_* tokens in constants.py.
+        from .constants import (
+            CHART_BAND_PALETTE_HEX,
+            CHART_DARK_BG,
+            CHART_DARK_GRID,
+            CHART_DARK_TEXT,
+            CHART_PROFILE_COLOR,
+        )
 
         def _peak_color(b):
-            return BAND_PALETTE_HEX.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE_HEX["OTHER"])
+            return CHART_BAND_PALETTE_HEX.get((b.band_type_code or "OTHER").upper(), CHART_BAND_PALETTE_HEX["OTHER"])
 
         # --- Determine X-axis data ---
         mw_values = profile.get("mw_values")
@@ -310,19 +305,22 @@ class ComparisonReportBuilder(BaseReportBuilder):
             return None
 
         # --- Line color ---
-        accent = ACCENT_COLORS[index % len(ACCENT_COLORS)]
-        hex_color = "#{:02x}{:02x}{:02x}".format(*accent)
+        # Single profile colour matching the live chromatogram panel —
+        # lane index is no longer used to pick a hue.
+        del index  # kept in signature for caller compatibility
+        hex_color = CHART_PROFILE_COLOR
 
         # --- Create figure with dark theme ---
+        plt.rcParams["font.family"] = ["Inter", "Segoe UI", "DejaVu Sans", "sans-serif"]
         fig, ax = plt.subplots(figsize=(7, 2.5), dpi=150)
-        fig.patch.set_facecolor("#1e1e22")
-        ax.set_facecolor("#1e1e22")
+        fig.patch.set_facecolor(CHART_DARK_BG)
+        ax.set_facecolor(CHART_DARK_BG)
 
         # Profile line
         ax.plot(x_values, y_values, color=hex_color, linewidth=1.5, zorder=3)
 
         # Area fill under curve
-        ax.fill_between(x_values, 0, y_values, color=hex_color, alpha=0.2, zorder=2)
+        ax.fill_between(x_values, 0, y_values, color=hex_color, alpha=0.25, zorder=2)
 
         # Log scale for MW axis
         if use_log_x:
@@ -365,11 +363,11 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 )
 
         # --- Axis styling (dark theme) ---
-        ax.set_xlabel(x_label, color="#b0b0b0", fontsize=9)
-        ax.set_ylabel("Intensity", color="#b0b0b0", fontsize=9)
-        ax.tick_params(colors="#808080", labelsize=8)
+        ax.set_xlabel(x_label, color=CHART_DARK_TEXT, fontsize=9)
+        ax.set_ylabel("Intensity", color=CHART_DARK_TEXT, fontsize=9)
+        ax.tick_params(colors=CHART_DARK_TEXT, labelsize=8)
         for spine in ax.spines.values():
-            spine.set_color("#404040")
+            spine.set_color(CHART_DARK_GRID)
         ax.set_ylim(bottom=0)
 
         # Title with sample name
@@ -478,9 +476,9 @@ class ComparisonReportBuilder(BaseReportBuilder):
             return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
 
         LANE_ACCENT_COLORS = [
-            (37, 99, 235),   # accent-600 (live UI primary)
+            (37, 99, 235),  # accent-600 (live UI primary)
             (168, 85, 247),  # purple — POI
-            (34, 197, 94),   # green — other
+            (34, 197, 94),  # green — other
             (249, 115, 22),  # orange — MW reference
             (236, 72, 153),  # pink
             (20, 184, 166),  # teal
@@ -936,7 +934,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
 
         ACCENT_COLORS = [
-            (37, 99, 235),   # accent-600
+            (37, 99, 235),  # accent-600
             (168, 85, 247),
             (34, 197, 94),
             (249, 115, 22),
