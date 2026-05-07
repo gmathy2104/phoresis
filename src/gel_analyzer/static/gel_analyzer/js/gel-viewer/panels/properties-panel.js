@@ -368,6 +368,7 @@
             const labels = {
                 'POI': 'POI',
                 'MW_REFERENCE': 'MW Ref',
+                'CALIBRATION': 'Calib',
                 'OTHER': 'Other'
             };
             return labels[bandType] || 'Other';
@@ -382,9 +383,36 @@
             const colors = {
                 'POI': 'purple',
                 'MW_REFERENCE': 'warning',
+                'CALIBRATION': 'info',
                 'OTHER': 'secondary'
             };
             return colors[bandType] || 'secondary';
+        }
+
+        /**
+         * Fetch and cache the unit of the active quantification calibration
+         * for this analysis. When an active calibration exists, every new
+         * CALIBRATION point must use the same unit so we lock the select.
+         * @returns {Promise<string|null>} 'UG' | 'UG_ML' | null when no active
+         */
+        async _getActiveCalibUnit() {
+            if (this._activeCalibUnitCache !== undefined) {
+                return this._activeCalibUnitCache;
+            }
+            if (!this.apiClient || !this.apiClient.analysisId) {
+                this._activeCalibUnitCache = null;
+                return null;
+            }
+            try {
+                const resp = await this.apiClient.getActiveQuantification(
+                    this.apiClient.analysisId
+                );
+                this._activeCalibUnitCache = resp?.active?.unit || null;
+            } catch (err) {
+                console.warn('Could not load active quantification:', err);
+                this._activeCalibUnitCache = null;
+            }
+            return this._activeCalibUnitCache;
         }
 
         // =====================================================================
@@ -759,6 +787,7 @@
 
             // MW label depends on band type - known for references, estimated for others
             const isMwReference = band.band_type === 'MW_REFERENCE';
+            const isCalibration = band.band_type === 'CALIBRATION';
             const mwLabel = isMwReference ? 'MW (kDa)' : 'Estimated MW (kDa)';
             const mwPlaceholder = isMwReference ? 'e.g., 25, 50, 75...' : 'e.g., 150.0';
 
@@ -769,6 +798,14 @@
                 ? '<span id="prop-band-saving" class="gv-saving-indicator"><i class="bi bi-arrow-repeat gv-spin"></i> Saving...</span>'
                 : '<span id="prop-band-saving" class="gv-saving-indicator" style="display: none;"></span>';
 
+            const qp = band.quant_point || {};
+            const qpAmount = qp.load_amount ?? '';
+            const qpUnit = qp.load_unit || 'UG';
+            const hasDensito = band.corrected_area != null && band.corrected_area > 0;
+            const densitoStatus = hasDensito
+                ? '<span class="text-success"><i class="bi bi-check-circle"></i> Densitometry available</span>'
+                : '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Run densitometry to use this point</span>';
+
             this.contentContainer.innerHTML = `
                 <div class="gv-quick-form">
                     <h6 class="mb-3">Band</h6>
@@ -778,6 +815,7 @@
                             <option value="OTHER" ${band.band_type === 'OTHER' ? 'selected' : ''}>Other</option>
                             <option value="POI" ${band.band_type === 'POI' ? 'selected' : ''}>Protein of Interest</option>
                             <option value="MW_REFERENCE" ${band.band_type === 'MW_REFERENCE' ? 'selected' : ''}>MW Reference</option>
+                            <option value="CALIBRATION" ${isCalibration ? 'selected' : ''}>Calibration Point</option>
                         </select>
                     </div>
                     <div class="mb-2">
@@ -790,6 +828,30 @@
                         <input type="number" class="form-control form-control-sm" id="prop-mw" data-field="estimated_mw_kda"
                                value="${band.estimated_mw_kda || ''}" step="0.1" placeholder="${mwPlaceholder}">
                     </div>
+                    <section class="gv-prop-section mb-2" id="prop-band-calib-section"
+                             style="display: ${isCalibration ? '' : 'none'};">
+                        <h6 class="gv-prop-section-title">Calibration</h6>
+                        <div class="mb-2">
+                            <label class="form-label" for="prop-band-load-amount">Loaded amount</label>
+                            <input type="number" class="form-control form-control-sm"
+                                   id="prop-band-load-amount" data-field="quant_load_amount"
+                                   min="0" step="0.01" value="${qpAmount}" placeholder="—">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="prop-band-load-unit">Unit</label>
+                            <select class="form-select form-select-sm"
+                                    id="prop-band-load-unit" data-field="quant_load_unit">
+                                <option value="UG" ${qpUnit === 'UG' ? 'selected' : ''}>µg</option>
+                                <option value="UG_ML" ${qpUnit === 'UG_ML' ? 'selected' : ''}>µg/mL</option>
+                            </select>
+                            <small class="text-muted" id="prop-band-load-unit-hint" style="display: none;">
+                                Unit fixed by active calibration
+                            </small>
+                        </div>
+                        <div class="mb-1">
+                            <small id="prop-band-densito-status">${densitoStatus}</small>
+                        </div>
+                    </section>
                     <div class="mb-2">
                         <label class="form-label">Notes</label>
                         <textarea class="form-control form-control-sm" id="prop-band-notes" data-field="notes" rows="2">${band.notes || ''}</textarea>
@@ -806,6 +868,19 @@
             `;
 
             this._setupBandListeners(band.id);
+
+            // After the form is in the DOM, lock the unit if there's an active
+            // quantification calibration on this analysis (units must agree).
+            this._getActiveCalibUnit().then(unit => {
+                if (!unit) return;
+                const select = document.getElementById('prop-band-load-unit');
+                const hint = document.getElementById('prop-band-load-unit-hint');
+                if (select) {
+                    select.value = unit;
+                    select.disabled = true;
+                }
+                if (hint) hint.style.display = '';
+            });
         }
 
         /**
@@ -829,12 +904,17 @@
             const bandTypeSelect = document.getElementById('prop-band-type');
             const mwLabel = document.getElementById('prop-mw-label');
             const mwInput = document.getElementById('prop-mw');
+            const calibSection = document.getElementById('prop-band-calib-section');
             if (bandTypeSelect && mwLabel && mwInput) {
                 bandTypeSelect.addEventListener('change', (e) => {
                     // Update MW label
                     const isMwReference = e.target.value === 'MW_REFERENCE';
                     mwLabel.textContent = isMwReference ? 'MW (kDa)' : 'Estimated MW (kDa)';
                     mwInput.placeholder = isMwReference ? 'e.g., 25, 50, 75...' : 'e.g., 150.0';
+                    // Toggle the Calibration section
+                    if (calibSection) {
+                        calibSection.style.display = e.target.value === 'CALIBRATION' ? '' : 'none';
+                    }
                     // Track the change immediately
                     this._handleBandChange(id, e.target);
                 });
@@ -872,6 +952,14 @@
             const field = input.dataset.field;
             let value = input.value;
 
+            // The Calibration sub-fields are saved via _saveBandProperties (so
+            // amount + unit are persisted atomically as a quant_point payload).
+            // Don't push individual changes through onUpdateBand which would
+            // fire a partial update that the v1 serializer can't validate.
+            if (field === 'quant_load_amount' || field === 'quant_load_unit') {
+                return;
+            }
+
             // Parse value based on field type
             if (field === 'estimated_mw_kda') {
                 value = value === '' ? null : parseFloat(value);
@@ -890,19 +978,59 @@
          * Save band properties from form.
          * @param {string|number} id - Band ID
          */
-        _saveBandProperties(id) {
+        async _saveBandProperties(id) {
             const bandType = document.getElementById('prop-band-type')?.value;
             const label = document.getElementById('prop-label')?.value;
             const mw = document.getElementById('prop-mw')?.value;
             const notes = document.getElementById('prop-band-notes')?.value;
 
+            const payload = {
+                band_type: bandType,
+                label: label,
+                estimated_mw_kda: mw ? parseFloat(mw) : null,
+                notes: notes,
+            };
+
+            if (bandType === 'CALIBRATION') {
+                const amountStr = document.getElementById('prop-band-load-amount')?.value;
+                const unit = document.getElementById('prop-band-load-unit')?.value || 'UG';
+                const amount = amountStr === '' || amountStr == null
+                    ? null
+                    : parseFloat(amountStr);
+                if (amount === null || !isFinite(amount) || amount < 0) {
+                    window.alert('Loaded amount is required and must be a positive number for CALIBRATION bands.');
+                    return;
+                }
+                payload.quant_point = {
+                    load_amount: amount,
+                    load_unit: unit,
+                };
+            }
+
+            // Route through the v1 PATCH endpoint so the nested quant_point
+            // payload is validated against the CALIBRATION rules in
+            // _validate_band_quant_point. Falls back to the legacy onUpdateBand
+            // for non-CALIBRATION saves to preserve the existing flow.
+            if (bandType === 'CALIBRATION' && this.apiClient && this.apiClient.patchBand) {
+                try {
+                    await this.apiClient.patchBand(id, payload);
+                    // Mirror to local state so the panel + table re-render correctly.
+                    const band = this.stateManager.getBand(id);
+                    if (band) {
+                        Object.assign(band, payload);
+                        band.quant_point = payload.quant_point;
+                    }
+                    this.eventBus.emit(Events.BAND_PROPERTY_CHANGED, {
+                        id, field: 'band_type', value: bandType,
+                    });
+                } catch (err) {
+                    window.alert(`Could not save band: ${err.message || err}`);
+                }
+                return;
+            }
+
             if (this.onUpdateBand) {
-                this.onUpdateBand(id, {
-                    band_type: bandType,
-                    label: label,
-                    estimated_mw_kda: mw ? parseFloat(mw) : null,
-                    notes: notes,
-                });
+                this.onUpdateBand(id, payload);
             }
         }
 

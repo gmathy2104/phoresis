@@ -383,6 +383,38 @@
         }
 
         /**
+         * PATCH a band via the DRF v1 endpoint, which understands the nested
+         * quant_point payload and the CALIBRATION validation rules.
+         * @param {string} id - Band UUID
+         * @param {Object} data - Partial band fields, optionally including
+         *   {quant_point: {load_amount, load_unit, is_excluded_from_fit?}}
+         */
+        async patchBand(id, data) {
+            try {
+                const response = await fetch(`/api/v1/bands/${id}/`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken,
+                    },
+                    body: JSON.stringify(data),
+                });
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(
+                        err.detail
+                        || (typeof err === 'object' ? JSON.stringify(err) : null)
+                        || 'Failed to PATCH band',
+                    );
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Server error patching band:', error);
+                throw error;
+            }
+        }
+
+        /**
          * Delete a band from the server.
          * @param {string} id - Band ID
          */
