@@ -219,6 +219,7 @@ class Band(models.Model):
         MW_REFERENCE = "MW_REFERENCE", "MW Reference"
         POI = "POI", "Protein of Interest"
         OTHER = "OTHER", "Other"
+        CALIBRATION = "CALIBRATION", "Calibration Point"
 
     # Primary key
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

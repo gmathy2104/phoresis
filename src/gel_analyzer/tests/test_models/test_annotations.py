@@ -106,6 +106,13 @@ class TestBand:
         assert Band.DetectionSource.YOLO == "YOLO"
         assert Band.DetectionSource.SAM == "SAM"
 
+    def test_band_type_choices(self):
+        """Test band type choices are valid."""
+        assert Band.BandType.MW_REFERENCE == "MW_REFERENCE"
+        assert Band.BandType.POI == "POI"
+        assert Band.BandType.OTHER == "OTHER"
+        assert Band.BandType.CALIBRATION == "CALIBRATION"
+
     def test_yolo_detected_band(self, yolo_band):
         """Test YOLO-detected band properties."""
         assert yolo_band.detection_source == Band.DetectionSource.YOLO
