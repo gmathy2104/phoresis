@@ -261,8 +261,23 @@ if ($dbExists -ne '1') {
         exit 1
     }
 }
+
+# 3. phoresis_dev — separate database the bare-metal `manage.py runserver`
+#    points at via settings/dev.py. Lets a developer iterate locally
+#    without ever touching the prod stack's `phoresis` data. Idempotent;
+#    failures here are non-fatal because the prod stack works regardless
+#    -- only `manage.py runserver` would hit a "database does not exist".
+$devDbExists = & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='phoresis_dev'"
+if ($devDbExists -ne '1') {
+    & psql -U postgres -h 127.0.0.1 -p $DBPort -d postgres -c "CREATE DATABASE phoresis_dev OWNER phoresis"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "CREATE DATABASE phoresis_dev failed (exit $LASTEXITCODE) -- prod stack still works, but ``manage.py runserver`` will need this DB created manually before first use."
+    } else {
+        Write-Sub "phoresis_dev DB created (target of ``manage.py runserver``; run migrate before first use)"
+    }
+}
 $env:PGPASSWORD = $null
-Write-Ok "phoresis DB + user ready on port $DBPort"
+Write-Ok "phoresis + phoresis_dev DBs + phoresis user ready on port $DBPort"
 
 # --- 3. GPU detection ---
 # The CUDA image ships PyTorch built with cu128 (CUDA 12.8), which officially

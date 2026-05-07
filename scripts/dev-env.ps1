@@ -20,16 +20,23 @@ $Script:RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $env:DJANGO_SETTINGS_MODULE = 'phoresis.settings.dev'
 $env:DJANGO_DEBUG           = 'true'
 
+# DB / Redis are exported under the PHORESIS_* namespace because
+# `phoresis.settings.dev` (on bare metal) ignores generic `DB_*` /
+# `REDIS_*` env vars to avoid being hijacked by sibling-project vars
+# (e.g. an Azure Postgres set at OS user level). The PHORESIS_* names
+# are the documented escape hatch. Inside Docker, the compose stack
+# injects `DB_*` / `REDIS_*` directly and dev.py honours those.
+
 # DB → dev postgres in docker (host port 15432, internal 5432 via 127.0.0.1)
-$env:DB_HOST     = '127.0.0.1'
-$env:DB_PORT     = '15432'
-$env:DB_NAME     = 'phoresis'
-$env:DB_USER     = 'phoresis'
-$env:DB_PASSWORD = 'phoresis'
+$env:PHORESIS_DB_HOST     = '127.0.0.1'
+$env:PHORESIS_DB_PORT     = '15432'
+$env:PHORESIS_DB_NAME     = 'phoresis'
+$env:PHORESIS_DB_USER     = 'phoresis'
+$env:PHORESIS_DB_PASSWORD = 'phoresis'
 
 # Redis → dev redis in docker (host port 16379)
-$env:REDIS_HOST  = '127.0.0.1'
-$env:REDIS_PORT  = '16379'
+$env:PHORESIS_REDIS_HOST  = '127.0.0.1'
+$env:PHORESIS_REDIS_PORT  = '16379'
 
 # Media path — same host folder that the worker container bind-mounts at
 # /srv/media. Default keeps it co-located with the repo (gitignored).
@@ -47,8 +54,8 @@ $env:MEDIA_ROOT = $defaultMedia
 
 Write-Host ""
 Write-Host "Phoresis dev env loaded:" -ForegroundColor Green
-Write-Host "  DB     : $($env:DB_USER)@$($env:DB_HOST):$($env:DB_PORT)/$($env:DB_NAME)"
-Write-Host "  Redis  : $($env:REDIS_HOST):$($env:REDIS_PORT)"
+Write-Host "  DB     : $($env:PHORESIS_DB_USER)@$($env:PHORESIS_DB_HOST):$($env:PHORESIS_DB_PORT)/$($env:PHORESIS_DB_NAME)"
+Write-Host "  Redis  : $($env:PHORESIS_REDIS_HOST):$($env:PHORESIS_REDIS_PORT)"
 Write-Host "  Media  : $($env:MEDIA_ROOT)"
 Write-Host "  Django : $($env:DJANGO_SETTINGS_MODULE) (DEBUG=$($env:DJANGO_DEBUG))"
 Write-Host ""
