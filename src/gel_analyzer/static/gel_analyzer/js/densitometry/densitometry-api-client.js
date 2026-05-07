@@ -283,6 +283,48 @@
                 }),
             });
         }
+
+        // =====================================================================
+        // Protein Quantification (v1 API)
+        // =====================================================================
+        // The quantification routes live under /api/v1/ (function-based views,
+        // see gel_analyzer/api/urls.py). The other endpoints in this client use
+        // the unversioned /api/ prefix, so we explicitly prefix /v1 here.
+
+        /**
+         * Get the active quantification calibration (or null) for the analysis.
+         */
+        async getActiveQuantification(analysisId) {
+            const id = analysisId || this.analysisId;
+            return this._fetch(`${this.baseUrl}/v1/analyses/${id}/quantification/`);
+        }
+
+        /**
+         * Preview a quantification fit without persisting.
+         * @param {string} analysisId
+         * @param {Object} body - { method, unit, excluded_band_ids }
+         * @returns {Object} fit result (calibration_points, control_points,
+         *   sample_projections, r_squared, equation, success, ...)
+         */
+        async previewQuantification(analysisId, body) {
+            const id = analysisId || this.analysisId;
+            return this._fetch(`${this.baseUrl}/v1/analyses/${id}/quantification/preview/`, {
+                method: 'POST',
+                body: JSON.stringify(body || {}),
+            });
+        }
+
+        /**
+         * Save & apply a quantification calibration.
+         * @returns {Object} serialized calibration (id, method, unit, ...)
+         */
+        async saveQuantification(analysisId, body) {
+            const id = analysisId || this.analysisId;
+            return this._fetch(`${this.baseUrl}/v1/analyses/${id}/quantification/`, {
+                method: 'POST',
+                body: JSON.stringify(body || {}),
+            });
+        }
     }
 
     // Export

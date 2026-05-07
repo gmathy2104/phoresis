@@ -321,6 +321,48 @@
 
             // Analysis Options modal controls
             this._setupOptionsModal();
+
+            // Quantification calibration modal — opened from the toolbar.
+            // Re-renders all panels when a new calibration is saved so that
+            // the freshly-applied estimated_amount values appear in tables /
+            // chromatograms without a full page reload.
+            this._setupQuantificationModal();
+        }
+
+        /**
+         * Wire the Quantification calibration modal to the toolbar button.
+         */
+        _setupQuantificationModal() {
+            const QuantModalCtor = global.Densitometry.QuantificationModal
+                                || global.QuantificationModal;
+            if (!QuantModalCtor) {
+                console.warn('[DensitometryApp] QuantificationModal class not loaded');
+                return;
+            }
+            const trigger = document.getElementById('open-quantification-modal');
+            if (!trigger) {
+                // Modal markup absent — nothing to wire.
+                return;
+            }
+            this.quantModal = new QuantModalCtor({
+                apiClient: this.api,
+                analysisId: this.analysisId,
+                eventBus: this.eventBus,
+            });
+            trigger.addEventListener('click', () => this.quantModal.open());
+
+            // Re-load densitometry results after a new calibration is applied
+            // — apply_to_analysis() bulk-updates DensitometryResult.estimated_amount
+            // server-side, but the client cache still holds the old null/stale
+            // values until we re-fetch.
+            this.eventBus.on(
+                Events.QUANT_CALIBRATION_CHANGED || 'QUANT_CALIBRATION_CHANGED',
+                () => {
+                    this._loadExistingResults().catch(err => {
+                        console.error('[DensitometryApp] post-quant refresh failed:', err);
+                    });
+                }
+            );
         }
 
         /**

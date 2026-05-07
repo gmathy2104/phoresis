@@ -161,6 +161,9 @@
         // Settings events
         PARAMS_CHANGED: 'params:changed',
         NORMALIZATION_CHANGED: 'normalization:changed',
+
+        // Quantification events
+        QUANT_CALIBRATION_CHANGED: 'QUANT_CALIBRATION_CHANGED',
     };
 
     // Export to namespace
