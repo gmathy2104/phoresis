@@ -39,6 +39,27 @@ if not _IN_DOCKER:
     DATABASES["default"]["USER"] = os.environ.get("PHORESIS_DB_USER", "phoresis")
     DATABASES["default"]["PASSWORD"] = os.environ.get("PHORESIS_DB_PASSWORD", "phoresis")
 
+    # ── Redis broker / cache — point at the devstack on bare metal ────
+    # base.py wires REDIS_HOST=127.0.0.1, REDIS_PORT=6379. On the dev
+    # Windows host that port is typically NOT a phoresis Redis (the prod
+    # stack's redis is internal-only, the dev host may have a sibling
+    # project's redis like dshub-dev-redis bound to 6379) — so tasks
+    # enqueued by `runserver` end up in the wrong broker, no phoresis
+    # worker consumes them, and the frontend polls /api/tasks/<id>/status/
+    # forever showing PENDING.
+    #
+    # The Phoresis devstack (compose.devstack.yml) maps its Redis on
+    # host port 16379 specifically to avoid that collision. Default the
+    # bare-metal dev session there, with PHORESIS_REDIS_* as the override
+    # escape-hatch for unusual setups (eager-mode tests, alternative
+    # broker, etc.).
+    REDIS_HOST = os.environ.get("PHORESIS_REDIS_HOST", "127.0.0.1")
+    REDIS_PORT = os.environ.get("PHORESIS_REDIS_PORT", "16379")
+    _REDIS_BASE = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+    CELERY_BROKER_URL = f"{_REDIS_BASE}/{REDIS_DB_CELERY}"
+    CELERY_RESULT_BACKEND = f"{_REDIS_BASE}/{REDIS_DB_CELERY}"
+    CACHES["default"]["LOCATION"] = f"{_REDIS_BASE}/{REDIS_DB_CACHE}"
+
 # Phase 1: keep manifest storage off in dev to avoid collectstatic friction.
 # Reconstruct STORAGES (rather than mutating the dict imported from base) so that
 # importing both dev and another settings module in the same process can't
