@@ -366,6 +366,50 @@ class LaneViewSet(viewsets.ModelViewSet):
             return [WriteRateThrottle()]
         return super().get_throttles()
 
+    def partial_update(self, request, *args, **kwargs):
+        """PATCH /api/v1/lanes/<id>/ — with quantification-aware downgrade guard.
+
+        If the lane is being moved out of CALIBRATION/CONTROL and dependent
+        ProteinQuantCalibrationPoint rows exist, return 409 unless ?force=true
+        is passed; with force, purge the points and demote the bands to OTHER
+        before performing the regular update.
+        """
+        from django.db import transaction
+
+        from gel_analyzer.models import Band as _Band
+        from gel_analyzer.models import ProteinQuantCalibrationPoint
+
+        instance = self.get_object()
+        new_type = request.data.get("lane_type")
+        force = request.query_params.get("force", "").lower() == "true"
+
+        is_downgrade = (
+            new_type
+            and instance.lane_type in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL)
+            and new_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL)
+        )
+        if is_downgrade:
+            dependent_ids = list(
+                ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).values_list(
+                    "band_id", flat=True
+                )
+            )
+            if dependent_ids and not force:
+                return Response(
+                    {
+                        "detail": "Lane has calibration points. Pass ?force=true to purge them.",
+                        "dependent_band_ids": [str(b) for b in dependent_ids],
+                    },
+                    status=drf_status.HTTP_409_CONFLICT,
+                )
+            if dependent_ids and force:
+                with transaction.atomic():
+                    ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).delete()
+                    _Band.objects.filter(
+                        lane=instance, band_type=_Band.BandType.CALIBRATION
+                    ).update(band_type=_Band.BandType.OTHER)
+        return super().partial_update(request, *args, **kwargs)
+
     @extend_schema(
         summary="Get Lane Intensity Profile",
         tags=["Lane Data"],
