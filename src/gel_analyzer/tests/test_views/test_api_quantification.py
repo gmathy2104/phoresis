@@ -75,6 +75,11 @@ def test_lane_downgrade_with_force_purges(authenticated_client, calib_lane_with_
     from gel_analyzer.models import ProteinQuantCalibrationPoint
 
     assert ProteinQuantCalibrationPoint.objects.filter(band__lane=lane).count() == 0
+    # And the bands themselves must have been demoted to OTHER (the
+    # ?force=true path resets band_type so the lane-level downgrade is coherent).
+    from gel_analyzer.models import Band
+
+    assert Band.objects.filter(lane=lane, band_type=Band.BandType.CALIBRATION).count() == 0
 
 
 # ---------------------------------------------------------------------------

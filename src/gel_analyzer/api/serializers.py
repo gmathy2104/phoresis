@@ -129,6 +129,64 @@ class QuantPointSerializer(serializers.ModelSerializer):
         read_only_fields = ("role",)
 
 
+def _validate_band_quant_point(attrs: dict, instance) -> dict:
+    """Shared validation for BandSerializer and BandWriteSerializer.
+
+    Both serializers must enforce the same three rules around CALIBRATION-typed
+    bands and their quant_point: required, parent lane type, unit consistency.
+    Drift between two near-identical copies has historically bitten this file
+    (AGENTS.md §2-style "shipped 3x already"), so the rules live in one helper.
+    """
+    band_type = attrs.get("band_type", getattr(instance, "band_type", None))
+    qp = attrs.get("quant_point")
+    if band_type == Band.BandType.CALIBRATION and qp is None:
+        existing_qp = None
+        if instance is not None:
+            existing_qp = ProteinQuantCalibrationPoint.objects.filter(band=instance).first()
+        if existing_qp is None:
+            raise serializers.ValidationError(
+                "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
+            )
+    if band_type == Band.BandType.CALIBRATION:
+        lane = attrs.get("lane") or (instance.lane if instance else None)
+        if lane and lane.lane_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
+            raise serializers.ValidationError(
+                "band_type=CALIBRATION must live in a CALIBRATION or CONTROL lane"
+            )
+    if qp is not None and band_type == Band.BandType.CALIBRATION:
+        lane = attrs.get("lane") or (instance.lane if instance else None)
+        if lane is not None:
+            active = ProteinQuantCalibration.objects.filter(analysis=lane.analysis, is_active=True).first()
+            if active and qp.get("load_unit") and qp["load_unit"] != active.unit:
+                raise serializers.ValidationError(
+                    f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
+                )
+    return attrs
+
+
+def _update_band_quant_point(band, qp_data: dict | None) -> None:
+    """Shared post-save handling: create/update/delete the ProteinQuantCalibrationPoint
+    that mirrors a band's CALIBRATION state. See _validate_band_quant_point for why
+    this is a shared helper rather than method bodies."""
+    if band.band_type == Band.BandType.CALIBRATION and qp_data is not None:
+        role = (
+            ProteinQuantCalibrationPoint.ROLE_CONTROL
+            if band.lane.lane_type == Lane.LaneType.CONTROL
+            else ProteinQuantCalibrationPoint.ROLE_CALIBRATION
+        )
+        ProteinQuantCalibrationPoint.objects.update_or_create(
+            band=band,
+            defaults={
+                "load_amount": qp_data["load_amount"],
+                "load_unit": qp_data["load_unit"],
+                "is_excluded_from_fit": qp_data.get("is_excluded_from_fit", False),
+                "role": role,
+            },
+        )
+    elif band.band_type != Band.BandType.CALIBRATION:
+        ProteinQuantCalibrationPoint.objects.filter(band=band).delete()
+
+
 class BandSerializer(serializers.ModelSerializer):
     """Serializer for Band — includes polygon, bbox, and intensities."""
 
@@ -180,63 +238,23 @@ class BandSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, attrs):
-        band_type = attrs.get("band_type", getattr(self.instance, "band_type", None))
-        qp = attrs.get("quant_point")
-        # CALIBRATION requires a quant_point on creation (or when one isn't already
-        # attached to the existing instance).
-        if band_type == Band.BandType.CALIBRATION and qp is None:
-            existing_qp = None
-            if self.instance is not None:
-                existing_qp = ProteinQuantCalibrationPoint.objects.filter(band=self.instance).first()
-            if existing_qp is None:
-                raise serializers.ValidationError(
-                    "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
-                )
-        # Parent lane must be CALIBRATION or CONTROL when band is CALIBRATION
-        if band_type == Band.BandType.CALIBRATION:
-            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
-            if lane and lane.lane_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
-                raise serializers.ValidationError(
-                    "band_type=CALIBRATION must live in a CALIBRATION or CONTROL lane"
-                )
-        # Unit consistency with the active calibration of the analysis
-        if qp is not None and band_type == Band.BandType.CALIBRATION:
-            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
-            if lane is not None:
-                analysis = lane.analysis
-                active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
-                if active and qp.get("load_unit") and qp["load_unit"] != active.unit:
-                    raise serializers.ValidationError(
-                        f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
-                    )
-        return attrs
+        return _validate_band_quant_point(attrs, self.instance)
 
     def update(self, instance, validated_data):
         qp_data = validated_data.pop("quant_point", None)
         band = super().update(instance, validated_data)
-        if band.band_type == Band.BandType.CALIBRATION and qp_data is not None:
-            role = (
-                ProteinQuantCalibrationPoint.ROLE_CONTROL
-                if band.lane.lane_type == Lane.LaneType.CONTROL
-                else ProteinQuantCalibrationPoint.ROLE_CALIBRATION
-            )
-            ProteinQuantCalibrationPoint.objects.update_or_create(
-                band=band,
-                defaults={
-                    "load_amount": qp_data["load_amount"],
-                    "load_unit": qp_data["load_unit"],
-                    "is_excluded_from_fit": qp_data.get("is_excluded_from_fit", False),
-                    "role": role,
-                },
-            )
-        elif band.band_type != Band.BandType.CALIBRATION:
-            # type was demoted; remove any orphan point
-            ProteinQuantCalibrationPoint.objects.filter(band=band).delete()
+        _update_band_quant_point(band, qp_data)
         return band
 
 
 class BandWriteSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating bands."""
+    """Serializer for creating/updating bands.
+
+    Validation + nested quant_point update logic is shared with BandSerializer
+    via _validate_band_quant_point / _update_band_quant_point — a single source
+    of truth for the CALIBRATION rules so the two near-identical serializers
+    cannot drift.
+    """
 
     quant_point = QuantPointSerializer(required=False, allow_null=True)
 
@@ -261,53 +279,12 @@ class BandWriteSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        band_type = attrs.get("band_type", getattr(self.instance, "band_type", None))
-        qp = attrs.get("quant_point")
-        if band_type == Band.BandType.CALIBRATION and qp is None:
-            existing_qp = None
-            if self.instance is not None:
-                existing_qp = ProteinQuantCalibrationPoint.objects.filter(band=self.instance).first()
-            if existing_qp is None:
-                raise serializers.ValidationError(
-                    "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
-                )
-        if band_type == Band.BandType.CALIBRATION:
-            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
-            if lane and lane.lane_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
-                raise serializers.ValidationError(
-                    "band_type=CALIBRATION must live in a CALIBRATION or CONTROL lane"
-                )
-        if qp is not None and band_type == Band.BandType.CALIBRATION:
-            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
-            if lane is not None:
-                analysis = lane.analysis
-                active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
-                if active and qp.get("load_unit") and qp["load_unit"] != active.unit:
-                    raise serializers.ValidationError(
-                        f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
-                    )
-        return attrs
+        return _validate_band_quant_point(attrs, self.instance)
 
     def update(self, instance, validated_data):
         qp_data = validated_data.pop("quant_point", None)
         band = super().update(instance, validated_data)
-        if band.band_type == Band.BandType.CALIBRATION and qp_data is not None:
-            role = (
-                ProteinQuantCalibrationPoint.ROLE_CONTROL
-                if band.lane.lane_type == Lane.LaneType.CONTROL
-                else ProteinQuantCalibrationPoint.ROLE_CALIBRATION
-            )
-            ProteinQuantCalibrationPoint.objects.update_or_create(
-                band=band,
-                defaults={
-                    "load_amount": qp_data["load_amount"],
-                    "load_unit": qp_data["load_unit"],
-                    "is_excluded_from_fit": qp_data.get("is_excluded_from_fit", False),
-                    "role": role,
-                },
-            )
-        elif band.band_type != Band.BandType.CALIBRATION:
-            ProteinQuantCalibrationPoint.objects.filter(band=band).delete()
+        _update_band_quant_point(band, qp_data)
         return band
 
 

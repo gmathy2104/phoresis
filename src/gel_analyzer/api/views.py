@@ -242,6 +242,10 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
                                 "relative_percent_lane": dr.relative_percent_lane,
                                 "fit_r_squared": dr.fit_r_squared,
                                 "snr": dr.snr,
+                                # Spec §8.1 — quantification fields surfaced for the
+                                # UI's results-table and quantification curve tab.
+                                "estimated_amount": dr.estimated_amount,
+                                "estimated_amount_unit": dr.estimated_amount_unit,
                             }
                         )
                     except DensitometryResult.DoesNotExist:
@@ -744,10 +748,17 @@ def quantification_root(request, analysis_id):
             {"detail": result.error_message, **result.to_dict()},
             status=drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
-    calib = svc.save_active(
-        analysis, result, user=request.user, notes=request.data.get("notes", "")
-    )
-    svc.apply_to_analysis(calib)
+    # save_active uses transaction.atomic() internally, but apply_to_analysis is
+    # the second leg of "Save & apply" (spec §7.1, §8.3) and must commit together
+    # — otherwise a crash between the two leaves the analysis with an active
+    # calibration but no estimated_amount values written.
+    from django.db import transaction
+
+    with transaction.atomic():
+        calib = svc.save_active(
+            analysis, result, user=request.user, notes=request.data.get("notes", "")
+        )
+        svc.apply_to_analysis(calib)
     return Response(_serialize_calib(calib), status=drf_status.HTTP_201_CREATED)
 
 
@@ -799,11 +810,18 @@ def quantification_detail(request, analysis_id, calib_id):
         )
 
     if request.method == "PATCH":
+        # update_fields prevents racing with recompute_if_active, which writes
+        # coefficients/r_squared/equation/last_recomputed_at. A bare save()
+        # would clobber those columns with the row state fetched above.
+        fields_to_save: list[str] = []
         if "excluded_band_ids" in request.data:
             calib.excluded_band_ids = request.data["excluded_band_ids"]
+            fields_to_save.append("excluded_band_ids")
         if "notes" in request.data:
             calib.notes = request.data["notes"]
-        calib.save()
+            fields_to_save.append("notes")
+        if fields_to_save:
+            calib.save(update_fields=fields_to_save)
         return Response(_serialize_calib(calib))
 
     # DELETE = deactivate
@@ -819,6 +837,12 @@ def quantification_detail(request, analysis_id, calib_id):
 def quantification_history(request, analysis_id):
     """Return all calibrations (active + superseded) for the analysis."""
     from gel_analyzer.models import ProteinQuantCalibration
+
+    # Mirror the 404 guard used by the sibling views — otherwise a fabricated
+    # analysis_id silently returns {"history": []} with HTTP 200 and clients
+    # cannot distinguish "no history" from "wrong analysis".
+    if not GelAnalysis.objects.filter(pk=analysis_id).exists():
+        return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
 
     history = ProteinQuantCalibration.objects.filter(analysis_id=analysis_id).order_by(
         "-created_at"
