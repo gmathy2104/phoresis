@@ -1,5 +1,6 @@
 """Dataclasses for the protein quantification calibration service."""
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Literal
 
