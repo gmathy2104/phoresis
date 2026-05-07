@@ -97,6 +97,12 @@ class Lane(models.Model):
     protein_load_type = models.CharField(
         max_length=20, choices=ProteinLoadType.choices, blank=True, help_text="Type of protein loaded"
     )
+    loading_volume_ul = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Loading volume in µL (used to convert µg/mL → µg for samples)",
+    )
 
     # Free-text sample identifier (Phoresis has no central sample registry).
     sample_name = models.CharField(

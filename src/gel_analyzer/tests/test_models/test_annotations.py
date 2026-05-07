@@ -58,6 +58,19 @@ class TestLane:
 
     # (Removed: pre-existing failure — Lane model no longer enforces lane_number uniqueness; managed by renumber_lanes().)
 
+    def test_loading_volume_ul_optional(self, sample_lane):
+        """loading_volume_ul is optional and stores µL."""
+        assert sample_lane.loading_volume_ul is None
+        sample_lane.loading_volume_ul = 12.5
+        sample_lane.save()
+        sample_lane.refresh_from_db()
+        assert sample_lane.loading_volume_ul == 12.5
+
+    def test_loading_volume_ul_rejects_negative(self, sample_lane):
+        sample_lane.loading_volume_ul = -1.0
+        with pytest.raises(ValidationError):
+            sample_lane.full_clean()
+
     def test_confidence_validation(self, gel_analysis):
         """Test confidence value validation."""
         lane = Lane(
