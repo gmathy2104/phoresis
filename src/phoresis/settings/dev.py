@@ -1,9 +1,43 @@
 """Development settings — local Postgres, DEBUG=True."""
 
+import os
+from pathlib import Path
+
 from .base import *
 
 DEBUG = True
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "phoresis"]
+
+# ── Database — protect the native dev session from polluted DB_* ──────
+# base.py wires DATABASES["default"] to DB_HOST / DB_USER / DB_PASSWORD /
+# DB_NAME from os.environ. That's perfect when settings.dev is loaded
+# *inside a container* (docker/compose.dev.yml injects DB_HOST=
+# host.docker.internal et al. from the stack's --env-file) — but a
+# footgun on the bare-metal dev host when unrelated DB_* vars are set at
+# the OS user level for a sibling project (e.g. Azure Postgres). Those
+# vars silently hijack `manage.py runserver` → connection timeout
+# against the wrong host.
+#
+# Decision rule:
+#   - In Docker (file /.dockerenv exists): trust DB_* injected by the
+#     compose stack — the container has its own clean env.
+#   - On bare metal: ignore DB_*, pin to the native local Postgres.
+#     PHORESIS_DB_* is the override escape-hatch (won't collide with
+#     any other project's DB_* vars).
+#
+# Docker prod is unaffected either way — it loads settings.prod.
+_IN_DOCKER = Path("/.dockerenv").exists()
+
+if not _IN_DOCKER:
+    DATABASES["default"]["HOST"] = os.environ.get("PHORESIS_DB_HOST", "127.0.0.1")
+    DATABASES["default"]["PORT"] = os.environ.get("PHORESIS_DB_PORT", "5432")
+    # Default to phoresis_dev so the bare-metal runserver never accidentally
+    # mutates the same database the Docker prod stack reads/writes
+    # (host.docker.internal:5432, NAME=phoresis). Both DBs live on the same
+    # native Postgres instance, but are otherwise isolated.
+    DATABASES["default"]["NAME"] = os.environ.get("PHORESIS_DB_NAME", "phoresis_dev")
+    DATABASES["default"]["USER"] = os.environ.get("PHORESIS_DB_USER", "phoresis")
+    DATABASES["default"]["PASSWORD"] = os.environ.get("PHORESIS_DB_PASSWORD", "phoresis")
 
 # Phase 1: keep manifest storage off in dev to avoid collectstatic friction.
 # Reconstruct STORAGES (rather than mutating the dict imported from base) so that
