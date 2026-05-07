@@ -14,6 +14,8 @@ from gel_analyzer.models import (
     LadderBandDefinition,
     LadderTemplate,
     Lane,
+    ProteinQuantCalibration,
+    ProteinQuantCalibrationPoint,
     SavedComparison,
 )
 
@@ -118,10 +120,29 @@ class GelImageUploadSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 
+class QuantPointSerializer(serializers.ModelSerializer):
+    """Nested serializer for a band's quantification calibration point."""
+
+    class Meta:
+        model = ProteinQuantCalibrationPoint
+        fields = ("load_amount", "load_unit", "is_excluded_from_fit", "role")
+        read_only_fields = ("role",)
+
+
 class BandSerializer(serializers.ModelSerializer):
     """Serializer for Band — includes polygon, bbox, and intensities."""
 
     bbox = serializers.SerializerMethodField()
+    corrected_area = serializers.FloatField(
+        source="densitometry.corrected_area", read_only=True, allow_null=True, required=False
+    )
+    estimated_amount = serializers.FloatField(
+        source="densitometry.estimated_amount", read_only=True, allow_null=True, required=False
+    )
+    estimated_amount_unit = serializers.CharField(
+        source="densitometry.estimated_amount_unit", read_only=True, allow_null=True, required=False
+    )
+    quant_point = QuantPointSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Band
@@ -141,6 +162,10 @@ class BandSerializer(serializers.ModelSerializer):
             "label",
             "notes",
             "created_at",
+            "corrected_area",
+            "estimated_amount",
+            "estimated_amount_unit",
+            "quant_point",
         ]
 
     @extend_schema_field(OpenApiTypes.OBJECT)
@@ -154,9 +179,66 @@ class BandSerializer(serializers.ModelSerializer):
             }
         return None
 
+    def validate(self, attrs):
+        band_type = attrs.get("band_type", getattr(self.instance, "band_type", None))
+        qp = attrs.get("quant_point")
+        # CALIBRATION requires a quant_point on creation (or when one isn't already
+        # attached to the existing instance).
+        if band_type == Band.BandType.CALIBRATION and qp is None:
+            existing_qp = None
+            if self.instance is not None:
+                existing_qp = ProteinQuantCalibrationPoint.objects.filter(band=self.instance).first()
+            if existing_qp is None:
+                raise serializers.ValidationError(
+                    "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
+                )
+        # Parent lane must be CALIBRATION or CONTROL when band is CALIBRATION
+        if band_type == Band.BandType.CALIBRATION:
+            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
+            if lane and lane.lane_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
+                raise serializers.ValidationError(
+                    "band_type=CALIBRATION must live in a CALIBRATION or CONTROL lane"
+                )
+        # Unit consistency with the active calibration of the analysis
+        if qp is not None and band_type == Band.BandType.CALIBRATION:
+            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
+            if lane is not None:
+                analysis = lane.analysis
+                active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
+                if active and qp.get("load_unit") and qp["load_unit"] != active.unit:
+                    raise serializers.ValidationError(
+                        f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
+                    )
+        return attrs
+
+    def update(self, instance, validated_data):
+        qp_data = validated_data.pop("quant_point", None)
+        band = super().update(instance, validated_data)
+        if band.band_type == Band.BandType.CALIBRATION and qp_data is not None:
+            role = (
+                ProteinQuantCalibrationPoint.ROLE_CONTROL
+                if band.lane.lane_type == Lane.LaneType.CONTROL
+                else ProteinQuantCalibrationPoint.ROLE_CALIBRATION
+            )
+            ProteinQuantCalibrationPoint.objects.update_or_create(
+                band=band,
+                defaults={
+                    "load_amount": qp_data["load_amount"],
+                    "load_unit": qp_data["load_unit"],
+                    "is_excluded_from_fit": qp_data.get("is_excluded_from_fit", False),
+                    "role": role,
+                },
+            )
+        elif band.band_type != Band.BandType.CALIBRATION:
+            # type was demoted; remove any orphan point
+            ProteinQuantCalibrationPoint.objects.filter(band=band).delete()
+        return band
+
 
 class BandWriteSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating bands."""
+
+    quant_point = QuantPointSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Band
@@ -175,7 +257,58 @@ class BandWriteSerializer(serializers.ModelSerializer):
             "area_pixels",
             "label",
             "notes",
+            "quant_point",
         ]
+
+    def validate(self, attrs):
+        band_type = attrs.get("band_type", getattr(self.instance, "band_type", None))
+        qp = attrs.get("quant_point")
+        if band_type == Band.BandType.CALIBRATION and qp is None:
+            existing_qp = None
+            if self.instance is not None:
+                existing_qp = ProteinQuantCalibrationPoint.objects.filter(band=self.instance).first()
+            if existing_qp is None:
+                raise serializers.ValidationError(
+                    "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
+                )
+        if band_type == Band.BandType.CALIBRATION:
+            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
+            if lane and lane.lane_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
+                raise serializers.ValidationError(
+                    "band_type=CALIBRATION must live in a CALIBRATION or CONTROL lane"
+                )
+        if qp is not None and band_type == Band.BandType.CALIBRATION:
+            lane = attrs.get("lane") or (self.instance.lane if self.instance else None)
+            if lane is not None:
+                analysis = lane.analysis
+                active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
+                if active and qp.get("load_unit") and qp["load_unit"] != active.unit:
+                    raise serializers.ValidationError(
+                        f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
+                    )
+        return attrs
+
+    def update(self, instance, validated_data):
+        qp_data = validated_data.pop("quant_point", None)
+        band = super().update(instance, validated_data)
+        if band.band_type == Band.BandType.CALIBRATION and qp_data is not None:
+            role = (
+                ProteinQuantCalibrationPoint.ROLE_CONTROL
+                if band.lane.lane_type == Lane.LaneType.CONTROL
+                else ProteinQuantCalibrationPoint.ROLE_CALIBRATION
+            )
+            ProteinQuantCalibrationPoint.objects.update_or_create(
+                band=band,
+                defaults={
+                    "load_amount": qp_data["load_amount"],
+                    "load_unit": qp_data["load_unit"],
+                    "is_excluded_from_fit": qp_data.get("is_excluded_from_fit", False),
+                    "role": role,
+                },
+            )
+        elif band.band_type != Band.BandType.CALIBRATION:
+            ProteinQuantCalibrationPoint.objects.filter(band=band).delete()
+        return band
 
 
 # =============================================================================
@@ -205,6 +338,7 @@ class LaneSerializer(serializers.ModelSerializer):
             "is_reduced",
             "protein_load_ug",
             "protein_load_type",
+            "loading_volume_ul",
             "sample_name",
             "ladder_template",
             "ladder_template_name",
@@ -233,6 +367,7 @@ class LaneWriteSerializer(serializers.ModelSerializer):
             "is_reduced",
             "protein_load_ug",
             "protein_load_type",
+            "loading_volume_ul",
             "sample_name",
             "ladder_template",
             "notes",
