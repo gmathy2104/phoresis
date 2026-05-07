@@ -8,8 +8,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status as drf_status
 from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from gel_analyzer.api.filters import (
@@ -660,3 +661,166 @@ class SavedComparisonViewSet(viewsets.ModelViewSet):
                 "lanes": lane_data,
             }
         )
+
+
+# =============================================================================
+# Protein Quantification Endpoints
+# =============================================================================
+
+
+def _serialize_calib(c):
+    """Serialize a ProteinQuantCalibration row for the quantification endpoints."""
+    return {
+        "id": str(c.id),
+        "method": c.method,
+        "unit": c.unit,
+        "coefficients": c.coefficients,
+        "r_squared": c.r_squared,
+        "equation": c.equation,
+        "excluded_band_ids": c.excluded_band_ids,
+        "is_active": c.is_active,
+        "superseded_at": c.superseded_at.isoformat() if c.superseded_at else None,
+        "created_by": c.created_by.username if c.created_by else None,
+        "created_at": c.created_at.isoformat(),
+        "notes": c.notes,
+    }
+
+
+def _build_full_result(analysis, params):
+    """Run a full preview: fit + project samples + project controls."""
+    from gel_analyzer.services.quantification.service import (
+        ProteinQuantCalibrationService,
+    )
+
+    svc = ProteinQuantCalibrationService(params)
+    cal_points = svc.collect_calibration_points(analysis)
+    result = svc.fit(cal_points, excluded_band_ids=params.excluded_band_ids)
+    if not result.success:
+        return result, svc
+    # Add control projections
+    ctrls = svc.collect_control_points(analysis)
+    for c in ctrls:
+        if c.corrected_area is not None:
+            c.predicted_amount = svc.project(c.corrected_area, result)
+    result.control_points = ctrls
+    # Sample projections
+    samples = svc.collect_sample_bands(analysis)
+    for s in samples:
+        if s.corrected_area is not None:
+            s.predicted_amount = svc.project(s.corrected_area, result)
+    result.sample_projections = samples
+    return result, svc
+
+
+@extend_schema(
+    summary="Get / Save Protein Quantification Calibration",
+    tags=["Quantification"],
+)
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def quantification_root(request, analysis_id):
+    """GET → active calibration (or null); POST → save & apply a new fit."""
+    from gel_analyzer.models import ProteinQuantCalibration
+    from gel_analyzer.services.quantification.models import QuantParams
+
+    try:
+        analysis = GelAnalysis.objects.get(pk=analysis_id)
+    except GelAnalysis.DoesNotExist:
+        return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
+        return Response({"active": _serialize_calib(active) if active else None})
+
+    # POST = save & apply
+    params = QuantParams(
+        method=request.data.get("method", "LINEAR"),
+        unit=request.data.get("unit", "UG"),
+        excluded_band_ids=request.data.get("excluded_band_ids", []),
+    )
+    result, svc = _build_full_result(analysis, params)
+    if not result.success:
+        return Response(
+            {"detail": result.error_message, **result.to_dict()},
+            status=drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    calib = svc.save_active(
+        analysis, result, user=request.user, notes=request.data.get("notes", "")
+    )
+    svc.apply_to_analysis(calib)
+    return Response(_serialize_calib(calib), status=drf_status.HTTP_201_CREATED)
+
+
+@extend_schema(summary="Preview Protein Quantification Fit", tags=["Quantification"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def quantification_preview(request, analysis_id):
+    """Dry-run a fit without persisting; returns result.to_dict() with status
+    200 on success or 422 on failure (e.g. missing densitometry, < 4 points
+    for FOUR_PL)."""
+    from gel_analyzer.services.quantification.models import QuantParams
+
+    try:
+        analysis = GelAnalysis.objects.get(pk=analysis_id)
+    except GelAnalysis.DoesNotExist:
+        return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+    params = QuantParams(
+        method=request.data.get("method", "LINEAR"),
+        unit=request.data.get("unit", "UG"),
+        excluded_band_ids=request.data.get("excluded_band_ids", []),
+    )
+    result, _ = _build_full_result(analysis, params)
+    return Response(
+        result.to_dict(),
+        status=drf_status.HTTP_200_OK
+        if result.success
+        else drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+
+
+@extend_schema(
+    summary="Patch / Deactivate Protein Quantification Calibration",
+    tags=["Quantification"],
+)
+@api_view(["PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def quantification_detail(request, analysis_id, calib_id):
+    """PATCH → update excluded_band_ids/notes; DELETE → deactivate."""
+    from django.utils import timezone
+
+    from gel_analyzer.models import ProteinQuantCalibration
+
+    try:
+        calib = ProteinQuantCalibration.objects.get(pk=calib_id, analysis_id=analysis_id)
+    except ProteinQuantCalibration.DoesNotExist:
+        return Response(
+            {"detail": "Calibration not found."}, status=drf_status.HTTP_404_NOT_FOUND
+        )
+
+    if request.method == "PATCH":
+        if "excluded_band_ids" in request.data:
+            calib.excluded_band_ids = request.data["excluded_band_ids"]
+        if "notes" in request.data:
+            calib.notes = request.data["notes"]
+        calib.save()
+        return Response(_serialize_calib(calib))
+
+    # DELETE = deactivate
+    calib.is_active = False
+    calib.superseded_at = timezone.now()
+    calib.save(update_fields=["is_active", "superseded_at"])
+    return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(summary="Quantification Calibration History", tags=["Quantification"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def quantification_history(request, analysis_id):
+    """Return all calibrations (active + superseded) for the analysis."""
+    from gel_analyzer.models import ProteinQuantCalibration
+
+    history = ProteinQuantCalibration.objects.filter(analysis_id=analysis_id).order_by(
+        "-created_at"
+    )
+    return Response({"history": [_serialize_calib(c) for c in history]})
