@@ -23,16 +23,6 @@
 (function (global) {
     'use strict';
 
-    const POINT_COLORS = {
-        FIT: '#8B5CF6',           // violet — non-excluded calibration points
-        EXCLUDED: 'rgba(139, 92, 246, 0.3)',  // ghost violet
-        CONTROL: '#06B6D4',       // cyan — controls (diamond)
-        SAMPLE: '#9CA3AF',        // grey — samples (cross)
-        CURVE: '#8B5CF6',         // violet — fitted curve
-        AXIS: '#6B7280',
-        GRID: 'rgba(0,0,0,0.08)',
-    };
-
     class QuantificationModal {
         /**
          * @param {Object} opts
@@ -256,286 +246,29 @@
         }
 
         // -----------------------------------------------------------------
-        // Curve rendering — Canvas2D fallback (Chart.js NOT vendored).
+        // Curve rendering — delegates to QuantificationCurveRenderer
+        // (Canvas2D; Chart.js is NOT vendored — see AGENTS.md §1).
         // -----------------------------------------------------------------
 
         _renderCurve(r) {
             const canvas = document.getElementById('qcm-curve-chart');
             if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-
-            // Resize for DPR-aware crispness.
-            const dpr = window.devicePixelRatio || 1;
-            const cssW = canvas.width;
-            const cssH = canvas.height;
-            // Honour the original CSS size; only bump backing store.
-            canvas.style.width = cssW + 'px';
-            canvas.style.height = cssH + 'px';
-            if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
-                canvas.width = cssW * dpr;
-                canvas.height = cssH * dpr;
-            }
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, cssW, cssH);
-
-            const calibPoints = r.calibration_points || [];
-            const controlPoints = r.control_points || [];
-            const samplePoints = r.sample_projections || [];
-
-            const fitPoints = calibPoints
-                .filter(p => !p.is_excluded && p.corrected_area != null && p.load_amount != null)
-                .map(p => ({ x: +p.corrected_area, y: +p.load_amount }));
-            const ghostPoints = calibPoints
-                .filter(p => p.is_excluded && p.corrected_area != null && p.load_amount != null)
-                .map(p => ({ x: +p.corrected_area, y: +p.load_amount }));
-
-            const showCtrlsEl = document.getElementById('qcm-show-controls-on-curve');
-            const showCtrls = showCtrlsEl ? !!showCtrlsEl.checked : true;
-            const ctrls = showCtrls
-                ? controlPoints
-                    .filter(c => c.corrected_area != null && c.predicted_amount != null)
-                    .map(c => ({ x: +c.corrected_area, y: +c.predicted_amount }))
-                : [];
-            const samples = samplePoints
-                .filter(s => s.corrected_area != null && s.estimated_amount != null)
-                .map(s => ({ x: +s.corrected_area, y: +s.estimated_amount }));
-
-            // Build curve: 50 evaluation points across area range.
-            const allPts = [...fitPoints, ...ghostPoints, ...ctrls, ...samples];
-            if (!allPts.length) {
-                this._drawAxes(ctx, cssW, cssH, 0, 1, 0, 1, 'Corrected area', this._yLabel(r));
-                this._drawText(ctx, cssW / 2, cssH / 2, 'No data to plot', '#9CA3AF', 'center');
+            const renderer = global.Densitometry && global.Densitometry.QuantificationCurveRenderer;
+            if (!renderer) {
+                console.warn('[QuantificationModal] QuantificationCurveRenderer not loaded');
                 return;
             }
-            const xs = allPts.map(p => p.x);
-            const xMin = Math.min(...xs);
-            const xMax = Math.max(...xs);
-            const curve = [];
-            if (r.success && xMax > xMin) {
-                for (let i = 0; i <= 50; i++) {
-                    const x = xMin + (xMax - xMin) * (i / 50);
-                    const y = this._evalCurve(r, x);
-                    if (y !== null && Number.isFinite(y)) curve.push({ x, y });
-                }
-            }
-
-            // Determine y range: include all points + curve.
-            const ys = [...allPts.map(p => p.y), ...curve.map(p => p.y)].filter(Number.isFinite);
-            const yMin = Math.min(...ys);
-            const yMax = Math.max(...ys);
-            // Pad ranges 5%.
-            const xPad = (xMax - xMin) * 0.05 || 1;
-            const yPad = (yMax - yMin) * 0.05 || 1;
-            const xLo = xMin - xPad;
-            const xHi = xMax + xPad;
-            const yLo = yMin - yPad;
-            const yHi = yMax + yPad;
-
-            const margin = { left: 56, right: 14, top: 14, bottom: 36 };
-            const plotW = cssW - margin.left - margin.right;
-            const plotH = cssH - margin.top - margin.bottom;
-
-            const sx = (x) => margin.left + (x - xLo) / (xHi - xLo) * plotW;
-            const sy = (y) => margin.top + (1 - (y - yLo) / (yHi - yLo)) * plotH;
-
-            // Grid + axes.
-            this._drawAxes(ctx, cssW, cssH, xLo, xHi, yLo, yHi, 'Corrected area', this._yLabel(r), margin);
-
-            // Curve line.
-            if (curve.length > 1) {
-                ctx.save();
-                ctx.strokeStyle = POINT_COLORS.CURVE;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                curve.forEach((p, i) => {
-                    const X = sx(p.x), Y = sy(p.y);
-                    if (i === 0) ctx.moveTo(X, Y);
-                    else ctx.lineTo(X, Y);
-                });
-                ctx.stroke();
-                ctx.restore();
-            }
-
-            // Excluded (ghost) points.
-            ghostPoints.forEach(p => this._drawCircle(ctx, sx(p.x), sy(p.y), 5, POINT_COLORS.EXCLUDED));
-            // Fit points.
-            fitPoints.forEach(p => this._drawCircle(ctx, sx(p.x), sy(p.y), 5, POINT_COLORS.FIT));
-            // Controls (cyan diamond).
-            ctrls.forEach(p => this._drawDiamond(ctx, sx(p.x), sy(p.y), 7, POINT_COLORS.CONTROL));
-            // Samples (grey cross).
-            samples.forEach(p => this._drawCross(ctx, sx(p.x), sy(p.y), 6, POINT_COLORS.SAMPLE));
-
-            // Tiny legend (top-right of plot).
-            this._drawLegend(ctx, margin.left + plotW - 130, margin.top + 4, showCtrls);
-        }
-
-        _yLabel(r) {
-            return `Amount (${r && r.unit === 'UG_ML' ? 'µg/mL' : 'µg'})`;
+            const showCtrlsEl = document.getElementById('qcm-show-controls-on-curve');
+            const showCtrls = showCtrlsEl ? !!showCtrlsEl.checked : true;
+            renderer.render(canvas, r, { showControls: showCtrls });
         }
 
         _evalCurve(r, x) {
-            if (!r || !r.coefficients) return null;
-            try {
-                if (r.method === 'LINEAR') {
-                    const { a, b } = r.coefficients;
-                    if (a == null || b == null) return null;
-                    return a * x + b;
-                }
-                if (r.method === 'POLYNOMIAL_2') {
-                    // The fitter exposes either {coeffs:[a,b,c]} or {a,b,c}.
-                    let a, b, c;
-                    if (Array.isArray(r.coefficients.coeffs)) {
-                        [a, b, c] = r.coefficients.coeffs;
-                    } else {
-                        a = r.coefficients.a;
-                        b = r.coefficients.b;
-                        c = r.coefficients.c;
-                    }
-                    if (a == null || b == null || c == null) return null;
-                    return a * x * x + b * x + c;
-                }
-                if (r.method === 'FOUR_PL') {
-                    const { a, d, c, b } = r.coefficients;
-                    if (a == null || b == null || c == null || d == null) return null;
-                    if (c === 0) return null;
-                    return d + (a - d) / (1 + Math.pow(x / c, b));
-                }
-            } catch (e) {
-                return null;
+            const renderer = global.Densitometry && global.Densitometry.QuantificationCurveRenderer;
+            if (renderer && typeof renderer.evalCurve === 'function') {
+                return renderer.evalCurve(r, x);
             }
             return null;
-        }
-
-        // -----------------------------------------------------------------
-        // Canvas helpers
-        // -----------------------------------------------------------------
-
-        _drawAxes(ctx, w, h, xLo, xHi, yLo, yHi, xLabel, yLabel, margin) {
-            margin = margin || { left: 56, right: 14, top: 14, bottom: 36 };
-            const plotW = w - margin.left - margin.right;
-            const plotH = h - margin.top - margin.bottom;
-
-            ctx.save();
-            // Plot border.
-            ctx.strokeStyle = POINT_COLORS.AXIS;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(margin.left, margin.top, plotW, plotH);
-
-            // Gridlines + tick labels.
-            ctx.fillStyle = POINT_COLORS.AXIS;
-            ctx.font = '11px system-ui, sans-serif';
-            ctx.strokeStyle = POINT_COLORS.GRID;
-
-            const ticks = 4;
-            for (let i = 0; i <= ticks; i++) {
-                // X.
-                const xv = xLo + (xHi - xLo) * (i / ticks);
-                const X = margin.left + (i / ticks) * plotW;
-                ctx.beginPath();
-                ctx.moveTo(X, margin.top);
-                ctx.lineTo(X, margin.top + plotH);
-                ctx.stroke();
-                ctx.fillText(this._fmtTick(xv), X - 12, margin.top + plotH + 14);
-
-                // Y.
-                const yv = yLo + (yHi - yLo) * (i / ticks);
-                const Y = margin.top + (1 - i / ticks) * plotH;
-                ctx.beginPath();
-                ctx.moveTo(margin.left, Y);
-                ctx.lineTo(margin.left + plotW, Y);
-                ctx.stroke();
-                ctx.fillText(this._fmtTick(yv), 4, Y + 4);
-            }
-
-            // Axis titles.
-            ctx.fillStyle = POINT_COLORS.AXIS;
-            ctx.font = '12px system-ui, sans-serif';
-            ctx.fillText(xLabel, margin.left + plotW / 2 - 36, h - 6);
-            ctx.save();
-            ctx.translate(12, margin.top + plotH / 2 + 30);
-            ctx.rotate(-Math.PI / 2);
-            ctx.fillText(yLabel, 0, 0);
-            ctx.restore();
-            ctx.restore();
-        }
-
-        _fmtTick(v) {
-            if (!Number.isFinite(v)) return '';
-            if (Math.abs(v) >= 1000) return v.toFixed(0);
-            if (Math.abs(v) >= 10) return v.toFixed(1);
-            return v.toFixed(2);
-        }
-
-        _drawCircle(ctx, x, y, r, color) {
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
-
-        _drawDiamond(ctx, x, y, r, color) {
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(x, y - r);
-            ctx.lineTo(x + r, y);
-            ctx.lineTo(x, y + r);
-            ctx.lineTo(x - r, y);
-            ctx.closePath();
-            ctx.fill();
-            ctx.restore();
-        }
-
-        _drawCross(ctx, x, y, r, color) {
-            ctx.save();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(x - r, y - r);
-            ctx.lineTo(x + r, y + r);
-            ctx.moveTo(x - r, y + r);
-            ctx.lineTo(x + r, y - r);
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        _drawText(ctx, x, y, text, color, align) {
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.font = '12px system-ui, sans-serif';
-            ctx.textAlign = align || 'left';
-            ctx.fillText(text, x, y);
-            ctx.restore();
-        }
-
-        _drawLegend(ctx, x, y, showCtrls) {
-            ctx.save();
-            ctx.font = '11px system-ui, sans-serif';
-            ctx.fillStyle = POINT_COLORS.AXIS;
-            const rows = [
-                { color: POINT_COLORS.FIT,      label: 'Calibration', shape: 'circle' },
-                { color: POINT_COLORS.EXCLUDED, label: 'Excluded',    shape: 'circle' },
-            ];
-            if (showCtrls) {
-                rows.push({ color: POINT_COLORS.CONTROL, label: 'Controls', shape: 'diamond' });
-            }
-            rows.push({ color: POINT_COLORS.SAMPLE, label: 'Samples', shape: 'cross' });
-            rows.forEach((row, i) => {
-                const ry = y + i * 14 + 4;
-                if (row.shape === 'circle') {
-                    this._drawCircle(ctx, x + 6, ry, 4, row.color);
-                } else if (row.shape === 'diamond') {
-                    this._drawDiamond(ctx, x + 6, ry, 5, row.color);
-                } else {
-                    this._drawCross(ctx, x + 6, ry, 4, row.color);
-                }
-                ctx.fillStyle = POINT_COLORS.AXIS;
-                ctx.fillText(row.label, x + 16, ry + 4);
-            });
-            ctx.restore();
         }
     }
 
