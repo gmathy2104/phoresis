@@ -226,6 +226,10 @@
                     container: document.getElementById('results-table-panel'),
                     eventBus: this.eventBus,
                     state: this.state,
+                    // Phase 7.2: lane-level table reads the active quantification
+                    // calibration to gate the Quantification column group + units.
+                    apiClient: this.api,
+                    analysisId: this.analysisId,
                 });
             }
         }

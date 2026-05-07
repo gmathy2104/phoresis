@@ -3540,3 +3540,154 @@
 .dm-tab-pane[data-tab-pane="chromatogram"] {
     flex: 1 1 auto;
 }
+
+/* =====================================================================
+ * Phase 7.2 — Lane-level results table (one row per lane + drill-down)
+ * =================================================================== */
+.dm-table.dm-table--lane-level {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    font-size: 0.85rem;
+}
+
+.dm-table--lane-level thead th {
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.75);
+    font-weight: 600;
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.dm-table--lane-level thead tr:first-child th {
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.5);
+}
+
+.dm-table--lane-level tbody td {
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: middle;
+}
+
+.dm-table--lane-level tbody tr.dm-lane-row {
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.dm-table--lane-level tbody tr.dm-lane-row:hover {
+    background: rgba(139,92,246,0.06);
+}
+
+.dm-table--lane-level tbody tr.dm-lane-row.selected {
+    background: rgba(139,92,246,0.18);
+}
+
+.dm-table--lane-level .dm-expand-icon {
+    color: rgba(255,255,255,0.45);
+    font-size: 0.7rem;
+    margin-right: 2px;
+}
+
+/* Sticky-left columns: Lane# + Type */
+.dm-table--lane-level .dm-sticky-left {
+    position: sticky;
+    left: 0;
+    background: inherit;
+    z-index: 1;
+}
+
+.dm-table--lane-level .dm-sticky-left + .dm-sticky-left {
+    left: 56px;
+}
+
+/* Lane-type tints. The gv-table-row--* classes are defined in
+ * gel_viewer_standalone.css with light backgrounds — override here for
+ * the dark densitometry theme. */
+.dm-table--lane-level tr.gv-table-row--calibration { background-color: rgba(139,92,246,0.08); }
+.dm-table--lane-level tr.gv-table-row--control     { background-color: rgba(6,182,212,0.08); }
+
+/* Section header tints on the grouped header */
+.dm-table--lane-level .dm-section-identity { color: #93C5FD !important; }
+.dm-table--lane-level .dm-section-densito  { color: #FBBF24 !important; }
+.dm-table--lane-level .dm-section-quant    { color: #C4B5FD !important; }
+.dm-table--lane-level .dm-section-quality  { color: #6EE7B7 !important; }
+
+/* Drill-down sub-table */
+.dm-lane-subrow > td {
+    background: rgba(0,0,0,0.18);
+    padding: 0 !important;
+}
+
+.dm-lane-subtable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.dm-lane-subtable th,
+.dm-lane-subtable td {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    text-align: left;
+    color: rgba(255,255,255,0.75);
+}
+
+.dm-lane-subtable th {
+    color: rgba(255,255,255,0.5);
+    font-weight: 600;
+    background: rgba(255,255,255,0.02);
+}
+
+.dm-lane-subtable tr.dm-band-row {
+    cursor: pointer;
+}
+
+.dm-lane-subtable tr.dm-band-row:hover {
+    background: rgba(139,92,246,0.08);
+}
+
+.dm-lane-subtable tr.dm-band-row.selected {
+    background: rgba(139,92,246,0.2);
+}
+
+.dm-flag-warn {
+    color: #F59E0B;
+    font-weight: 700;
+}
+
+.dm-table-presets {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px 8px;
+    flex: 0 0 auto;
+}
+
+.dm-table-presets label {
+    color: rgba(255,255,255,0.55);
+    font-size: 0.78rem;
+}
+
+#dm-table-preset {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #fff;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.78rem;
+}
+
+/* Column-preset visibility — toggled via .dm-preset-{minimal,standard,full}
+ * class on the table. col-preset-standard cells are hidden in minimal;
+ * col-preset-full cells are hidden in minimal AND standard. */
+.dm-table--lane-level.dm-preset-minimal .col-preset-standard,
+.dm-table--lane-level.dm-preset-minimal .col-preset-full { display: none; }
+.dm-table--lane-level.dm-preset-standard .col-preset-full { display: none; }
