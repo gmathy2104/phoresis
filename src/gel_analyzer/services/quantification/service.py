@@ -13,7 +13,7 @@ from . import fitters
 from .models import QuantParams, QuantPoint, QuantResult
 
 if TYPE_CHECKING:
-    from gel_analyzer.models import Band, GelAnalysis
+    from gel_analyzer.models import Band, GelAnalysis, ProteinQuantCalibration
 
 logger = get_logger(__name__)
 
@@ -168,3 +168,57 @@ class ProteinQuantCalibrationService:
             equation=eq,
             calibration_points=points,
         )
+
+    # ------------ Projection / persistence -----------------------------------
+
+    def project(self, area: float, result: QuantResult) -> float | None:
+        """Forward-evaluate the fit at x=area to obtain the predicted amount."""
+        if not result.success or area is None:
+            return None
+        if result.method == "LINEAR":
+            return fitters.predict_linear(result.coefficients, area)
+        if result.method == "POLYNOMIAL_2":
+            # Fit was amounts = f(areas), so to predict amount we evaluate the polynomial
+            # forward (not inverse). Override the call accordingly.
+            coeffs = result.coefficients["coeffs"]
+            return float(np.polyval(coeffs, area))
+        if result.method == "FOUR_PL":
+            # Same: 4PL was fit as amount = f(area). Forward evaluation:
+            a = result.coefficients["a"]
+            d = result.coefficients["d"]
+            c = result.coefficients["c"]
+            b = result.coefficients["b"]
+            return float(d + (a - d) / (1 + (area / c) ** b))
+        return None
+
+    def apply_to_analysis(self, calibration: "ProteinQuantCalibration") -> int:
+        """Persist DensitometryResult.estimated_amount{,_unit} for all SAMPLE/CONTROL
+        bands of the calibration's analysis. Returns count of rows updated."""
+        from gel_analyzer.models import Band, DensitometryResult, Lane
+
+        result = QuantResult(
+            success=True, method=calibration.method, unit=calibration.unit,
+            coefficients=calibration.coefficients, r_squared=calibration.r_squared,
+            equation=calibration.equation,
+        )
+        target_bands = (
+            Band.objects.filter(
+                lane__analysis=calibration.analysis,
+                lane__lane_type__in=[Lane.LaneType.SAMPLE, Lane.LaneType.CONTROL],
+                densitometry__isnull=False,
+            )
+            .exclude(band_type=Band.BandType.MW_REFERENCE)
+            .select_related("densitometry", "lane")
+        )
+        updated = 0
+        for band in target_bands:
+            estimated = self.project(band.densitometry.corrected_area, result)
+            if estimated is None or estimated < 0:
+                continue
+            DensitometryResult.objects.filter(pk=band.densitometry.pk).update(
+                estimated_amount=float(estimated),
+                estimated_amount_unit=calibration.unit,
+            )
+            updated += 1
+        logger.info(f"Quantification calibration {calibration.id} applied to {updated} bands")
+        return updated

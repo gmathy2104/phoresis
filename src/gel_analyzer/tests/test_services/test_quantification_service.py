@@ -183,3 +183,44 @@ class TestFit:
         assert result.r_squared > 0.999
         assert {"a", "d", "c", "b"} <= set(result.coefficients.keys())
         assert all(p.predicted_amount is not None for p in result.calibration_points if not p.is_excluded)
+
+
+class TestProjectAndApply:
+    def test_project_linear(self):
+        """Forward evaluation: amount = a*area + b. With a=0.005, b=0, area=2000 -> 10.0."""
+        from gel_analyzer.services.quantification.models import QuantResult
+        result = QuantResult(
+            success=True, method="LINEAR", unit="UG",
+            coefficients={"a": 0.005, "b": 0.0}, r_squared=1.0, equation="...",
+        )
+        svc = ProteinQuantCalibrationService()
+        assert svc.project(2000, result) == pytest.approx(10.0)
+
+    def test_apply_to_analysis_writes_estimated_amount(self, calib_setup, sample_analysis, test_user):
+        analysis, cal_lane, cal_band = calib_setup
+        sample_lane = Lane.objects.create(
+            analysis=analysis, lane_number=20, lane_type=Lane.LaneType.SAMPLE,
+            x=0, y=0, width=50, height=200,
+        )
+        sample_band = Band.objects.create(
+            lane=sample_lane, band_type=Band.BandType.POI,
+            position_y=100, bbox_x=0, bbox_y=90, bbox_width=50, bbox_height=20,
+            created_by=test_user, detection_source=Band.DetectionSource.MANUAL,
+        )
+        DensitometryResult.objects.create(
+            band=sample_band, peak_center_y=100, peak_amplitude=50, peak_sigma=5,
+            fwhm=11.77, integrated_area=2000, corrected_area=2000,
+            fit_r_squared=0.99, snr=20,
+        )
+        svc = ProteinQuantCalibrationService()
+        # Build calibration manually
+        calib = sample_analysis.quant_calibrations.create(
+            method="LINEAR", unit="UG",
+            coefficients={"a": 0.005, "b": 0.0}, r_squared=1.0, equation="UG = 0.005·area",
+            created_by=test_user,
+        )
+        n = svc.apply_to_analysis(calib)
+        assert n >= 1
+        sample_band.densitometry.refresh_from_db()
+        assert sample_band.densitometry.estimated_amount == pytest.approx(10.0)
+        assert sample_band.densitometry.estimated_amount_unit == "UG"
