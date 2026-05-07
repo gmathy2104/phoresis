@@ -222,3 +222,38 @@ class ProteinQuantCalibrationService:
             updated += 1
         logger.info(f"Quantification calibration {calibration.id} applied to {updated} bands")
         return updated
+
+    def save_active(
+        self,
+        analysis: "GelAnalysis",
+        result: QuantResult,
+        *,
+        user=None,
+        notes: str = "",
+    ) -> "ProteinQuantCalibration":
+        from django.db import transaction
+        from django.utils import timezone
+
+        from gel_analyzer.models import ProteinQuantCalibration
+
+        if not result.success:
+            raise ValueError(f"Cannot save a failed fit: {result.error_message}")
+
+        with transaction.atomic():
+            previous = analysis.quant_calibrations.filter(is_active=True)
+            previous.update(is_active=False, superseded_at=timezone.now())
+            calib = ProteinQuantCalibration.objects.create(
+                analysis=analysis,
+                method=result.method,
+                unit=result.unit,
+                coefficients=result.coefficients,
+                r_squared=result.r_squared,
+                equation=result.equation,
+                excluded_band_ids=[
+                    p.band_id for p in result.calibration_points if p.is_excluded
+                ],
+                is_active=True,
+                created_by=user,
+                notes=notes,
+            )
+        return calib

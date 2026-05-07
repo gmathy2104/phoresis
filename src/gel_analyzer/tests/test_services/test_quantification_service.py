@@ -224,3 +224,25 @@ class TestProjectAndApply:
         sample_band.densitometry.refresh_from_db()
         assert sample_band.densitometry.estimated_amount == pytest.approx(10.0)
         assert sample_band.densitometry.estimated_amount_unit == "UG"
+
+
+class TestSaveActive:
+    def test_save_creates_active_and_supersedes_previous(self, calib_setup, test_user):
+        analysis, _, _ = calib_setup
+        svc = ProteinQuantCalibrationService()
+        # First fit
+        from gel_analyzer.services.quantification.models import QuantResult
+        r1 = QuantResult(success=True, method="LINEAR", unit="UG",
+                          coefficients={"a": 0.005, "b": 0}, r_squared=0.99, equation="...")
+        c1 = svc.save_active(analysis, r1, user=test_user)
+        assert c1.is_active is True
+        # Second fit
+        r2 = QuantResult(success=True, method="LINEAR", unit="UG",
+                          coefficients={"a": 0.0048, "b": 0.1}, r_squared=0.995, equation="...")
+        c2 = svc.save_active(analysis, r2, user=test_user)
+        c1.refresh_from_db()
+        assert c1.is_active is False
+        assert c1.superseded_at is not None
+        assert c2.is_active is True
+        # Only one active
+        assert analysis.quant_calibrations.filter(is_active=True).count() == 1
