@@ -2131,9 +2131,7 @@ def api_analysis_calibrate(request, pk):
         service = CalibrationService(params)
 
         # Pre-filter the matches so the user-excluded bands are dropped from the fit.
-        matches, match_warnings = service.get_bands_with_assigned_mw(
-            lane, excluded_band_ids=excluded_band_ids
-        )
+        matches, match_warnings = service.get_bands_with_assigned_mw(lane, excluded_band_ids=excluded_band_ids)
 
         # Compute calibration
         result = service.calibrate(lane, template, matches, match_warnings)
@@ -2190,10 +2188,7 @@ def api_analysis_calibrate(request, pk):
         unmatched = []
         for tb in template_bands:
             target_mw = round(float(tb.mw_kda), 2)
-            has_active = any(
-                mw == target_mw and band_id not in excluded_set
-                for (band_id, mw) in ladder_assignments
-            )
+            has_active = any(mw == target_mw and band_id not in excluded_set for (band_id, mw) in ladder_assignments)
             if has_active:
                 continue
             has_any = any(mw == target_mw for (_, mw) in ladder_assignments)
@@ -2413,8 +2408,7 @@ def api_analysis_calibrate_multi(request, pk):
             for tb in template_bands:
                 target_mw = round(float(tb.mw_kda), 2)
                 has_active_assignment = any(
-                    mw == target_mw and band_id not in excluded_set
-                    for (band_id, mw) in ladder_assignments
+                    mw == target_mw and band_id not in excluded_set for (band_id, mw) in ladder_assignments
                 )
                 if has_active_assignment:
                     continue  # marker is fitted on at least one ladder

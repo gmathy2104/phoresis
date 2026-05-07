@@ -137,7 +137,7 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
     lane_stroke_w = max(3, img.width // 400)
     band_stroke_w = max(2, img.width // 600)
 
-    label_ink = (15, 23, 42, 255)            # PHORESIS_INK
+    label_ink = (15, 23, 42, 255)  # PHORESIS_INK
     label_stroke = (255, 255, 255, 235)
     mw_pill_bg = (255, 255, 255, 220)
     mw_pill_fg = (15, 23, 42, 255)
@@ -160,9 +160,7 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
         # Bands first (still on the band layer)
         if draw_band_overlay:
             for band in getattr(lane, "bands", []):
-                band_pts = _shape_points(
-                    band.bbox_x, band.bbox_y, band.bbox_width, band.bbox_height, band.polygon
-                )
+                band_pts = _shape_points(band.bbox_x, band.bbox_y, band.bbox_width, band.bbox_height, band.polygon)
                 if band_pts is None:
                     continue
                 bp = band_colors(getattr(band, "band_type_code", None) or "OTHER")
@@ -217,9 +215,7 @@ def render_gel_overlay(image_source, lanes, *, draw_band_overlay: bool = True) -
             cx = lane.x + (lane.width - sw) // 2
             cy = lane.y + lane.height + 4
             pad = 3
-            lane_draw.rectangle(
-                [cx - pad, cy, cx + sw + pad, cy + sh + 4], fill=(255, 255, 255, 210)
-            )
+            lane_draw.rectangle([cx - pad, cy, cx + sw + pad, cy + sh + 4], fill=(255, 255, 255, 210))
             lane_draw.text((cx, cy + 2), short, fill=mw_pill_fg, font=font_small)
 
     composed = Image.alpha_composite(img, band_layer)

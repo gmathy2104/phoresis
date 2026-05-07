@@ -27,8 +27,6 @@ from .constants import (
     PHORESIS_LOGO_PATH,
     SMALL_SIZE,
     TITLE_SIZE,
-    band_colors,
-    lane_colors,
 )
 
 logger = get_logger(__name__)

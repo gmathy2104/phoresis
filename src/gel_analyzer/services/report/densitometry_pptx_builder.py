@@ -33,8 +33,8 @@ logger = get_logger(__name__)
 _ACCENT = RGBColor(*PHORESIS_ACCENT)
 _ACCENT_DARK = RGBColor(*PHORESIS_ACCENT_DARK)
 _WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-_DARK = RGBColor(0x0F, 0x17, 0x2A)        # PHORESIS_INK
-_GREY = RGBColor(0x64, 0x74, 0x8B)        # MUTED_GRAY
+_DARK = RGBColor(0x0F, 0x17, 0x2A)  # PHORESIS_INK
+_GREY = RGBColor(0x64, 0x74, 0x8B)  # MUTED_GRAY
 _GREY_LIGHT = RGBColor(0xF8, 0xFA, 0xFC)
 _TABLE_HEADER_BG = _ACCENT
 _TABLE_ALT_BG = RGBColor(0xF5, 0xF7, 0xFA)
@@ -291,7 +291,7 @@ class DensitometryPowerPointBuilder:
 
         # Logo
         try:
-            logo_path = Path(__file__).resolve().parents[3] / GSK_LOGO_PATH
+            logo_path = Path(__file__).resolve().parents[3] / PHORESIS_LOGO_PATH
             if logo_path.exists():
                 slide.shapes.add_picture(
                     str(logo_path),
@@ -791,9 +791,7 @@ class DensitometryPowerPointBuilder:
                         if band.bbox_x is not None and band.bbox_y is not None:
                             from .constants import BAND_PALETTE
 
-                            _bp = BAND_PALETTE.get(
-                                (band.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"]
-                            )
+                            _bp = BAND_PALETTE.get((band.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])
                             color = _bp["stroke"][:3] + (90,)
                             draw.rectangle(
                                 [

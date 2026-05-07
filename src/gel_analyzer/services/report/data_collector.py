@@ -44,7 +44,7 @@ class BandReportData:
 
     # Identity
     band_id: str
-    band_type: str          # Display string, e.g. "Protein of Interest"
+    band_type: str  # Display string, e.g. "Protein of Interest"
     band_number: int | None
     position_y: int
     estimated_mw_kda: float | None
@@ -82,7 +82,7 @@ class LaneReportData:
     # Identity
     lane_id: int
     lane_number: int
-    lane_type: str          # Display string ("Sample", "MW Ladder"…)
+    lane_type: str  # Display string ("Sample", "MW Ladder"…)
     sample_name: str
     condition: str
     protein_load_ug: float | None
@@ -98,7 +98,7 @@ class LaneReportData:
 
     # Optional fields with defaults — added in the brand refresh; placed
     # AFTER the required fields so subclass dataclasses keep working.
-    lane_type_code: str = "SAMPLE"   # enum code for palette lookups
+    lane_type_code: str = "SAMPLE"  # enum code for palette lookups
     lane_shape: str = "RECTANGLE"
     polygon: list | None = None
 

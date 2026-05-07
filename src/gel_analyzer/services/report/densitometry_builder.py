@@ -26,8 +26,6 @@ from .constants import (
     PHORESIS_LOGO_PATH,
     SMALL_SIZE,
     TITLE_SIZE,
-    band_colors,
-    lane_colors,
 )
 from .densitometry_data_collector import DensitometryReportData
 

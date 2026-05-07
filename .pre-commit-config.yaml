@@ -1,3 +1,12 @@
+# Vendored static assets (handsontable, bootstrap-icons, etc.) live under
+# src/<app>/static/<app>/{js,css}/vendor/ per AGENTS.md §1 — they ship as-is
+# from upstream and must NOT be reformatted by ruff / trailing-whitespace
+# / end-of-file-fixer. Excluding them globally is simpler than per-hook.
+exclude: |
+  (?x)^(
+    src/.*/static/.*/vendor/.*
+  )$
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

@@ -33,11 +33,7 @@ def api_global_search(request: HttpRequest) -> JsonResponse:
     # ── Analyses ──────────────────────────────────────────────────────────
     analyses = (
         GelAnalysis.objects.select_related("gel_image")
-        .filter(
-            Q(name__icontains=q)
-            | Q(notes__icontains=q)
-            | Q(gel_image__original_filename__icontains=q)
-        )
+        .filter(Q(name__icontains=q) | Q(notes__icontains=q) | Q(gel_image__original_filename__icontains=q))
         .order_by("-updated_at")[:PER_TYPE_LIMIT]
     )
     for a in analyses:
@@ -53,13 +49,10 @@ def api_global_search(request: HttpRequest) -> JsonResponse:
         )
 
     # ── Saved comparisons ─────────────────────────────────────────────────
-    comparisons = (
-        SavedComparison.objects.filter(
-            Q(name__icontains=q) | Q(description__icontains=q),
-            Q(created_by=user) | Q(is_public=True),
-        )
-        .order_by("-updated_at")[:PER_TYPE_LIMIT]
-    )
+    comparisons = SavedComparison.objects.filter(
+        Q(name__icontains=q) | Q(description__icontains=q),
+        Q(created_by=user) | Q(is_public=True),
+    ).order_by("-updated_at")[:PER_TYPE_LIMIT]
     for c in comparisons:
         results.append(
             {
@@ -73,10 +66,7 @@ def api_global_search(request: HttpRequest) -> JsonResponse:
         )
 
     # ── Gel images ────────────────────────────────────────────────────────
-    images = (
-        GelImage.objects.filter(original_filename__icontains=q)
-        .order_by("-uploaded_at")[:PER_TYPE_LIMIT]
-    )
+    images = GelImage.objects.filter(original_filename__icontains=q).order_by("-uploaded_at")[:PER_TYPE_LIMIT]
     for img in images:
         results.append(
             {

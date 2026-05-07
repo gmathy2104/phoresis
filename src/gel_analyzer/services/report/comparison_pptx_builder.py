@@ -20,8 +20,6 @@ from phoresis_core.logging_config import get_logger
 
 from .comparison_data_collector import ComparisonReportData
 from .constants import (
-    BODY_FONT,
-    HEADING_FONT,
     PHORESIS_ACCENT,
     PHORESIS_ACCENT_DARK,
     PHORESIS_LOGO_PATH,
@@ -33,8 +31,8 @@ logger = get_logger(__name__)
 _ACCENT = RGBColor(*PHORESIS_ACCENT)
 _ACCENT_DARK = RGBColor(*PHORESIS_ACCENT_DARK)
 _WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-_DARK = RGBColor(0x0F, 0x17, 0x2A)        # ink — matches PHORESIS_INK
-_GREY = RGBColor(0x64, 0x74, 0x8B)        # MUTED_GRAY
+_DARK = RGBColor(0x0F, 0x17, 0x2A)  # ink — matches PHORESIS_INK
+_GREY = RGBColor(0x64, 0x74, 0x8B)  # MUTED_GRAY
 _GREY_LIGHT = RGBColor(0xF8, 0xFA, 0xFC)
 _TABLE_HEADER_BG = _ACCENT
 _TABLE_ALT_BG = RGBColor(0xF5, 0xF7, 0xFA)  # ALT_ROW_FILL — light blue-gray
