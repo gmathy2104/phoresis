@@ -218,6 +218,96 @@ class DensitometryExcelBuilder:
 
         self._auto_width(ws, headers)
 
+    def _add_quantification_sheets(self):
+        """Add 3 sheets summarising the protein-quantification calibration:
+        ``Quantification_Calibration`` (header + points + residuals),
+        ``Quantification_Controls`` (controls QC table), and
+        ``Quantification_Samples`` (sample estimates)."""
+        data = self.data.quantification
+        if data is None:
+            return
+
+        calib = data["calibration"]
+        unit_label = "µg" if calib.unit == "UG" else "µg/mL"
+        n_used = sum(1 for p in data["result"].calibration_points if not p.is_excluded)
+
+        # 1. Quantification_Calibration
+        ws = self.wb.create_sheet("Quantification_Calibration")
+        ws.append(["Method", calib.method])
+        ws.append(["Unit", unit_label])
+        ws.append(["Equation", calib.equation or ""])
+        ws.append(["R²", round(calib.r_squared, 6) if calib.r_squared is not None else None])
+        ws.append(["N points (used)", n_used])
+        ws.append([])
+        headers = ["Lane", "Load amount", "Unit", "Corrected area", "Residual %", "Excluded"]
+        header_row_idx = ws.max_row + 1
+        ws.append(headers)
+        for j in range(1, len(headers) + 1):
+            cell = ws.cell(row=header_row_idx, column=j)
+            cell.font = _HEADER_FONT
+            cell.fill = _HEADER_FILL
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = _THIN_BORDER
+
+        for p in sorted(data["result"].calibration_points, key=lambda x: (x.lane_number, x.band_id)):
+            residual_pct = None
+            if p.residual is not None and p.load_amount:
+                residual_pct = round((p.residual / p.load_amount) * 100, 2)
+            row = [
+                p.lane_number,
+                p.load_amount,
+                p.load_unit or "",
+                p.corrected_area,
+                residual_pct,
+                bool(p.is_excluded),
+            ]
+            ws.append(row)
+
+        for i, h in enumerate(headers, 1):
+            ws.column_dimensions[get_column_letter(i)].width = max(len(str(h)) + 4, 14)
+
+        # 2. Quantification_Controls
+        ws = self.wb.create_sheet("Quantification_Controls")
+        c_headers = [
+            "Lane",
+            "Known amount",
+            "Predicted amount",
+            "Recovery %",
+            "Out of spec",
+        ]
+        self._write_header_row(ws, c_headers)
+        for c in sorted(data["controls"], key=lambda x: (x.lane_number, x.band_id)):
+            recovery = None
+            out_of_spec = None
+            if c.predicted_amount is not None and c.load_amount:
+                recovery = (c.predicted_amount / c.load_amount) * 100
+                out_of_spec = not (80.0 <= recovery <= 120.0)
+            ws.append(
+                [
+                    c.lane_number,
+                    c.load_amount,
+                    c.predicted_amount,
+                    round(recovery, 2) if recovery is not None else None,
+                    out_of_spec,
+                ]
+            )
+        self._auto_width(ws, c_headers)
+
+        # 3. Quantification_Samples
+        ws = self.wb.create_sheet("Quantification_Samples")
+        s_headers = ["Lane", "Band ID", "Corrected area", f"Estimated ({unit_label})"]
+        self._write_header_row(ws, s_headers)
+        for s in sorted(data["samples"], key=lambda x: (x.lane_number, x.band_id)):
+            ws.append(
+                [
+                    s.lane_number,
+                    s.band_id,
+                    s.corrected_area,
+                    s.predicted_amount,
+                ]
+            )
+        self._auto_width(ws, s_headers)
+
     def _add_poi_purity_sheet(self):
         ws = self.wb.create_sheet("POI Purity")
 
@@ -299,6 +389,7 @@ class DensitometryExcelBuilder:
             ("sample_summary", self._add_sample_summary_sheet, "sample summary"),
             ("lane_details", self._add_lane_details_sheet, "lane details"),
             ("poi_purity", self._add_poi_purity_sheet, "POI purity"),
+            ("quantification", self._add_quantification_sheets, "quantification"),
         ]
 
         for key, method, desc in sheet_map:
