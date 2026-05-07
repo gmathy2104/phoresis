@@ -724,6 +724,155 @@ class DensitometryReportBuilder(BaseReportBuilder):
         except Exception as e:
             logger.error(f"Error in _add_poi_purity: {e}")
 
+    def _add_quantification(self, section_number: int):
+        """Add the protein-quantification section (calibration table, curve PNG,
+        controls QC table, and sample-quantification table)."""
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        try:
+            self._add_section_heading(f"{section_number}. QUANTIFICATION")
+
+            data = self.data.quantification
+            if data is None:
+                self._add_paragraph(
+                    "No active protein-quantification calibration available.",
+                    font_size=SMALL_SIZE,
+                    color=MUTED_GRAY,
+                )
+                return
+
+            calib = data["calibration"]
+            unit_label = "µg" if calib.unit == "UG" else "µg/mL"
+
+            # Header summary line
+            summary_data = [
+                ("Method", calib.method),
+                ("Unit", unit_label),
+                ("R²", f"{calib.r_squared:.4f}"),
+                ("Equation", calib.equation or "—"),
+            ]
+            self._add_info_table(summary_data, widths=[2.0, 5.0])
+
+            # 6.1 Calibration table
+            self._add_section_heading(
+                f"{section_number}.1 Calibration points", level=2
+            )
+            self._render_calibration_table(data["result"].calibration_points, calib.unit)
+
+            # 6.2 Calibration curve PNG
+            self._add_section_heading(
+                f"{section_number}.2 Calibration curve", level=2
+            )
+            try:
+                paragraph = self.document.add_paragraph()
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run = paragraph.add_run()
+                run.add_picture(BytesIO(data["curve_png"]), width=Inches(IMAGE_FULL_WIDTH))
+                self.document.add_paragraph()
+            except Exception as exc:
+                logger.warning(f"Failed to embed calibration curve PNG: {exc}")
+                self._add_paragraph(
+                    "[Calibration curve rendering failed]",
+                    font_size=SMALL_SIZE,
+                    color=MUTED_GRAY,
+                    align="center",
+                )
+
+            # 6.3 Controls QC table
+            if data["controls"]:
+                self._add_section_heading(
+                    f"{section_number}.3 Quality controls", level=2
+                )
+                self._render_controls_table(data["controls"], calib.unit)
+
+            # 6.4 Sample quantification table
+            if data["samples"]:
+                self._add_section_heading(
+                    f"{section_number}.4 Sample quantification", level=2
+                )
+                self._render_sample_quant_table(data["samples"], calib.unit)
+        except Exception as e:
+            logger.error(f"Error in _add_quantification: {e}")
+
+    def _render_calibration_table(self, points, unit):
+        """Calibration points table (Lane, Load, Area, Residual %, Excluded)."""
+        unit_label = "µg" if unit == "UG" else "µg/mL"
+        headers = ["Lane", f"Load ({unit_label})", "Corrected area", "Residual %", "Excluded"]
+        rows = []
+        # Sort by lane number for stable presentation
+        for p in sorted(points, key=lambda x: (x.lane_number, x.band_id)):
+            load_str = f"{p.load_amount:.2f}" if p.load_amount is not None else "-"
+            area_str = f"{p.corrected_area:.0f}" if p.corrected_area is not None else "-"
+            if p.residual is not None and p.load_amount:
+                residual_pct = (p.residual / p.load_amount) * 100
+                residual_str = f"{residual_pct:.2f}"
+            else:
+                residual_str = "-"
+            rows.append(
+                [
+                    str(p.lane_number),
+                    load_str,
+                    area_str,
+                    residual_str,
+                    "Yes" if p.is_excluded else "No",
+                ]
+            )
+        self._add_data_table(headers, rows)
+
+    def _render_controls_table(self, controls, unit):
+        """Controls QC table (Lane, Known, Predicted, %Recovery, In/Out of spec)."""
+        unit_label = "µg" if unit == "UG" else "µg/mL"
+        headers = [
+            "Lane",
+            f"Known ({unit_label})",
+            f"Predicted ({unit_label})",
+            "Recovery %",
+            "Status",
+        ]
+        rows = []
+        for c in sorted(controls, key=lambda x: (x.lane_number, x.band_id)):
+            known_str = f"{c.load_amount:.2f}" if c.load_amount is not None else "-"
+            predicted_str = (
+                f"{c.predicted_amount:.2f}" if c.predicted_amount is not None else "-"
+            )
+            recovery_str = "-"
+            status_str = "-"
+            if c.predicted_amount is not None and c.load_amount:
+                recovery = (c.predicted_amount / c.load_amount) * 100
+                recovery_str = f"{recovery:.1f}"
+                status_str = "In spec" if 80.0 <= recovery <= 120.0 else "Out of spec"
+            rows.append(
+                [
+                    str(c.lane_number),
+                    known_str,
+                    predicted_str,
+                    recovery_str,
+                    status_str,
+                ]
+            )
+        self._add_data_table(headers, rows)
+
+    def _render_sample_quant_table(self, samples, unit):
+        """Sample quantification table (Lane, Band ID, Area, Estimated + unit)."""
+        unit_label = "µg" if unit == "UG" else "µg/mL"
+        headers = ["Lane", "Band ID", "Corrected area", f"Estimated ({unit_label})"]
+        rows = []
+        for s in sorted(samples, key=lambda x: (x.lane_number, x.band_id)):
+            area_str = f"{s.corrected_area:.0f}" if s.corrected_area is not None else "-"
+            estimated_str = (
+                f"{s.predicted_amount:.2f}" if s.predicted_amount is not None else "-"
+            )
+            band_id_short = s.band_id[:8] if s.band_id else "-"
+            rows.append(
+                [
+                    str(s.lane_number),
+                    band_id_short,
+                    area_str,
+                    estimated_str,
+                ]
+            )
+        self._add_data_table(headers, rows)
+
     def _add_lane_details(self, section_number: int):
         """Add per-lane detail sections with electropherogram and band table."""
         from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -996,6 +1145,7 @@ class DensitometryReportBuilder(BaseReportBuilder):
             ("gel_image", self._add_gel_image, "gel image"),
             ("digital_gel", self._add_digital_gel, "digital gel"),
             ("poi_purity", self._add_poi_purity, "POI purity"),
+            ("quantification", self._add_quantification, "quantification"),
             ("lane_details", self._add_lane_details, "lane details"),
             ("materials_methods", self._add_materials_methods, "materials & methods"),
         ]

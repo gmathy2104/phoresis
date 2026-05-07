@@ -251,6 +251,7 @@ DENSITOMETRY_REPORT_SECTIONS = [
     ("gel_image", "Full Gel Image"),
     ("digital_gel", "Digital Gel (All Lanes)"),
     ("poi_purity", "POI Purity Chart"),
+    ("quantification", "Protein Quantification"),
     ("lane_details", "Lane Details"),
     ("terrain_view", "3D Terrain View"),
     ("materials_methods", "Materials & Methods"),
