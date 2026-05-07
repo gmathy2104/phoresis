@@ -601,131 +601,38 @@ class CalibrationService:
 
         return result
 
-    def _fit_log_linear(
-        self,
-        rf: np.ndarray,
-        log_mw: np.ndarray,
-        matches: list[BandMatch],
-    ) -> CalibrationResult:
-        """
-        Fit log-linear regression: log10(MW) = slope * Rf + intercept
-
-        This is the standard model for SDS-PAGE MW calibration.
-
-        Args:
-            rf: Array of Rf values
-            log_mw: Array of log10(MW) values
-            matches: List of band matches (will be updated with residuals)
-
-        Returns:
-            CalibrationResult
-        """
+    def _fit_log_linear(self, rf, log_mw, matches):
+        from .fitters_shared import fit_log_linear
         try:
-            result = linregress(rf, log_mw)
-
-            # Calculate residuals and update matches
-            predicted = result.slope * rf + result.intercept
-            residuals = log_mw - predicted
-
-            for i, m in enumerate(matches):
-                m.residual = float(residuals[i])
-
-            # Build equation string
-            slope_sign = "+" if result.intercept >= 0 else ""
-            equation = f"log10(MW) = {result.slope:.4f} * Rf {slope_sign}{result.intercept:.4f}"
-
-            return CalibrationResult(
-                success=True,
-                method="LOG_LINEAR",
-                coefficients={
-                    "slope": float(result.slope),
-                    "intercept": float(result.intercept),
-                },
-                r_squared=float(result.rvalue**2),
-                equation=equation,
-                band_matches=matches,
-            )
-
+            slope, intercept, r_squared, residuals = fit_log_linear(rf, log_mw)
         except Exception as e:
             logger.error(f"Log-linear fit failed: {e}")
-            return CalibrationResult(
-                success=False,
-                error_message=f"Regression failed: {str(e)}",
-            )
+            return CalibrationResult(success=False, error_message=f"Regression failed: {e}")
+        for i, m in enumerate(matches):
+            m.residual = float(residuals[i])
+        slope_sign = "+" if intercept >= 0 else ""
+        equation = f"log10(MW) = {slope:.4f} * Rf {slope_sign}{intercept:.4f}"
+        return CalibrationResult(
+            success=True, method="LOG_LINEAR",
+            coefficients={"slope": slope, "intercept": intercept},
+            r_squared=r_squared, equation=equation, band_matches=matches,
+        )
 
-    def _fit_polynomial(
-        self,
-        rf: np.ndarray,
-        log_mw: np.ndarray,
-        matches: list[BandMatch],
-        degree: int,
-    ) -> CalibrationResult:
-        """
-        Fit polynomial regression: log10(MW) = a*Rf^n + b*Rf^(n-1) + ... + c
-
-        Higher-order polynomials can provide better fit for non-linear MW-Rf
-        relationships, but risk overfitting.
-
-        Args:
-            rf: Array of Rf values
-            log_mw: Array of log10(MW) values
-            matches: List of band matches
-            degree: Polynomial degree (2 or 3)
-
-        Returns:
-            CalibrationResult
-        """
+    def _fit_polynomial(self, rf, log_mw, matches, degree):
+        from .fitters_shared import fit_polynomial, format_polynomial_equation
         try:
-            # Fit polynomial
-            coeffs = np.polyfit(rf, log_mw, degree)
-            predicted = np.polyval(coeffs, rf)
-
-            # Calculate R²
-            ss_res = np.sum((log_mw - predicted) ** 2)
-            ss_tot = np.sum((log_mw - np.mean(log_mw)) ** 2)
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-
-            # Calculate residuals
-            residuals = log_mw - predicted
-            for i, m in enumerate(matches):
-                m.residual = float(residuals[i])
-
-            # Build equation string
-            equation = self._format_polynomial_equation(coeffs)
-
-            return CalibrationResult(
-                success=True,
-                method=f"POLYNOMIAL_{degree}",
-                coefficients={"coeffs": coeffs.tolist()},
-                r_squared=float(r_squared),
-                equation=equation,
-                band_matches=matches,
-            )
-
+            coeffs, r_squared, residuals = fit_polynomial(rf, log_mw, degree)
         except Exception as e:
             logger.error(f"Polynomial fit (degree={degree}) failed: {e}")
-            return CalibrationResult(
-                success=False,
-                error_message=f"Polynomial regression failed: {str(e)}",
-            )
-
-    def _format_polynomial_equation(self, coeffs: np.ndarray) -> str:
-        """Format polynomial coefficients as equation string."""
-        terms = []
-        degree = len(coeffs) - 1
-
-        for i, c in enumerate(coeffs):
-            power = degree - i
-            c_str = f"{c:.4f}"
-
-            if power == 0:
-                terms.append(c_str)
-            elif power == 1:
-                terms.append(f"{c_str}*Rf")
-            else:
-                terms.append(f"{c_str}*Rf^{power}")
-
-        return f"log10(MW) = {' + '.join(terms)}"
+            return CalibrationResult(success=False, error_message=f"Polynomial regression failed: {e}")
+        for i, m in enumerate(matches):
+            m.residual = float(residuals[i])
+        equation = format_polynomial_equation(coeffs, var="Rf", lhs="log10(MW)")
+        return CalibrationResult(
+            success=True, method=f"POLYNOMIAL_{degree}",
+            coefficients={"coeffs": coeffs}, r_squared=r_squared,
+            equation=equation, band_matches=matches,
+        )
 
     def _calculate_rf(
         self,
