@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy.integrate import trapezoid
 from scipy.optimize import curve_fit
+from scipy.special import erf
 
 from phoresis_core.logging_config import get_logger
 
@@ -58,6 +59,43 @@ def gaussian_with_baseline(x: np.ndarray, amplitude: float, center: float, sigma
         Gaussian + baseline values
     """
     return gaussian(x, amplitude, center, sigma) + baseline
+
+
+def gaussian_truncated_area(amplitude: float, center: float, sigma: float, lower: float, upper: float) -> float:
+    """
+    Closed-form area under ``A · exp(-((x-c)²)/(2σ²))`` between ``lower`` and ``upper``.
+
+    Uses the identity
+    ``∫ A·exp(-((x-c)²)/(2σ²)) dx = A·σ·√(π/2) · erf((x-c)/(σ·√2))``,
+    so the definite integral collapses to a difference of error-function
+    evaluations. This is what we want for densitometry: the area scientifically
+    attributable to a band is the area inside its bbox window, not the
+    extrapolated area of the analytical Gaussian.
+
+    Why it matters here: ``A·σ·√(2π)`` (the −∞..+∞ integral) is wrong as soon
+    as the user splits a band that contains a single peak. Each half-bbox
+    fits its own Gaussian on a partial peak and the two ``A·σ·√(2π)`` values
+    each report a *full*-peak area, so the lane total roughly doubles
+    after splitting one peak. Truncating to ``[lower, upper]`` makes
+    ``Σ(halves) ≈ original`` whatever split point the user picked.
+
+    Args:
+        amplitude: Gaussian amplitude (A).
+        center: Peak center (c).
+        sigma: Standard deviation (σ); must be > 0 — we guard at the call site.
+        lower: Lower integration bound (typically ``band_top``).
+        upper: Upper integration bound (typically ``band_bottom``).
+
+    Returns:
+        Definite integral on ``[lower, upper]``. Always ≥ 0.
+    """
+    if sigma <= 0 or upper <= lower:
+        return 0.0
+    sqrt2 = math.sqrt(2.0)
+    z_upper = (upper - center) / (sigma * sqrt2)
+    z_lower = (lower - center) / (sigma * sqrt2)
+    area = amplitude * sigma * math.sqrt(math.pi / 2.0) * (erf(z_upper) - erf(z_lower))
+    return max(0.0, float(area))
 
 
 class PeakIntegrator:
@@ -185,8 +223,14 @@ class PeakIntegrator:
                 # Compute FWHM: FWHM = 2 * sqrt(2 * ln(2)) * sigma
                 fwhm = 2.0 * math.sqrt(2.0 * math.log(2.0)) * sigma
 
-                # Integrated area of Gaussian: A = amplitude * sigma * sqrt(2*pi)
-                gaussian_area = amplitude * sigma * math.sqrt(2.0 * math.pi)
+                # Definite integral of the fitted Gaussian on the bbox window.
+                # Was previously the full ``A·σ·√(2π)`` (−∞..+∞ integral),
+                # which extrapolates beyond what the user actually delimited
+                # and double-counts the peak whenever a band is split in
+                # half. ``band_top``/``band_bottom`` come from the bbox at
+                # line 132-141 above and match what the chromatogram draws
+                # as integration bounds.
+                gaussian_area = gaussian_truncated_area(amplitude, center, sigma, band_top, band_bottom)
 
                 # Check fit quality
                 if r_squared >= self.params.min_fit_r_squared:
@@ -259,14 +303,30 @@ class PeakIntegrator:
         try:
             # Initial parameter guesses
             amplitude_guess = float(np.max(y) - np.min(y))
-            center_guess = initial_center
+            # Clamp the seed inside the bbox window — ``initial_center`` is the
+            # band's ``position_y`` which is guaranteed to land inside the bbox,
+            # but ``region_y`` is the subset of profile samples that survived
+            # the bbox mask, so its endpoints (``x[0]``, ``x[-1]``) can be
+            # slightly tighter than the bbox itself. ``curve_fit`` rejects p0
+            # outside the bounds.
+            center_guess = float(min(max(initial_center, x[0]), x[-1]))
             sigma_guess = (x[-1] - x[0]) / 4.0  # ~1/4 of region width
 
-            # Fit with constant baseline
+            # Fit with constant baseline.
+            # Center is constrained to the bbox window (``[x[0], x[-1]]``)
+            # rather than the previous ``±10`` slack. The slack let
+            # ``curve_fit`` converge with a peak center *outside* the
+            # integration region — typically when a band has been split
+            # and only contains a partial peak shape — which placed the
+            # chromatogram marker right at (or past) the bbox edge and
+            # diverged visibly from the annotation electropherogram, which
+            # always uses the geometric ``position_y``. Constraining the
+            # center to the user-drawn bbox keeps both views aligned and
+            # plays well with the bbox-truncated area integral above.
             p0 = [amplitude_guess, center_guess, sigma_guess, float(np.min(y))]
             bounds_with_baseline = (
-                [0, x[0] - 10, 1, 0],
-                [amplitude_guess * 3, x[-1] + 10, (x[-1] - x[0]) * 2, np.max(y)],
+                [0, x[0], 1, 0],
+                [amplitude_guess * 3, x[-1], (x[-1] - x[0]) * 2, np.max(y)],
             )
 
             popt, pcov = curve_fit(

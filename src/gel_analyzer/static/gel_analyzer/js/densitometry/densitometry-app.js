@@ -283,6 +283,13 @@
                 runBtn.addEventListener('click', this._onRunAnalysis);
             }
 
+            // Stale-banner rerun button — same handler as the toolbar button,
+            // but lets the user rerun directly from the warning banner.
+            const staleRerunBtn = document.getElementById('stale-banner-rerun-btn');
+            if (staleRerunBtn) {
+                staleRerunBtn.addEventListener('click', this._onRunAnalysis);
+            }
+
             // Export CSV button
             const exportBtn = document.getElementById('export-csv-btn');
             if (exportBtn) {
@@ -332,6 +339,55 @@
                 console.warn('[DensitometryApp] No existing results:', error.message);
                 this.hasExistingResults = false;
             }
+
+            this._updateStaleBanner();
+        }
+
+        /**
+         * Toggle the "results out of date" banner.
+         *
+         * The Band post_save / post_delete signal in ``gel_analyzer.signals``
+         * deletes ``LaneDensitometrySummary`` and sibling ``DensitometryResult``
+         * rows whenever a band is added, edited or removed in the Annotation
+         * module. After that, this page still serves stale numbers from the
+         * page-render context (``state.lanes`` / ``state.bands``) — but the
+         * post-load fetch returns *less* data than the band set demands:
+         *
+         *   - either ``has_results`` is false (lane summary was wiped, no
+         *     other lane has results either),
+         *   - or some bands in ``state.bands`` have no ``densitometry`` block
+         *     attached because their ``DensitometryResult`` row was wiped.
+         *
+         * Either condition means the displayed totals / percentages reflect a
+         * previous band set and should not be trusted. We surface a banner
+         * with a one-click rerun rather than letting the user squint at the
+         * chromatogram trying to figure out what's off.
+         */
+        _updateStaleBanner() {
+            const banner = document.getElementById('stale-results-banner');
+            if (!banner) return;
+
+            const totalBands = this.state.bands.size;
+            if (totalBands === 0) {
+                // Nothing to integrate yet — no stale state possible.
+                banner.hidden = true;
+                return;
+            }
+
+            // Count bands with attached densitometry (filled by ``loadResults``).
+            let bandsWithDensitometry = 0;
+            for (const band of this.state.bands.values()) {
+                if (band.densitometry) bandsWithDensitometry += 1;
+            }
+
+            // Stale if results exist but don't cover every band, OR if no
+            // results exist at all but some bands do (mixed annotation +
+            // densitometry workflow — common when the user splits and comes
+            // back here without rerunning).
+            const isStale = bandsWithDensitometry < totalBands && this.hasExistingResults
+                || bandsWithDensitometry === 0 && totalBands > 0 && this.hasExistingResults;
+
+            banner.hidden = !isStale;
         }
 
         // =====================================================================
@@ -618,6 +674,8 @@
                     this.hasExistingResults = true;
                 }
 
+                this._updateStaleBanner();
+
                 this.eventBus.emit(Events.ANALYSIS_COMPLETED, result);
 
             } catch (error) {
@@ -678,6 +736,8 @@
                     this.state.loadResults(freshResults);
                     this.hasExistingResults = true;  // Now we have results
                 }
+
+                this._updateStaleBanner();
 
                 this.eventBus.emit(Events.ANALYSIS_COMPLETED, result);
 

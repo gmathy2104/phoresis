@@ -122,6 +122,24 @@
     <!-- Message Container -->
     <div id="message-container" class="dm-message-container"></div>
 
+    {# Stale-results banner — shown when bands exist for which densitometry      #}
+    {# has not (yet) been computed. The most common trigger is editing bands    #}
+    {# (split / create / delete) in the Annotation module, which clears the    #}
+    {# lane-level cache via a Band post_save signal. Until the user reruns the  #}
+    {# analysis, totals and percentages on this page reflect the *previous*     #}
+    {# band set and the new bands appear without integration data — the banner #}
+    {# tells the user the numbers are not trustworthy yet.                      #}
+    <div id="stale-results-banner" class="dm-stale-banner" role="status" hidden>
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span class="dm-stale-banner-text">
+            Densitometry results are out of date — bands have changed since the last analysis.
+            Click <strong>Run Analysis</strong> to refresh integration values.
+        </span>
+        <button type="button" id="stale-banner-rerun-btn" class="dm-btn dm-btn-primary dm-btn-sm">
+            <i class="bi bi-arrow-clockwise me-1"></i>Rerun
+        </button>
+    </div>
+
     <!-- Loading Spinner Overlay -->
     <div id="analysis-spinner" class="dm-spinner-overlay" style="display: none;">
         <div class="dm-spinner-content">

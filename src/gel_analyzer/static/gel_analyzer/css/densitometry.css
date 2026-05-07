@@ -524,6 +524,47 @@
 }
 
 /* ============================================================================
+   Stale Results Banner
+   Shown when bands have been edited in the Annotation module since the last
+   densitometry run. Yellow/warning palette to nudge a rerun without alarming.
+   ============================================================================ */
+
+.dm-stale-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 var(--dm-panel-gap, 8px);
+    padding: 10px 16px;
+    background-color: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.6);
+    border-left: 4px solid #f59e0b;
+    border-radius: 4px;
+    color: #92400e;
+    font-size: 0.875rem;
+}
+
+.dm-stale-banner[hidden] {
+    display: none;
+}
+
+.dm-stale-banner i.bi-exclamation-triangle-fill {
+    color: #f59e0b;
+    font-size: 1.125rem;
+    flex-shrink: 0;
+}
+
+.dm-stale-banner-text {
+    flex: 1;
+    line-height: 1.4;
+}
+
+.dm-stale-banner .dm-btn-sm {
+    padding: 4px 10px;
+    font-size: 0.8125rem;
+    flex-shrink: 0;
+}
+
+/* ============================================================================
    Main Layout
    ============================================================================ */
 

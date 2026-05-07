@@ -487,6 +487,15 @@ class CrossLaneConsensus:
                 )
             Band.objects.bulk_create(to_create)
 
+            # bulk_create skips post_save → invalidate downstream densitometry
+            # caches by hand, lane by lane. Without this, a consensus pass
+            # that adds bands leaves stale LaneDensitometrySummary aggregates
+            # behind, exactly like the band-split bug this branch fixes.
+            from gel_analyzer.signals import invalidate_lane_densitometry
+
+            for lane_id in {b._lane_id for b in added_bands}:
+                invalidate_lane_densitometry(lane_id)
+
         return ConsensusResult(
             run_id=run_id,
             added_bands=added_bands,
