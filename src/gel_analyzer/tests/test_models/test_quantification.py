@@ -117,3 +117,27 @@ class TestProteinQuantCalibration:
             created_by=test_user,
         )
         assert new.is_active is True
+
+
+class TestDensitometryResultEstimatedAmount:
+    def test_fields_default_null(self, sample_band, test_user):
+        from gel_analyzer.models import DensitometryResult
+        dr = DensitometryResult.objects.create(
+            band=sample_band, peak_center_y=100, peak_amplitude=50,
+            peak_sigma=5, fwhm=11.77, integrated_area=500,
+            corrected_area=500, fit_r_squared=0.99, snr=20,
+        )
+        assert dr.estimated_amount is None
+        assert dr.estimated_amount_unit == ""
+
+    def test_can_persist_estimated_amount(self, sample_band, test_user):
+        from gel_analyzer.models import DensitometryResult
+        dr = DensitometryResult.objects.create(
+            band=sample_band, peak_center_y=100, peak_amplitude=50,
+            peak_sigma=5, fwhm=11.77, integrated_area=500,
+            corrected_area=500, fit_r_squared=0.99, snr=20,
+            estimated_amount=12.3, estimated_amount_unit="UG",
+        )
+        dr.refresh_from_db()
+        assert dr.estimated_amount == 12.3
+        assert dr.estimated_amount_unit == "UG"
