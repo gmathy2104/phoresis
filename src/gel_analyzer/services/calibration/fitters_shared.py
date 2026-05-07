@@ -11,7 +11,9 @@ import numpy as np
 from scipy.stats import linregress
 
 
-def fit_log_linear(rf: np.ndarray, log_mw: np.ndarray):
+def fit_log_linear(
+    rf: np.ndarray, log_mw: np.ndarray
+) -> tuple[float, float, float, np.ndarray]:
     """log10(MW) = slope·Rf + intercept. Returns (slope, intercept, r_squared, residuals)."""
     result = linregress(rf, log_mw)
     predicted = result.slope * rf + result.intercept
@@ -19,7 +21,9 @@ def fit_log_linear(rf: np.ndarray, log_mw: np.ndarray):
     return float(result.slope), float(result.intercept), float(result.rvalue ** 2), residuals
 
 
-def fit_polynomial(x: np.ndarray, y: np.ndarray, degree: int):
+def fit_polynomial(
+    x: np.ndarray, y: np.ndarray, degree: int
+) -> tuple[list[float], float, np.ndarray]:
     """Generic polynomial fit. Returns (coeffs, r_squared, residuals)."""
     coeffs = np.polyfit(x, y, degree)
     predicted = np.polyval(coeffs, x)
@@ -30,7 +34,7 @@ def fit_polynomial(x: np.ndarray, y: np.ndarray, degree: int):
     return coeffs.tolist(), float(r_squared), residuals
 
 
-def format_polynomial_equation(coeffs: list, var: str = "x", lhs: str = "y") -> str:
+def format_polynomial_equation(coeffs: list[float], var: str = "x", lhs: str = "y") -> str:
     """Format polynomial coefficients as a human-readable equation string."""
     terms: list[str] = []
     degree = len(coeffs) - 1
