@@ -79,9 +79,17 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: phoresis.settings.dev
       DJANGO_DEBUG: "true"
-      DB_HOST: postgres
+      # DB → NATIVE Postgres on the Windows host, same DB the bare-metal
+      # `manage.py runserver` writes to. Without this alignment, the
+      # worker reads a different database than the one runserver writes
+      # to, and every async task fails with "Analysis <uuid> not found".
+      # The local `postgres` service in this compose file is left in
+      # place for `pwsh scripts/devstack.ps1 reset-db` (a fully-isolated
+      # dev DB on demand), but nothing in this stack consumes it by
+      # default anymore.
+      DB_HOST: host.docker.internal
       DB_PORT: "5432"
-      DB_NAME: phoresis
+      DB_NAME: phoresis_dev
       DB_USER: phoresis
       DB_PASSWORD: phoresis
       REDIS_HOST: redis
@@ -107,11 +115,11 @@ services:
       - ../manage.py:/app/manage.py
       - ../conftest.py:/app/conftest.py
       # Media is shared with the host so Django (runserver, on Windows) and
-      # the worker see the same files. Path is configurable via env.
-      - ${PHORESIS_DEV_MEDIA_DIR:-../_dev_media}:/srv/media
+      # the worker see the same files. Default `../media` matches the
+      # bare-metal runserver's MEDIA_ROOT (BASE_DIR/"media"); override
+      # PHORESIS_DEV_MEDIA_DIR to point elsewhere if needed.
+      - ${PHORESIS_DEV_MEDIA_DIR:-../media}:/srv/media
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks: [phoresis_dev_net]
@@ -134,9 +142,10 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: phoresis.settings.dev
       DJANGO_DEBUG: "true"
-      DB_HOST: postgres
+      # Same DB alignment as worker — see comment there.
+      DB_HOST: host.docker.internal
       DB_PORT: "5432"
-      DB_NAME: phoresis
+      DB_NAME: phoresis_dev
       DB_USER: phoresis
       DB_PASSWORD: phoresis
       REDIS_HOST: redis
@@ -153,8 +162,6 @@ services:
       - ../src:/app/src
       - ../manage.py:/app/manage.py
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       worker:
