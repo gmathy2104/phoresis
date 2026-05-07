@@ -592,6 +592,115 @@ class DensitometryPowerPointBuilder:
 
         self._add_slide_number(slide)
 
+    def _add_quantification_slide(self):
+        """Add a single Quantification slide with the calibration curve PNG,
+        a KPI box (R², N, mean recovery%), and a top-8 sample table."""
+        data = self.data.quantification
+        if data is None:
+            return
+
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Quantification")
+
+        calib = data["calibration"]
+        unit_label = "µg" if calib.unit == "UG" else "µg/mL"
+
+        # Calibration curve PNG (left half)
+        try:
+            slide.shapes.add_picture(
+                BytesIO(data["curve_png"]),
+                Inches(0.5),
+                Inches(1.4),
+                Inches(7.0),
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to embed calibration curve in PPTX: {exc}")
+
+        # KPI box (top right)
+        n_used = sum(1 for p in data["result"].calibration_points if not p.is_excluded)
+        recoveries = [
+            (c.predicted_amount / c.load_amount) * 100
+            for c in data["controls"]
+            if c.predicted_amount is not None and c.load_amount
+        ]
+        kpi_box = slide.shapes.add_textbox(
+            Inches(8.0),
+            Inches(1.4),
+            Inches(4.8),
+            Inches(2.0),
+        )
+        tf = kpi_box.text_frame
+        tf.word_wrap = True
+        p0 = tf.paragraphs[0]
+        p0.text = f"Method: {calib.method}    Unit: {unit_label}"
+        p0.font.size = Pt(13)
+        p0.font.color.rgb = _DARK
+        p0.font.name = "Inter"
+
+        for line in [
+            f"R² = {calib.r_squared:.4f}",
+            f"N = {n_used}",
+            (
+                f"Mean recovery = {sum(recoveries) / len(recoveries):.1f}%"
+                if recoveries
+                else "Mean recovery = —"
+            ),
+        ]:
+            p = tf.add_paragraph()
+            p.text = line
+            p.font.size = Pt(16)
+            p.font.bold = True
+            p.font.color.rgb = _ACCENT_DARK
+            p.font.name = "Inter"
+
+        # Top-8 sample table (bottom right)
+        samples = sorted(
+            data["samples"],
+            key=lambda s: s.predicted_amount if s.predicted_amount is not None else -1,
+            reverse=True,
+        )[:8]
+        if samples:
+            headers = ["Lane", "Area", f"Est. ({unit_label})"]
+            rows = []
+            for s in samples:
+                area_str = f"{s.corrected_area:.0f}" if s.corrected_area is not None else "—"
+                est_str = f"{s.predicted_amount:.2f}" if s.predicted_amount is not None else "—"
+                rows.append([str(s.lane_number), area_str, est_str])
+            n_rows = len(rows) + 1
+            table_shape = slide.shapes.add_table(
+                n_rows,
+                3,
+                Inches(8.0),
+                Inches(3.6),
+                Inches(4.8),
+                Inches(min(n_rows * 0.38, 3.4)),
+            )
+            table = table_shape.table
+            for j, h in enumerate(headers):
+                cell = table.cell(0, j)
+                cell.text = h
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = _TABLE_HEADER_BG
+                for p in cell.text_frame.paragraphs:
+                    p.font.size = Pt(10)
+                    p.font.bold = True
+                    p.font.color.rgb = _WHITE
+                    p.font.name = "Inter"
+                    p.alignment = PP_ALIGN.CENTER
+            for i, row in enumerate(rows):
+                for j, val in enumerate(row):
+                    cell = table.cell(i + 1, j)
+                    cell.text = val
+                    if i % 2 == 1:
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = _TABLE_ALT_BG
+                    for p in cell.text_frame.paragraphs:
+                        p.font.size = Pt(10)
+                        p.font.color.rgb = _DARK
+                        p.font.name = "Inter"
+
+        self._add_slide_number(slide)
+
     def _add_lane_detail_slides(self):
         """Add one slide per SAMPLE lane with summary and electropherogram."""
         sample_lanes = [lane for lane in self.data.lanes if lane.lane_type not in ("MW Ladder", "Empty")]
@@ -1134,6 +1243,7 @@ class DensitometryPowerPointBuilder:
             ("gel_image", self._add_gel_table_slide, "gel overview & table"),
             ("digital_gel", self._add_digital_gel_slide, "digital gel"),
             ("poi_purity", self._add_poi_purity_slide, "POI purity"),
+            ("quantification", self._add_quantification_slide, "quantification"),
             ("lane_details", self._add_lane_detail_slides, "lane details"),
             ("terrain_view", self._add_terrain_view_slides, "terrain view"),
             ("materials_methods", self._add_materials_methods_slide, "materials & methods"),
