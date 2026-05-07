@@ -38,6 +38,8 @@ def lane_to_dict(lane) -> dict:
         "protein_load_ug": float(lane.protein_load_ug) if lane.protein_load_ug else None,
         "protein_load_type": lane.protein_load_type or "",
         "protein_load_type_display": lane.get_protein_load_type_display() if lane.protein_load_type else "",
+        # Calibration / Control loading volume (Phase 5)
+        "loading_volume_ul": float(lane.loading_volume_ul) if lane.loading_volume_ul is not None else None,
         # Sample info — Phoresis stores per-lane extras in `sample_metadata` JSON.
         "sample_name": lane.sample_name or "",
         "sample_metadata": lane.sample_metadata or {},
@@ -54,6 +56,24 @@ def band_to_dict(band) -> dict:
     """Serialize a Band instance to a dictionary for JSON API responses."""
     band_type = band.band_type or "OTHER"
     band_type_display = band.get_band_type_display() if band.band_type else "Other"
+
+    # Phase 5 quantification fields - guarded with hasattr so unrelated callers
+    # (tests, fixtures) don't blow up on instances missing the related rows.
+    quant_point = None
+    qp = getattr(band, "quant_point", None)
+    if qp is not None:
+        quant_point = {
+            "load_amount": float(qp.load_amount),
+            "load_unit": qp.load_unit,
+            "is_excluded_from_fit": qp.is_excluded_from_fit,
+        }
+
+    corrected_area = None
+    densito = getattr(band, "densitometry", None)
+    if densito is not None:
+        corrected_area = (
+            float(densito.corrected_area) if densito.corrected_area is not None else None
+        )
 
     return {
         "id": str(band.pk),  # UUID to string
@@ -73,6 +93,9 @@ def band_to_dict(band) -> dict:
         "label": band.label or "",
         "notes": band.notes or "",
         "metadata": band.metadata or {},
+        # Phase 5 quantification fields
+        "quant_point": quant_point,
+        "corrected_area": corrected_area,
     }
 
 

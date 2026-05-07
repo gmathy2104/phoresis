@@ -987,7 +987,8 @@
                 const element = this.svg.findOne(`#lane-${id}`);
                 if (element) {
                     element.removeClass('sample').removeClass('ladder')
-                           .removeClass('control').removeClass('empty');
+                           .removeClass('control').removeClass('calibration')
+                           .removeClass('empty');
                     element.addClass(data.lane_type.toLowerCase());
                 }
             }

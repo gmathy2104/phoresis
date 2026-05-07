@@ -162,6 +162,7 @@ def api_lane_detail(request, pk):
             "is_reduced",
             "protein_load_ug",
             "protein_load_type",
+            "loading_volume_ul",
             "sample_name",
             "notes",
         ]
@@ -740,6 +741,7 @@ def api_bulk_update_lanes(request, pk):
         "is_reduced",
         "protein_load_ug",
         "protein_load_type",
+        "loading_volume_ul",
         "sample_name",
         "notes",
     ]

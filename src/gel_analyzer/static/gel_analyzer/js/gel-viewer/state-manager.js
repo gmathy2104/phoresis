@@ -572,6 +572,7 @@
                 'SAMPLE': 'Sample',
                 'LADDER': 'MW Ladder',
                 'CONTROL': 'Control',
+                'CALIBRATION': 'Calibration Standard',
                 'EMPTY': 'Empty'
             };
             return displays[laneType] || laneType;

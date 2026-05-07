@@ -163,6 +163,7 @@
             if (!this.contentContainer) return;
 
             const isLadder = lane.lane_type === 'LADDER';
+            const isCalibOrCtrl = ['CALIBRATION', 'CONTROL'].includes(lane.lane_type);
             const typeBadgeClass = `gv-prop-type-badge gv-prop-type-${(lane.lane_type || 'sample').toLowerCase()}`;
             this.contentContainer.innerHTML = `
                 <div class="gv-prop-form">
@@ -185,6 +186,7 @@
                                     <option value="LADDER" ${lane.lane_type === 'LADDER' ? 'selected' : ''}>MW Ladder</option>
                                     <option value="EMPTY" ${lane.lane_type === 'EMPTY' ? 'selected' : ''}>Empty</option>
                                     <option value="CONTROL" ${lane.lane_type === 'CONTROL' ? 'selected' : ''}>Control</option>
+                                    <option value="CALIBRATION" ${lane.lane_type === 'CALIBRATION' ? 'selected' : ''}>Calibration</option>
                                 </select>
                             </div>
                             <div class="gv-prop-field gv-prop-col-2" id="prop-template-section" style="display: ${isLadder ? '' : 'none'};">
@@ -215,13 +217,15 @@
                                     <option value="false" ${lane.is_reduced === false ? 'selected' : ''}>Non-reduced</option>
                                 </select>
                             </div>
-                            <div class="gv-prop-field">
+                            <div class="gv-prop-field" id="prop-protein-load-section"
+                                 style="display: ${isCalibOrCtrl ? 'none' : ''};">
                                 <label for="prop-protein-load">Load (µg)</label>
                                 <input type="number" id="prop-protein-load" data-field="protein_load_ug"
                                        class="form-control form-control-sm"
                                        value="${lane.protein_load_ug || ''}" step="0.1" min="0" placeholder="—">
                             </div>
-                            <div class="gv-prop-field gv-prop-col-2">
+                            <div class="gv-prop-field gv-prop-col-2" id="prop-load-type-section"
+                                 style="display: ${isCalibOrCtrl ? 'none' : ''};">
                                 <label for="prop-load-type">Load type</label>
                                 <select id="prop-load-type" data-field="protein_load_type" class="form-select form-select-sm">
                                     <option value="" ${!lane.protein_load_type ? 'selected' : ''}>—</option>
@@ -230,6 +234,13 @@
                                     <option value="HOST_CELL" ${lane.protein_load_type === 'HOST_CELL' ? 'selected' : ''}>Host Cell Protein</option>
                                     <option value="OTHER" ${lane.protein_load_type === 'OTHER' ? 'selected' : ''}>Other</option>
                                 </select>
+                            </div>
+                            <div class="gv-prop-field gv-prop-col-2" id="prop-loading-volume-section"
+                                 style="display: ${isCalibOrCtrl ? '' : 'none'};">
+                                <label for="prop-loading-volume">Loading volume (µL)</label>
+                                <input type="number" id="prop-loading-volume" data-field="loading_volume_ul"
+                                       class="form-control form-control-sm"
+                                       value="${lane.loading_volume_ul ?? ''}" step="0.1" min="0" placeholder="—">
                             </div>
                             <div class="gv-prop-field gv-prop-col-2">
                                 <label for="prop-notes">Notes</label>
@@ -483,6 +494,50 @@
         }
 
         /**
+         * Confirm a lane-type downgrade if the lane has dependent CALIBRATION
+         * points, and immediately PATCH the server with ?force=true to purge
+         * them. The subsequent normal update flow will see a consistent state.
+         *
+         * @returns {Promise<boolean>} true if the change should proceed
+         */
+        async _maybeConfirmLaneTypeChange(currentType, newType, laneId) {
+            const isDowngrade = ['CALIBRATION', 'CONTROL'].includes(currentType)
+                && !['CALIBRATION', 'CONTROL'].includes(newType);
+            if (!isDowngrade) return true;
+
+            const bands = this.stateManager.getBandsForLane(laneId) || [];
+            const hasCalibPoints = bands.some(b => b.band_type === 'CALIBRATION');
+            if (!hasCalibPoints) return true;
+
+            const ok = window.confirm(
+                'This lane has calibration points. Their loaded amounts and '
+                + 'units will be deleted, and the bands reset to OTHER. Continue?'
+            );
+            if (!ok) return false;
+
+            // Immediate ?force=true PATCH so the server purges the dependent
+            // ProteinQuantCalibrationPoint rows + flips the bands back to OTHER.
+            // Without this, the subsequent batched bulk save would 409 (or, on
+            // the legacy endpoint, leave inconsistent state).
+            try {
+                await this.apiClient.updateLane(laneId, { lane_type: newType }, { force: true });
+                // Reflect band-type change locally — the server has reset all
+                // dependent CALIBRATION bands to OTHER. We mirror that in state
+                // so the UI stays consistent without a full reload.
+                bands.forEach(b => {
+                    if (b.band_type === 'CALIBRATION') {
+                        b.band_type = 'OTHER';
+                        b.quant_point = null;
+                    }
+                });
+            } catch (err) {
+                window.alert(`Could not change lane type: ${err.message || err}`);
+                return false;
+            }
+            return true;
+        }
+
+        /**
          * Handle lane type change - show/hide template section and auto-assign default.
          * @param {string|number} laneId - Lane ID
          * @param {string} newType - New lane type value
@@ -494,10 +549,28 @@
             // Update the type badge in the header
             const typeBadge = document.getElementById('prop-lane-type-badge');
             if (typeBadge) {
-                const labels = { SAMPLE: 'Sample', LADDER: 'MW Ladder', EMPTY: 'Empty', CONTROL: 'Control', DOT: 'Dot' };
+                const labels = {
+                    SAMPLE: 'Sample',
+                    LADDER: 'MW Ladder',
+                    EMPTY: 'Empty',
+                    CONTROL: 'Control',
+                    CALIBRATION: 'Calibration',
+                    DOT: 'Dot',
+                };
                 typeBadge.textContent = labels[newType] || 'Sample';
                 typeBadge.className = `gv-prop-type-badge gv-prop-type-${(newType || 'sample').toLowerCase()}`;
             }
+
+            // Toggle protein-load vs loading-volume sections based on the new type.
+            // CALIBRATION/CONTROL lanes use loading_volume_ul; everything else
+            // keeps the legacy protein_load_ug + protein_load_type pair.
+            const isCalibOrCtrl = ['CALIBRATION', 'CONTROL'].includes(newType);
+            const loadSection = document.getElementById('prop-protein-load-section');
+            const loadTypeSection = document.getElementById('prop-load-type-section');
+            const volumeSection = document.getElementById('prop-loading-volume-section');
+            if (loadSection) loadSection.style.display = isCalibOrCtrl ? 'none' : '';
+            if (loadTypeSection) loadTypeSection.style.display = isCalibOrCtrl ? 'none' : '';
+            if (volumeSection) volumeSection.style.display = isCalibOrCtrl ? '' : 'none';
 
             if (newType === 'LADDER') {
                 // Show template section (clear inline display so the .gv-prop-field flex layout applies)
@@ -542,8 +615,21 @@
             // Lane type change - special handler for template section
             const laneTypeSelect = document.getElementById('prop-lane-type');
             if (laneTypeSelect) {
+                // Capture the current value at render time so we can detect
+                // downgrades (CALIBRATION/CONTROL -> other) and revert if the
+                // user cancels the destructive confirmation prompt.
+                let currentType = laneTypeSelect.value;
                 laneTypeSelect.addEventListener('change', async (e) => {
                     const newType = e.target.value;
+                    const proceed = await this._maybeConfirmLaneTypeChange(
+                        currentType, newType, id
+                    );
+                    if (!proceed) {
+                        // Roll the <select> back to its prior value.
+                        e.target.value = currentType;
+                        return;
+                    }
+                    currentType = newType;
                     // Handle the standard lane change
                     this._handleLaneChange(id, e.target);
                     // Handle template section visibility and auto-assign
@@ -609,7 +695,7 @@
             // Parse value based on field type
             if (field === 'is_reduced') {
                 value = value === '' ? null : value === 'true';
-            } else if (field === 'protein_load_ug') {
+            } else if (field === 'protein_load_ug' || field === 'loading_volume_ul') {
                 value = value === '' ? null : parseFloat(value);
             } else if (field === 'ladder_template_id') {
                 // Template ID: empty string means null
@@ -832,6 +918,7 @@
                 'is_reduced': 'prop-is-reduced',
                 'protein_load_ug': 'prop-protein-load',
                 'protein_load_type': 'prop-load-type',
+                'loading_volume_ul': 'prop-loading-volume',
                 'sample_name': 'prop-sample-name',
                 'notes': 'prop-notes',
                 'band_type': 'prop-band-type',
