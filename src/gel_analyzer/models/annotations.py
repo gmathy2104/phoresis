@@ -25,6 +25,7 @@ class Lane(models.Model):
         EMPTY = "EMPTY", "Empty Lane"
         CONTROL = "CONTROL", "Control"
         DOT = "DOT", "Dot (for Dot Blots)"
+        CALIBRATION = "CALIBRATION", "Calibration Standard"
 
     class DetectionSource(models.TextChoices):
         """Detection source choices."""

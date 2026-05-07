@@ -36,6 +36,7 @@ class TestLane:
         assert Lane.LaneType.EMPTY == "EMPTY"
         assert Lane.LaneType.CONTROL == "CONTROL"
         assert Lane.LaneType.DOT == "DOT"
+        assert Lane.LaneType.CALIBRATION == "CALIBRATION"
 
     def test_detection_source_choices(self):
         """Test detection source choices are valid."""
