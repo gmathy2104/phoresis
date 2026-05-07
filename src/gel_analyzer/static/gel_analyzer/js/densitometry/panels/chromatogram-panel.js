@@ -33,6 +33,12 @@
             this.container = options.container;
             this.eventBus = options.eventBus;
             this.state = options.state;
+            // Phase 7.1: api + analysisId are needed by the Quantification curve tab.
+            // Both are optional so older callers (and tests) keep working.
+            this.api = options.apiClient || null;
+            this.analysisId = options.analysisId || null;
+            this.activeTab = 'chromatogram';
+            this._lastQuantResult = null;
 
             // Chart dimensions
             this.margin = { top: 20, right: 30, bottom: 50, left: 60 };
@@ -119,12 +125,15 @@
                 return;
             }
 
-            // Find the content element (inside the panel, not the panel itself)
-            this.contentElement = this.container.querySelector('.dm-panel-content');
-            if (!this.contentElement) {
-                console.warn('[ChromatogramPanel] No .dm-panel-content element found');
-                this.contentElement = this.container;  // Fallback
-            }
+            // Find the content element (inside the panel, not the panel itself).
+            // Phase 7.1 introduced tabs inside .dm-panel-content. The chromatogram
+            // chart now lives in the [data-tab-pane="chromatogram"] sub-element;
+            // _createChart() and friends still target a single host, so we point
+            // contentElement at that pane when the tab markup is present. This
+            // keeps the rest of the file (which uses contentElement) untouched.
+            this.panelContent = this.container.querySelector('.dm-panel-content') || this.container;
+            const chartPane = this.panelContent.querySelector('[data-tab-pane="chromatogram"]');
+            this.contentElement = chartPane || this.panelContent;
 
             // Create chart container
             this._createChart();
@@ -132,8 +141,178 @@
             // Setup event listeners
             this._setupEvents();
 
+            // Phase 7.1: tabs above the chart
+            this._setupTabs();
+
             // Setup resize observer (replaces window resize listener)
             this._setupResizeObserver();
+        }
+
+        /**
+         * Phase 7.1: Wire the [Chromatogram | POI Purity | Quantification curve]
+         * tab strip. Persists the selection per-browser via safeLocalSet so the
+         * user lands on the same view next time. No-op if the template did not
+         * include the tab markup (graceful degradation).
+         */
+        _setupTabs() {
+            if (!this.panelContent) return;
+            const tabs = this.panelContent.querySelectorAll('.dm-tab');
+            if (!tabs.length) return;  // Tabs not present in this template.
+
+            const KEY = 'phoresis.densito.chromatogramTab';
+            let saved = 'chromatogram';
+            try {
+                if (typeof safeLocalGet === 'function') {
+                    saved = safeLocalGet(KEY, 'chromatogram') || 'chromatogram';
+                }
+            } catch (_) { /* ignore */ }
+            // Only honor a known tab id; reset to default otherwise.
+            if (!['chromatogram', 'poi-purity', 'quantification'].includes(saved)) {
+                saved = 'chromatogram';
+            }
+
+            tabs.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tab = btn.dataset.tab;
+                    this._activateTab(tab);
+                    try {
+                        if (typeof safeLocalSet === 'function') safeLocalSet(KEY, tab);
+                    } catch (_) { /* ignore */ }
+                });
+            });
+
+            // Subscribe to QUANT_CALIBRATION_CHANGED so the curve refreshes
+            // automatically after the user saves a new calibration.
+            const quantEvent = (Events && Events.QUANT_CALIBRATION_CHANGED) || 'QUANT_CALIBRATION_CHANGED';
+            this.eventBus.on(quantEvent, () => {
+                this._lastQuantResult = null;  // invalidate cache
+                if (this.activeTab === 'quantification') {
+                    this._renderQuantificationTab();
+                }
+            });
+
+            this._activateTab(saved);
+        }
+
+        /**
+         * Show one tab, hide the others. The Chromatogram tab keeps the existing
+         * D3 chart + 3D + POI containers visible (managed by the legacy view
+         * toggle). The POI Purity tab forces the POI sub-view. The Quantification
+         * tab swaps in a Canvas2D scatter rendered by QuantificationCurveRenderer.
+         */
+        _activateTab(tab) {
+            if (!this.panelContent) return;
+            this.activeTab = tab;
+
+            this.panelContent.querySelectorAll('.dm-tab').forEach(b => {
+                const match = b.dataset.tab === tab;
+                b.classList.toggle('active', match);
+                b.setAttribute('aria-selected', match ? 'true' : 'false');
+            });
+            this.panelContent.querySelectorAll('.dm-tab-pane').forEach(p => {
+                const match = p.dataset.tabPane === tab;
+                p.hidden = !match;
+                p.classList.toggle('active', match);
+            });
+
+            // The legacy view toggle (Electropherogram / 3D / POI Purity) only
+            // makes sense on the Chromatogram tab — hide it on the others.
+            const viewToggle = this.container.querySelector('#graphical-view-toggle');
+            if (viewToggle) {
+                viewToggle.style.display = tab === 'chromatogram' ? '' : 'none';
+            }
+
+            if (tab === 'poi-purity') {
+                // Surface the existing POI bar chart by forcing the view mode.
+                // The chart still lives in the Chromatogram pane (existing DOM
+                // structure) so we mirror that container into the POI tab pane
+                // by toggling the legacy view internally.
+                this.currentView = 'poi-purity';
+                this._enforce3DVisibility(false);
+                this.eventBus.emit(Events.VIEW_MODE_CHANGED, { view: 'poi-purity' });
+            } else if (tab === 'chromatogram') {
+                // Restore whichever sub-view was active (defaults to electropherogram).
+                if (!this.currentView || this.currentView === 'poi-purity') {
+                    this.currentView = 'electropherogram';
+                    this.eventBus.emit(Events.VIEW_MODE_CHANGED, { view: 'electropherogram' });
+                }
+                this._enforce3DVisibility(this.is3DMode);
+            } else if (tab === 'quantification') {
+                this._renderQuantificationTab().catch(err => {
+                    console.error('[ChromatogramPanel] quantification tab render failed:', err);
+                });
+            }
+        }
+
+        /**
+         * Fetch the active quantification calibration + a fresh preview, then
+         * draw the curve via the shared QuantificationCurveRenderer. Shows the
+         * empty-state copy when no active calibration exists.
+         */
+        async _renderQuantificationTab() {
+            const empty = document.getElementById('dm-quantification-empty');
+            const canvas = document.getElementById('dm-quantification-chart');
+            if (!canvas) return;
+
+            const renderer = window.QuantificationCurveRenderer
+                || (window.Densitometry && window.Densitometry.QuantificationCurveRenderer);
+            if (!renderer) {
+                if (empty) {
+                    empty.hidden = false;
+                    empty.textContent = 'Quantification curve renderer not loaded.';
+                }
+                canvas.style.display = 'none';
+                return;
+            }
+
+            if (!this.api || !this.analysisId) {
+                if (empty) empty.hidden = false;
+                canvas.style.display = 'none';
+                return;
+            }
+
+            // Use cached result on repeated tab clicks within the same calibration.
+            if (this._lastQuantResult) {
+                if (empty) empty.hidden = true;
+                canvas.style.display = '';
+                renderer.render(canvas, this._lastQuantResult);
+                return;
+            }
+
+            try {
+                const meta = await this.api.getActiveQuantification(this.analysisId);
+                const active = meta && (meta.active || meta.data && meta.data.active);
+                if (!active) {
+                    if (empty) {
+                        empty.hidden = false;
+                        empty.textContent = 'No active quantification calibration. Open Quantification modal to set up.';
+                    }
+                    canvas.style.display = 'none';
+                    return;
+                }
+
+                const previewBody = {
+                    method: active.method,
+                    unit: active.unit,
+                    excluded_band_ids: active.excluded_band_ids || [],
+                };
+                const r = await this.api.previewQuantification(this.analysisId, previewBody);
+                // The densitometry api-client returns the parsed JSON directly,
+                // while the gel-viewer api-client wraps it in {ok, status, data}.
+                const result = (r && r.data) ? r.data : r;
+                this._lastQuantResult = result;
+
+                if (empty) empty.hidden = true;
+                canvas.style.display = '';
+                renderer.render(canvas, result);
+            } catch (err) {
+                console.error('[ChromatogramPanel] failed to load quantification:', err);
+                if (empty) {
+                    empty.hidden = false;
+                    empty.textContent = 'Failed to load quantification curve.';
+                }
+                canvas.style.display = 'none';
+            }
         }
 
         /**

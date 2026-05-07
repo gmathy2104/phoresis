@@ -578,11 +578,43 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                     </div>
                 </div>
                 <div class="dm-panel-content">
-                    <!-- D3.js chart will be inserted here -->
-                    <!-- 3D terrain view container (hidden by default, toggled via view toggle) -->
-                    <div class="dm-chromatogram-3d-container" id="chromatogram-3d-container" style="display: none;"></div>
-                    <!-- POI purity bar chart container (hidden by default, toggled via view toggle) -->
-                    <div id="poi-purity-container" class="dm-poi-purity-container" style="display: none;"></div>
+                    {% comment %}
+                      Phase 7.1 — Tabs above the chromatogram panes.
+                      "chromatogram" = the existing D3 chart + 3D + POI containers
+                      "poi-purity"   = same POI container surfaced as its own tab
+                      "quantification" = read-only calibration curve (Phase 6 renderer)
+                    {% endcomment %}
+                    <div class="dm-tabs" role="tablist" aria-label="Chromatogram views">
+                        <button type="button" class="dm-tab active" data-tab="chromatogram" role="tab" aria-selected="true">Chromatogram</button>
+                        <button type="button" class="dm-tab" data-tab="poi-purity" role="tab" aria-selected="false">POI Purity</button>
+                        <button type="button" class="dm-tab" data-tab="quantification" role="tab" aria-selected="false">Quantification curve</button>
+                    </div>
+
+                    <div class="dm-tab-pane active" data-tab-pane="chromatogram" role="tabpanel">
+                        <!-- D3.js chart will be inserted here -->
+                        <!-- 3D terrain view container (hidden by default, toggled via view toggle) -->
+                        <div class="dm-chromatogram-3d-container" id="chromatogram-3d-container" style="display: none;"></div>
+                        <!-- POI purity bar chart container (hidden by default, toggled via view toggle) -->
+                        <div id="poi-purity-container" class="dm-poi-purity-container" style="display: none;"></div>
+                    </div>
+
+                    <div class="dm-tab-pane" data-tab-pane="poi-purity" role="tabpanel" hidden>
+                        {% comment %}
+                          Reuses the existing #poi-purity-container — chromatogram-panel.js
+                          will move it into this pane on tab activation. The placeholder
+                          below is shown if rendering fails or there is no data yet.
+                        {% endcomment %}
+                        <div class="dm-tab-empty" id="dm-poi-purity-empty" hidden>
+                            POI Purity chart unavailable. Run densitometry analysis first.
+                        </div>
+                    </div>
+
+                    <div class="dm-tab-pane" data-tab-pane="quantification" role="tabpanel" hidden>
+                        <canvas id="dm-quantification-chart" width="700" height="420" data-css-width="700" data-css-height="420"></canvas>
+                        <div class="dm-tab-empty" id="dm-quantification-empty" hidden>
+                            No active quantification calibration. Open Quantification modal to set up.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -696,7 +728,7 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
 <script src="{% static 'gel_analyzer/js/densitometry/densitometry-state.js' %}?v=20260120c"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/densitometry-api-client.js' %}?v=20260120c"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/gel-overview-panel.js' %}?v=20260120b"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260130a"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260507c"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/band-zoom-panel.js' %}?v=20260121g"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/results-table-panel.js' %}?v=20260120e"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-curve-renderer.js' %}?v=20260507a"></script>

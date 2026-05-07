@@ -204,6 +204,10 @@
                     container: document.getElementById('chromatogram-panel'),
                     eventBus: this.eventBus,
                     state: this.state,
+                    // Phase 7.1: needed by the Quantification curve tab to call
+                    // /quantification/ + /quantification/preview/.
+                    apiClient: this.api,
+                    analysisId: this.analysisId,
                 });
             }
 

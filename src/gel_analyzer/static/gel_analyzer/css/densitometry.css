@@ -3472,3 +3472,71 @@
     padding: 16px 24px;
     border-top: 1px solid rgba(255,255,255,0.08);
 }
+
+/* =====================================================================
+ * Phase 7.1 — Chromatogram panel tabs
+ * Tabs sit at the top of .dm-panel-chromatogram .dm-panel-content and let
+ * the user switch between the existing chromatogram, the POI Purity bar
+ * chart and the quantification calibration curve.
+ * =================================================================== */
+.dm-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 8px;
+    flex: 0 0 auto;
+}
+
+.dm-tab {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: rgba(255,255,255,0.55);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 8px 14px;
+    transition: color 120ms ease, border-color 120ms ease;
+}
+
+.dm-tab:hover {
+    color: rgba(255,255,255,0.8);
+}
+
+.dm-tab.active {
+    color: #fff;
+    border-bottom-color: #8B5CF6;
+}
+
+.dm-tab-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+}
+
+.dm-tab-pane[hidden] { display: none; }
+
+.dm-tab-pane[data-tab-pane="quantification"] {
+    align-items: center;
+    justify-content: center;
+}
+
+#dm-quantification-chart {
+    max-width: 100%;
+    height: auto;
+}
+
+.dm-tab-empty {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.85rem;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+/* The Chromatogram tab pane needs to flex-fill so the SVG can size to it. */
+.dm-tab-pane[data-tab-pane="chromatogram"] {
+    flex: 1 1 auto;
+}
