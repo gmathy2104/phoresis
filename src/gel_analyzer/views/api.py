@@ -2837,7 +2837,12 @@ def api_lane_comparison_data(request, pk):
             Lane.objects.select_related(
                 "analysis__gel_image",
                 "densitometry_summary",
-            ).prefetch_related("bands__densitometry", "analysis__ladder_calibrations__template"),
+            ).prefetch_related(
+                "bands__densitometry",
+                "bands__quant_point",
+                "analysis__ladder_calibrations__template",
+                "analysis__quant_calibrations",
+            ),
             pk=pk,
         )
 
@@ -2948,6 +2953,20 @@ def api_lane_comparison_data(request, pk):
                     "fit_r_squared": float(d.fit_r_squared) if d.fit_r_squared else None,
                     "peak_amplitude": float(d.peak_amplitude) if d.peak_amplitude else None,
                     "fwhm": float(d.fwhm) if d.fwhm else None,
+                    "estimated_amount": float(d.estimated_amount) if d.estimated_amount is not None else None,
+                    "estimated_amount_unit": d.estimated_amount_unit or None,
+                }
+
+            # Quant point (only present on CALIBRATION-typed bands with a declared
+            # known reference). Used by the comparison table for the CONTROL
+            # recovery math (predicted vs known) per Phase 7's fix.
+            qp = getattr(band, "quant_point", None)
+            if qp is not None:
+                band_info["quant_point"] = {
+                    "load_amount": float(qp.load_amount) if qp.load_amount is not None else None,
+                    "load_unit": qp.load_unit,
+                    "is_excluded_from_fit": qp.is_excluded_from_fit,
+                    "role": qp.role,
                 }
 
             bands_data.append(band_info)
@@ -2965,6 +2984,38 @@ def api_lane_comparison_data(request, pk):
         # Critical vs soft issues
         critical_issues = [i for i in comparability_issues if i in ("no_lane", "no_gel_image")]
 
+        # Surface the active protein-quantification calibration (if any) on
+        # the analysis payload so the comparison UI knows whether to show
+        # the Quantification column group + which unit / method to label.
+        active_quant = None
+        if lane.analysis:
+            active_quant = next(
+                (qc for qc in lane.analysis.quant_calibrations.all() if qc.is_active),
+                None,
+            )
+
+        # Lane-level densitometry summary (poi_percentage, totals, band_count)
+        # — needed for the lane-level comparison row display.
+        lane_summary = None
+        if hasattr(lane, "densitometry_summary") and lane.densitometry_summary:
+            s = lane.densitometry_summary
+            lane_summary = {
+                "total_integrated_area": float(s.total_integrated_area)
+                if s.total_integrated_area is not None
+                else None,
+                "poi_integrated_area": float(s.poi_integrated_area) if s.poi_integrated_area is not None else None,
+                "poi_percentage": float(s.poi_percentage) if s.poi_percentage is not None else None,
+                "band_count": s.band_count,
+                "poi_band_count": s.poi_band_count,
+            }
+
+        # Number of MW markers on the analysis ladder (Quality column).
+        mw_marker_count = 0
+        if lane.analysis:
+            cal = lane.analysis.ladder_calibrations.first()
+            if cal and cal.ladder_lane_id:
+                mw_marker_count = cal.ladder_lane.mw_markers.count() if hasattr(cal, "ladder_lane") else 0
+
         return JsonResponse(
             {
                 "id": f"{source}_{source_id}",
@@ -2974,7 +3025,14 @@ def api_lane_comparison_data(request, pk):
                 "lane": {
                     "id": lane.pk,
                     "lane_number": lane.lane_number,
+                    "lane_type": lane.lane_type,
+                    "lane_type_display": lane.get_lane_type_display(),
                     "sample_name": lane.sample_name or None,
+                    "is_reduced": lane.is_reduced,
+                    "protein_load_ug": float(lane.protein_load_ug) if lane.protein_load_ug is not None else None,
+                    "loading_volume_ul": float(lane.loading_volume_ul)
+                    if lane.loading_volume_ul is not None
+                    else None,
                     "bbox": {
                         "x": lane.x,
                         "y": lane.y,
@@ -2991,10 +3049,24 @@ def api_lane_comparison_data(request, pk):
                 "profile": profile_data,
                 "mw_profile": mw_profile_data,
                 "calibration": calibration_data,
+                "densitometry": lane_summary,
                 "analysis": {
                     "id": str(lane.analysis.pk) if lane.analysis else None,
                     "name": lane.analysis.name if lane.analysis else None,
                     "gel_type": lane.analysis.gel_image.gel_type if lane.analysis and lane.analysis.gel_image else None,
+                    "mw_marker_count": mw_marker_count,
+                    "active_quant_calibration": (
+                        {
+                            "id": str(active_quant.id),
+                            "method": active_quant.method,
+                            "unit": active_quant.unit,
+                            "r_squared": float(active_quant.r_squared)
+                            if active_quant.r_squared is not None
+                            else None,
+                        }
+                        if active_quant
+                        else None
+                    ),
                 }
                 if lane.analysis
                 else None,
