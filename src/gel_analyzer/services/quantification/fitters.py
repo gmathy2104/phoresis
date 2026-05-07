@@ -27,8 +27,17 @@ def fit_linear(area: np.ndarray, amount: np.ndarray):
     return {"a": a, "b": b}, r2, residuals
 
 
+def predict_linear(coeffs: dict, area: float) -> float:
+    """Forward evaluation: given x = area, return y = a·area + b.
+
+    Used by the projection path (sample area → predicted amount). The
+    inverse direction lives in `predict_linear_inverse`.
+    """
+    return coeffs["a"] * area + coeffs["b"]
+
+
 def predict_linear_inverse(coeffs: dict, amount: float) -> float | None:
-    """Given y = a·x + b and observed y, return x = (y - b) / a."""
+    """Given y = a·x + b and observed y, return x = (y - b) / a, or None if a=0."""
     a, b = coeffs.get("a", 0.0), coeffs.get("b", 0.0)
     if a == 0:
         return None

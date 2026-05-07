@@ -8,6 +8,11 @@ Method = Literal["LINEAR", "POLYNOMIAL_2", "FOUR_PL"]
 Unit = Literal["UG", "UG_ML"]
 Role = Literal["CALIBRATION", "CONTROL"]
 
+# Recovery range for CONTROL points considered in-spec. Outside this range the
+# control is flagged out-of-spec in the QC table and on the calibration curve.
+# Centralised here so the UI / report layers can read the same constant.
+QC_RECOVERY_RANGE = (80.0, 120.0)
+
 
 @dataclass
 class QuantParams:
@@ -67,16 +72,19 @@ def _pt_to_dict(p: QuantPoint, *, with_recovery: bool = False, sample: bool = Fa
         "corrected_area": p.corrected_area,
         "is_excluded": p.is_excluded,
     }
+    has_load = p.load_amount is not None and p.load_amount != 0
     if not sample:
         base["load_amount"] = p.load_amount
         base["load_unit"] = p.load_unit
         base["predicted_amount"] = p.predicted_amount
-        if p.residual is not None and p.load_amount:
+        if p.residual is not None and has_load:
             base["residual_pct"] = round((p.residual / p.load_amount) * 100, 2)
-    if with_recovery and p.predicted_amount is not None and p.load_amount:
+    if with_recovery and p.predicted_amount is not None and has_load:
         base["known_amount"] = p.load_amount
-        base["recovery_pct"] = round((p.predicted_amount / p.load_amount) * 100, 2)
-        base["out_of_spec"] = not (80 <= base["recovery_pct"] <= 120)
+        recovery = (p.predicted_amount / p.load_amount) * 100
+        base["recovery_pct"] = round(recovery, 2)
+        lo, hi = QC_RECOVERY_RANGE
+        base["out_of_spec"] = not (lo <= recovery <= hi)
     if sample:
         base["estimated_amount"] = p.predicted_amount
     return base

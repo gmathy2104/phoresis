@@ -20,6 +20,17 @@ class TestLinear:
         coeffs = {"a": 2.0, "b": 1.0}
         assert fitters.predict_linear_inverse(coeffs, 7.0) == pytest.approx(3.0)
 
+    def test_inverse_returns_none_when_slope_zero(self):
+        # a=0 means horizontal line — y can't determine x uniquely.
+        coeffs = {"a": 0.0, "b": 1.0}
+        assert fitters.predict_linear_inverse(coeffs, 5.0) is None
+
+    def test_forward_predict(self):
+        # Forward evaluation is what the service uses to project samples:
+        # given x=area, y = a·area + b. With a=2, b=1, x=3 → y = 7.
+        coeffs = {"a": 2.0, "b": 1.0}
+        assert fitters.predict_linear(coeffs, 3.0) == pytest.approx(7.0)
+
 
 class TestPoly2:
     def test_perfect_quadratic(self):
@@ -35,6 +46,11 @@ class TestPoly2:
         coeffs = {"coeffs": [2.0, 3.0, 1.0]}
         x_range = (0.0, 4.0)
         assert fitters.predict_poly2_inverse(coeffs, 15.0, x_range=x_range) == pytest.approx(2.0)
+
+    def test_predict_inverse_returns_none_when_no_real_root(self):
+        # y = x² + 1 with target y=0: x² = -1 has no real solution.
+        coeffs = {"coeffs": [1.0, 0.0, 1.0]}
+        assert fitters.predict_poly2_inverse(coeffs, 0.0) is None
 
 
 class TestFourPL:
@@ -57,3 +73,8 @@ class TestFourPL:
         coeffs = {"a": 0.0, "d": 100.0, "c": 10.0, "b": 1.2}
         # y = 50 → x = 10 (the c parameter, by definition)
         assert fitters.predict_4pl_inverse(coeffs, 50.0) == pytest.approx(10.0, rel=0.01)
+
+    def test_4pl_inverse_returns_none_at_upper_asymptote(self):
+        # y = d would require dividing by zero in the inverse formula.
+        coeffs = {"a": 0.0, "d": 100.0, "c": 10.0, "b": 1.2}
+        assert fitters.predict_4pl_inverse(coeffs, 100.0) is None

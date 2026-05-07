@@ -1585,11 +1585,11 @@ Append to `service.py`:
     # ------------ Projection / persistence -----------------------------------
 
     def project(self, area: float, result: QuantResult) -> float | None:
-        """Inverse-transform an area to an amount via the active fit coefficients."""
+        """Forward-evaluate the fit at x=area to obtain the predicted amount."""
         if not result.success or area is None:
             return None
         if result.method == "LINEAR":
-            return fitters.predict_linear_inverse(result.coefficients, area)
+            return fitters.predict_linear(result.coefficients, area)
         if result.method == "POLYNOMIAL_2":
             # Fit was amounts = f(areas), so to predict amount we evaluate the polynomial
             # forward (not inverse). Override the call accordingly.
