@@ -319,6 +319,7 @@
             this.contextMenu = new ContextMenu({
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
+                apiClient: this.apiClient,
                 svg: this.svg,
                 handlesGroup: this.handlesGroup,
                 isEditable: this.isEditable,
