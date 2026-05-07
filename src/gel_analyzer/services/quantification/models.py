@@ -6,7 +6,7 @@ from typing import Literal
 
 Method = Literal["LINEAR", "POLYNOMIAL_2", "FOUR_PL"]
 Unit = Literal["UG", "UG_ML"]
-Role = Literal["CALIBRATION", "CONTROL"]
+Role = Literal["CALIBRATION", "CONTROL", "SAMPLE"]
 
 # Recovery range for CONTROL points considered in-spec. Outside this range the
 # control is flagged out-of-spec in the QC table and on the calibration curve.

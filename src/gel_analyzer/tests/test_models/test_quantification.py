@@ -1,5 +1,6 @@
 """Tests for ProteinQuantCalibrationPoint model."""
 import pytest
+
 from django.core.exceptions import ValidationError
 
 from gel_analyzer.models import Band, Lane, ProteinQuantCalibrationPoint
@@ -74,8 +75,9 @@ class TestProteinQuantCalibration:
         assert calib.superseded_at is None
 
     def test_only_one_active_per_analysis(self, sample_analysis, test_user):
-        from gel_analyzer.models import ProteinQuantCalibration
         from django.db import IntegrityError
+
+        from gel_analyzer.models import ProteinQuantCalibration
         ProteinQuantCalibration.objects.create(
             analysis=sample_analysis, method="LINEAR", unit="UG",
             coefficients={"a": 1, "b": 0}, r_squared=0.99, equation="y=x",
@@ -90,8 +92,9 @@ class TestProteinQuantCalibration:
 
     def test_superseded_allows_new_active(self, sample_analysis, test_user):
         """When the previous one is marked is_active=False, a new active is allowed."""
-        from gel_analyzer.models import ProteinQuantCalibration
         from django.utils import timezone
+
+        from gel_analyzer.models import ProteinQuantCalibration
         old = ProteinQuantCalibration.objects.create(
             analysis=sample_analysis, method="LINEAR", unit="UG",
             coefficients={"a": 1, "b": 0}, r_squared=0.99, equation="y=x",

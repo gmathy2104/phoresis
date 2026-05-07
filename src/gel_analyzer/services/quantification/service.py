@@ -55,7 +55,8 @@ class ProteinQuantCalibrationService:
         return [self._band_to_point(b, role="CONTROL") for b in bands]
 
     def collect_sample_bands(self, analysis: GelAnalysis) -> list[QuantPoint]:
-        """All non-MW_REFERENCE bands of SAMPLE lanes that have densitometry."""
+        """All non-MW_REFERENCE bands of SAMPLE lanes; corrected_area is None if
+        densitometry has not been run for the band."""
         from gel_analyzer.models import Band, Lane
         bands = (
             Band.objects.filter(
@@ -90,7 +91,7 @@ class ProteinQuantCalibrationService:
             band_id=str(band.id),
             lane_id=band.lane_id,
             lane_number=band.lane.lane_number,
-            role="CALIBRATION",  # placeholder; sample projections don't carry roles
+            role="SAMPLE",
             load_amount=None,
             load_unit=None,
             corrected_area=densito.corrected_area if densito else None,

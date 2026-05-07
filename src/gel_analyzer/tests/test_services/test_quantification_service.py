@@ -48,7 +48,10 @@ class TestCollectCalibrationPoints:
         assert p.corrected_area == 1000.0
         assert p.role == "CALIBRATION"
 
-    def test_skips_band_without_densitometry(self, sample_analysis, test_user):
+    def test_collects_band_without_densitometry_as_missing(self, sample_analysis, test_user):
+        """A calibration band without densitometry must still be COLLECTED (with
+        corrected_area=None) so fit() can emit an actionable error rather than
+        silently producing a fit with a phantom point set."""
         lane = Lane.objects.create(
             analysis=sample_analysis, lane_number=11,
             lane_type=Lane.LaneType.CALIBRATION,
@@ -65,7 +68,11 @@ class TestCollectCalibrationPoints:
         svc = ProteinQuantCalibrationService()
         points = svc.collect_calibration_points(sample_analysis)
         assert len(points) == 1
-        assert points[0].corrected_area is None  # collected but flagged as missing
+        assert points[0].corrected_area is None
+        # And confirm fit() rejects the missing-densitometry case with a clear message.
+        result = svc.fit(points)
+        assert not result.success
+        assert "densitometry" in (result.error_message or "").lower()
 
     def test_excludes_control_points(self, calib_setup, sample_analysis, test_user):
         # Add a CONTROL lane + band + point
@@ -140,3 +147,39 @@ class TestFit:
         result = svc.fit(points)
         assert not result.success
         assert "4" in (result.error_message or "")
+
+    def test_poly2_fit_happy_path(self):
+        """service.fit dispatches POLYNOMIAL_2 correctly: fits, computes equation,
+        annotates predicted_amount on every non-excluded point."""
+        from gel_analyzer.services.quantification.models import QuantParams
+        svc = ProteinQuantCalibrationService(QuantParams(method="POLYNOMIAL_2", unit="UG"))
+        # Synthetic dataset that fits a poly2 perfectly: amount = 0.001*area² + 0.5
+        points = self._make_points(
+            [10, 20, 30, 40, 50],
+            [0.6, 0.9, 1.4, 2.1, 3.0],  # 1e-3 * a² + 0.5
+        )
+        result = svc.fit(points)
+        assert result.success
+        assert result.method == "POLYNOMIAL_2"
+        assert result.r_squared > 0.9999
+        assert "coeffs" in result.coefficients
+        assert all(p.predicted_amount is not None for p in result.calibration_points if not p.is_excluded)
+        assert "area" in result.equation  # formatted via poly2_equation
+
+    def test_4pl_fit_happy_path(self):
+        """service.fit dispatches FOUR_PL correctly on a sigmoidal dataset."""
+        import numpy as np
+
+        from gel_analyzer.services.quantification.models import QuantParams
+        # Build a clean 4PL dataset: amount = d + (a - d) / (1 + (area/c)^b)
+        a_, d_, c_, b_ = 0.0, 100.0, 10.0, 1.2
+        areas = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]
+        amounts = [float(d_ + (a_ - d_) / (1 + (np.float64(x) / c_) ** b_)) for x in areas]
+        svc = ProteinQuantCalibrationService(QuantParams(method="FOUR_PL", unit="UG"))
+        points = self._make_points(areas, amounts)
+        result = svc.fit(points)
+        assert result.success
+        assert result.method == "FOUR_PL"
+        assert result.r_squared > 0.999
+        assert {"a", "d", "c", "b"} <= set(result.coefficients.keys())
+        assert all(p.predicted_amount is not None for p in result.calibration_points if not p.is_excluded)
