@@ -329,7 +329,12 @@
                 onUpdateLane: (id, data) => this._updateLane(id, data),
                 onUpdateBand: (id, data) => this._updateBand(id, data),
                 onStartResize: (id) => this._startLaneResize(id),
-                getSelectedAnnotation: () => ({ type: this.selectedType, id: this.selectedId })
+                // Return null when nothing is selected so ContextMenu's `!selection`
+                // guard short-circuits cleanly. Returning a {type:null,id:null}
+                // object makes the truthy guard pass and downstream lookups
+                // (e.g. stateManager.getBand(null)) silently no-op.
+                getSelectedAnnotation: () =>
+                    this.selectedType ? { type: this.selectedType, id: this.selectedId } : null
             });
 
 // Electropherogram Panel (Plotly.js intensity profile) — init before DetectionPanel

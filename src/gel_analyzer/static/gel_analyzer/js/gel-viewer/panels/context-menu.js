@@ -353,7 +353,13 @@
 
                 case 'set-calibration-value':
                     if (type === 'band') {
-                        this._promptCalibrationValue(id);
+                        // _promptCalibrationValue is async and not awaitable here
+                        // (the surrounding _handleAction is sync). Chain a catch
+                        // so PATCH rejections surface to the user instead of
+                        // becoming silent uncaught-promise warnings.
+                        this._promptCalibrationValue(id).catch(err => {
+                            this.showMessage(`Calibration save failed: ${err && err.message ? err.message : err}`);
+                        });
                     }
                     break;
 
