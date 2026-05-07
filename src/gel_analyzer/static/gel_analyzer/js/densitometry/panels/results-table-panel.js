@@ -281,21 +281,38 @@
             const purity = purityDenom > 0 ? (poiArea / purityDenom) * 100 : null;
             const avgR2 = r2Count > 0 ? r2Sum / r2Count : null;
 
-            // Estimated amount for the lane: prefer POI band's estimated_amount,
-            // else sum of band-level estimates if any.
+            // For CONTROL lanes the predicted amount lives on the CALIBRATION-typed
+            // band (where the user declared the known reference via quant_point) —
+            // apply_to_analysis writes its DensitometryResult.estimated_amount.
+            // For SAMPLE lanes the predicted amount of interest is the POI band.
+            // protein_load_ug is sample-loading metadata only (spec §4.1) and
+            // must NOT feed the recovery math — that's quant_point.load_amount.
             let laneEstAmount = null;
-            const poiBand = bands.find(b => b.band_type === 'POI');
-            if (poiBand && poiBand.densitometry && poiBand.densitometry.estimated_amount != null) {
-                laneEstAmount = poiBand.densitometry.estimated_amount;
-            } else if (estAmountCount > 0) {
-                laneEstAmount = estAmountSum;
+            let knownAmount = null;
+            if (lane.lane_type === 'CONTROL') {
+                const ctrlBand = bands.find(b =>
+                    b.band_type === 'CALIBRATION' && b.quant_point && b.quant_point.load_amount != null
+                );
+                if (ctrlBand) {
+                    knownAmount = ctrlBand.quant_point.load_amount;
+                    if (ctrlBand.densitometry && ctrlBand.densitometry.estimated_amount != null) {
+                        laneEstAmount = ctrlBand.densitometry.estimated_amount;
+                    }
+                }
+            } else {
+                const poiBand = bands.find(b => b.band_type === 'POI');
+                if (poiBand && poiBand.densitometry && poiBand.densitometry.estimated_amount != null) {
+                    laneEstAmount = poiBand.densitometry.estimated_amount;
+                } else if (estAmountCount > 0) {
+                    laneEstAmount = estAmountSum;
+                }
             }
 
-            // Recovery % only meaningful for CONTROL lanes with a known load
-            // amount (lane.protein_load_ug) AND an estimated_amount.
+            // Recovery % only meaningful for CONTROL lanes with a known reference
+            // (quant_point.load_amount) AND a predicted estimated_amount.
             let recoveryPct = null;
-            if (lane.lane_type === 'CONTROL' && laneEstAmount != null && lane.protein_load_ug) {
-                recoveryPct = (laneEstAmount / lane.protein_load_ug) * 100;
+            if (lane.lane_type === 'CONTROL' && laneEstAmount != null && knownAmount) {
+                recoveryPct = (laneEstAmount / knownAmount) * 100;
             }
 
             return {
