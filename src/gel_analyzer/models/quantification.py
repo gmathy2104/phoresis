@@ -76,6 +76,11 @@ class ProteinQuantCalibration(models.Model):
 
     is_active = models.BooleanField(default=True, db_index=True)
     superseded_at = models.DateTimeField(null=True, blank=True)
+    # Last time invalidation.recompute_if_active mutated this row's coefficients
+    # in response to upstream densitometry changes. Stays None for the row
+    # exactly as it was created by the user; ticks every time a background
+    # refit shifts the fit. Distinguishes user-saved state from drift.
+    last_recomputed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="created_quant_calibrations",

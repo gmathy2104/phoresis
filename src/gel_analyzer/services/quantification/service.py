@@ -211,16 +211,30 @@ class ProteinQuantCalibrationService:
             .select_related("densitometry", "lane")
         )
         updated = 0
+        skipped_negative = 0
         for band in target_bands:
             estimated = self.project(band.densitometry.corrected_area, result)
-            if estimated is None or estimated < 0:
+            if estimated is None:
+                continue
+            if estimated < 0:
+                # Bands whose corrected_area lies outside the calibration domain
+                # extrapolate to a negative amount. Surface at debug level so a
+                # report run with many missing values can be traced back here.
+                logger.debug(
+                    f"Quantification: skipped negative projection for band {band.id} "
+                    f"(area={band.densitometry.corrected_area:.2f} → {estimated:.4f})"
+                )
+                skipped_negative += 1
                 continue
             DensitometryResult.objects.filter(pk=band.densitometry.pk).update(
                 estimated_amount=float(estimated),
                 estimated_amount_unit=calibration.unit,
             )
             updated += 1
-        logger.info(f"Quantification calibration {calibration.id} applied to {updated} bands")
+        logger.info(
+            f"Quantification calibration {calibration.id} applied to {updated} bands "
+            f"({skipped_negative} skipped as negative extrapolations)"
+        )
         return updated
 
     def save_active(

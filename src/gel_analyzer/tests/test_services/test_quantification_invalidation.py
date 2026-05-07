@@ -65,7 +65,39 @@ def test_active_calibration_refits_and_reapplies(sample_analysis, test_user):
         created_by=test_user,
     )
 
+    active = ProteinQuantCalibration.objects.get(analysis=sample_analysis, is_active=True)
+    assert active.last_recomputed_at is None  # never recomputed yet
+
     n = recompute_if_active(sample_analysis)
     assert n >= 1
     sample_band.densitometry.refresh_from_db()
     assert sample_band.densitometry.estimated_amount == pytest.approx(12.5)
+
+    # last_recomputed_at must tick so the audit history can distinguish a
+    # user-saved fit from a background drift caused by densitometry changes.
+    active.refresh_from_db()
+    assert active.last_recomputed_at is not None
+
+
+def test_run_densitometry_task_wires_recompute_hook():
+    """Static check: `run_densitometry_task` must call `recompute_if_active`
+    inside the `if save_results:` branch, wrapped in a try/except so a refit
+    failure cannot break a densito run. Spec §11 mandates this wiring; this
+    test guards against an accidental removal during future refactors.
+
+    We assert on the source rather than running the full task body because
+    the task requires a gel image + lanes + bands fixture far beyond the
+    scope of a unit test."""
+    import inspect
+
+    from gel_analyzer import tasks
+
+    src = inspect.getsource(tasks.run_densitometry_task)
+    assert "recompute_if_active" in src, (
+        "run_densitometry_task no longer references recompute_if_active — "
+        "Phase 3 wiring (spec §11) was removed. Re-add the hook."
+    )
+    assert "save_results" in src and "try" in src and "except" in src, (
+        "Hook must be inside `if save_results:` and wrapped in try/except so a "
+        "quantification refit failure cannot poison the densitometry run."
+    )

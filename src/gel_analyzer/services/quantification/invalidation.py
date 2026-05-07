@@ -41,10 +41,15 @@ def recompute_if_active(analysis: GelAnalysis) -> int:
         return 0
 
     # Update the active row's coefficients in place (no new active record — we are
-    # responding to upstream densito changes, not to a user-initiated recalibration)
+    # responding to upstream densito changes, not to a user-initiated recalibration).
+    # last_recomputed_at lets the audit history distinguish a user save from a
+    # background drift caused by band edits, splits, or re-running densitometry.
+    from django.utils import timezone
+
     active.coefficients = result.coefficients
     active.r_squared = result.r_squared
     active.equation = result.equation
-    active.save(update_fields=["coefficients", "r_squared", "equation"])
+    active.last_recomputed_at = timezone.now()
+    active.save(update_fields=["coefficients", "r_squared", "equation", "last_recomputed_at"])
 
     return svc.apply_to_analysis(active)
