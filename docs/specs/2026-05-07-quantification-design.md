@@ -97,8 +97,11 @@ class ProteinQuantCalibrationPoint(models.Model):
     role = models.CharField(
         max_length=20,
         choices=[("CALIBRATION", "Calibration"), ("CONTROL", "Control")],
-        # role is derived from band.lane.lane_type at creation; persisted to support
-        # historical audit even after a lane type change.
+        default="CALIBRATION",
+        # role is derived from band.lane.lane_type at creation by the service / API
+        # serializer; the default keeps Django admin / bulk_create usable without
+        # silent failures, and the value is persisted to support historical audit
+        # even after a lane type change.
     )
     created_at = models.DateTimeField(auto_now_add=True)
 ```
@@ -196,11 +199,13 @@ class ProteinQuantCalibrationService:
 
 ### 5.4 Cache invalidation hook
 
-Wherever `784c5c8` invalidates the densitometry lane cache on band edits / splits, add a sibling call:
+A new module `src/gel_analyzer/services/quantification/invalidation.py` exposes:
 ```python
-quantification_signals.recompute_if_active(analysis)
+def recompute_if_active(analysis) -> None: ...
 ```
-which is a no-op if no active calibration exists, otherwise refits + reapplies. No new Django signal — direct hook at the existing invalidation point.
+which is a no-op when no `ProteinQuantCalibration(is_active=True)` exists for `analysis`, otherwise refits the active calibration with current densitometry and calls `apply_to_analysis(...)`.
+
+Wherever `784c5c8` invalidates the densitometry lane cache on band edits / splits, add a sibling call to `recompute_if_active(analysis)`. Direct function call at the existing invalidation point — no new Django signal, no new dispatcher.
 
 ### 5.5 4PL convergence safeguards
 
@@ -228,14 +233,14 @@ Linear / poly2 / 4PL on N≤20 points takes a few ms. Projection on a few hundre
 - Type dropdown gains `<option value="CALIBRATION">Calibration Point</option>`.
 - When `band_type === 'CALIBRATION'`: new "Calibration" section appears with:
   - `Loaded amount` numeric input (`step=0.01`, `min>0`).
-  - `Unit` select `[µg, µg/mL]`. Locked (read-only with info tooltip) once an active calibration exists in the analysis — the calibration is the source of truth for the unit.
+  - `Unit` select `[µg, µg/mL]`. Locked (read-only with info tooltip) once an active calibration exists in the analysis — the calibration is the source of truth for the unit. Before the first calibration is created, each band can pick its own unit freely; the modal opens with the unit pre-selected to the most-common one across existing CALIBRATION bands and warns inline if a mix is detected ("3 bands in µg, 1 in µg/mL — saving will reject the divergent one").
   - Densitometry availability indicator: ✓ green if `band.densitometry.corrected_area` is set, ⚠ orange tooltip "Run densitometry to use this point" otherwise.
 
 ### 6.3 Context menu
 
 - Lane Type submenu adds `Calibration`.
 - Band Type submenu adds `Calibration`.
-- New entry `Set concentration…` (next to `Set MW…`), visible only when `band.band_type === 'CALIBRATION'`. Prompts for amount + unit; persists via the same PATCH `/api/bands/<id>/`. Refactor opportunity: extract `prompt(...)` helper to `promptAmount(band, unit, onUpdate)` for reuse.
+- New entry `Set calibration value…` (label adapts to active unit: "Set load (µg)…" or "Set concentration (µg/mL)…" when an active calibration exists), next to `Set MW…`. Visible only when `band.band_type === 'CALIBRATION'`. Prompts for amount + unit; persists via the same PATCH `/api/bands/<id>/`. Refactor opportunity: extract `prompt(...)` helper to `promptAmount(band, unit, onUpdate)` for reuse.
 
 ### 6.4 Color tokens (CSS)
 
@@ -259,7 +264,7 @@ Sibling to the MW calibration modal, two-column layout:
 
 ```
 ┌─ Quantification calibration ─────────────────────────────────┐
-│ Method: [Linear ▼]   Unit: [µg ▼]   ☐ Show controls overlay  │
+│ Method: [Linear ▼]   Unit: [µg ▼]   ☑ Show controls on curve │
 │                                                              │
 │ ┌────────────────────────┐  ┌─────────────────────────────┐  │
 │ │  CALIBRATION POINTS    │  │   CALIBRATION CURVE         │  │
@@ -276,6 +281,7 @@ Sibling to the MW calibration modal, two-column layout:
 └──────────────────────────────────────────────────────────────┘
 ```
 
+- Toolbar checkbox `Show controls on curve` toggles cyan control markers in the top-right calibration curve chart only (the bottom-left CONTROLs / QC table is always visible).
 - Per-point exclusion via checkbox; refit debounced 200 ms. Excluded points stay visible as ghost markers (opacity 0.3) — same UX as the MW modal.
 - Method change → refit. Unit change → confirmation modal if any points already entered (no auto-conversion; reset to avoid silent bugs); warn if existing samples will be re-projected.
 - Controls out-of-spec threshold: %recovery outside `[80, 120]` highlighted red + ⚠.
@@ -300,8 +306,10 @@ One row per lane (was: one per band). Click expands inline a band-level sub-tabl
 |---|---|---|
 | Identity | Lane#, Type (badge), Sample name | always |
 | Densitometry | Total area, # bands, POI area, % purity | always |
-| Quantification | Estimated amount + unit, Recovery % | active calib OR lane=CONTROL |
-| Quality | Fit R² avg, Outlier? icon | always |
+| Quantification | Estimated amount + unit, Recovery % (CONTROL only) | active calib OR lane=CONTROL |
+| Quality | Avg Gaussian fit R², Quant residual flag (⚠ if residual > 2σ in active calib fit; CONTROL flagged when out of [80%, 120%] recovery) | always |
+
+The "Avg Gaussian fit R²" reuses the existing per-band `DensitometryResult.fit_r_squared` aggregated over the lane's bands — pre-existing densitometry semantic, no new field. The quant residual flag is computed at render time from the active calibration result; only meaningful when an active calib exists, blank otherwise.
 
 Sticky-left columns: `Lane#` + `Type`. Row backgrounds tinted by lane type (consistent with viewer palette). Column preset (minimal / standard / full) persisted in `localStorage`.
 
@@ -412,10 +420,10 @@ Reorganize `comparisons/compare.html` table:
 
 - Sticky-left: `Lane#` + `Type` (color badge).
 - Column groups via `<th colspan>` headers:
-  - Identity: Sample name, Condition, Loading volume.
+  - Identity: Sample name, Condition, Loading (µg) [from existing `Lane.protein_load_ug`, kept for traceability §4.1], Loading volume (µL) [new field §4.1, only displayed when set].
   - Densitometry: Total area, # bands, POI area, % purity.
-  - Quantification (hidden if no compared analysis has an active calibration): Estimated amount + unit, %recovery (CONTROL), Calib unit/method.
-  - Quality: Fit R² avg, # MW markers, status icon.
+  - Quantification (hidden if no compared analysis has an active calibration): Estimated amount + unit, %recovery (CONTROL only), Calib method.
+  - Quality: Avg Gaussian fit R², # MW markers, status icon.
 - Row backgrounds tinted by lane type (consistent across views).
 - "Show only quantified lanes" client-side filter toggle.
 - Column preset persisted via `safeLocalSet`.
@@ -426,10 +434,13 @@ No new endpoint; band serializer extension from §8.1 covers the data needs.
 
 ## 11. Tests
 
-- `services/quantification/test_fitters.py` — linear / poly2 / 4PL on synthetic datasets; R²=1.0 on perfect inputs; outlier exclusion; 4PL convergence guarded ≥4 points.
-- `services/quantification/test_service.py` — collect ignores bands without densitometry; `apply_to_analysis` updates only SAMPLE/CONTROL bands; recompute triggered by densitometry invalidation.
-- `tests/test_api_quantification.py` — preview/save flows, lane downgrade with/without `?force=true`, unit cross-validation, 422 on missing densitometry.
-- Integration: 4 calibration + 2 control + 3 sample lanes, mocked densitometry, fit, verify `DensitometryResult.estimated_amount` propagated; split a calibration band, verify auto-refit.
+All tests live under `src/gel_analyzer/tests/` (project convention — tests are not co-located with services).
+
+- `src/gel_analyzer/tests/test_quantification_fitters.py` — linear / poly2 / 4PL on synthetic datasets; R²=1.0 on perfect inputs; outlier exclusion; 4PL convergence guarded ≥4 points.
+- `src/gel_analyzer/tests/test_quantification_service.py` — `collect_calibration_points` ignores bands without densitometry; `apply_to_analysis` updates only SAMPLE/CONTROL bands; `recompute_if_active` is a no-op when no active calibration; full recompute when one exists.
+- `src/gel_analyzer/tests/test_api_quantification.py` — preview/save flows, lane downgrade with/without `?force=true`, unit cross-validation, 422 on missing densitometry, partial unique constraint enforcement (cannot create a 2nd active calibration).
+- `src/gel_analyzer/tests/test_quantification_integration.py` — 4 calibration + 2 control + 3 sample lanes, mocked densitometry, fit, verify `DensitometryResult.estimated_amount` propagated; split a calibration band, verify auto-refit fires through the cache invalidation path.
+- Existing model tests parameterized over `Lane.LaneType.choices` / `Band.BandType.choices` will pick up the new `CALIBRATION` value automatically — verify they stay green; if any test hard-codes the old choice list, update it.
 - No new Playwright e2e (per `feedback_no_overengineering_reports`).
 - Existing scipy 1.14 + `BandDetectionParams` xfails untouched.
 
@@ -448,13 +459,14 @@ No new endpoint; band serializer extension from §8.1 covers the data needs.
 ## 13. Implementation order (high level)
 
 1. Migrations + models + admin registrations.
-2. Shared fit helpers extraction + `ProteinQuantCalibrationService` + unit tests.
-3. API endpoints + serializers + API tests.
-4. UI Annotation: Properties Panel + Context menu + CSS color tokens.
-5. UI Densitometry: quantification calibration modal.
-6. UI Densitometry: chromatogram tab + results table refactor.
-7. UI Comparison: table refactor.
-8. Reports: data collector + chart helper + 3 builders.
-9. Manual end-to-end smoke test (annotate → densitometry → calibrate → reports) with screenshots of all three report formats. Cross-view consistency check (colors, badges, ordering).
+2. Shared fit helpers extraction (behaviour-preserving) + verify MW tests still green.
+3. `ProteinQuantCalibrationService` + `recompute_if_active` invalidation hook + unit tests.
+4. API endpoints + serializers + API tests.
+5. UI Annotation: CSS color tokens + SVG renderer extension (lane overlay color picker for CALIBRATION + CONTROL) + Properties Panel + Context menu.
+6. UI Densitometry: quantification calibration modal.
+7. UI Densitometry: chromatogram tab + results table refactor.
+8. UI Comparison: table refactor.
+9. Reports: `quantification_chart.py` helper + data collector method + 3 builders.
+10. Manual end-to-end smoke test (annotate → densitometry → calibrate → reports) with screenshots of all three report formats. Cross-view consistency check (colors, badges, ordering, sticky columns).
 
 The detailed plan with file-level steps and acceptance gates is produced separately by the writing-plans skill after this design is approved.
