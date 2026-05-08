@@ -19,7 +19,75 @@ Phoresis is a single-user gel electrophoresis analyzer for the laptop on your be
 - **(Optional) NVIDIA GPU** — speeds up hybrid band detection. If you have one and you've installed the NVIDIA drivers, the installer will offer the CUDA image variant.
 - **Administrator rights** on the laptop for the install step. Day-to-day use does not require admin.
 
-## 2. Step 1 — Download
+## 2. Step 0 (private deployments only) — GitHub authentication
+
+> **Skip this section if the Phoresis repo and its GHCR images are public.** When `https://github.com/gmathy2104/phoresis` returns a 404 to a logged-out browser, or `docker pull ghcr.io/gmathy2104/phoresis-app:latest-cpu` says "denied", you need a token.
+
+Phoresis is consumed at three places, all of which need credentials when the repo is private:
+
+| Step | What it pulls | Auth used |
+|---|---|---|
+| `git clone` (you, manual) | source code | PAT via Git Credential Manager |
+| `git lfs pull` (run by `install.ps1`) | ML model binaries (~40 MB) | same PAT, reused by GCM |
+| `docker pull` (initial install **and** Watchtower at 03:00 daily) | `phoresis-app` image | same PAT, written to `~/.docker/config.json` |
+
+### 0.1. Create a Personal Access Token (one-time)
+
+GHCR **does not support fine-grained tokens** as of 2026 — you must create a *classic* PAT.
+
+1. Open https://github.com/settings/tokens (the "Tokens (classic)" tab) → **Generate new token (classic)**.
+2. **Note**: e.g. `phoresis-laptop`. **Expiration**: 1 year (the maximum).
+3. Tick exactly two scopes:
+   - ☑️ **`repo`** — required because GHCR inherits visibility from the source repo, and GitHub demands `repo` for private-repo packages even when you only intend to read.
+   - ☑️ **`read:packages`** — required to `docker pull` from ghcr.io.
+4. Click **Generate token** and copy the `ghp_…` value. **You will not see it again.** Stash it in your password manager.
+
+### 0.2. Authenticate Git (so `git clone` and LFS work)
+
+```powershell
+git clone https://github.com/gmathy2104/phoresis.git
+# When Git Credential Manager prompts:
+#   Username: <your-github-username>
+#   Password: <paste the PAT, NOT your GitHub password>
+# GCM then caches the credential so `git lfs pull` (later, by install.ps1) works silently.
+cd phoresis
+```
+
+### 0.3. Authenticate Docker (so `docker pull` and Watchtower work)
+
+```powershell
+$env:CR_PAT = "<paste-the-PAT>"
+$env:CR_PAT | docker login ghcr.io -u <your-github-username> --password-stdin
+Remove-Item Env:CR_PAT      # don't leave the PAT in the shell
+```
+
+This writes credentials to `%USERPROFILE%\.docker\config.json`. Verify with:
+
+```powershell
+docker pull ghcr.io/gmathy2104/phoresis-app:latest-cpu
+```
+
+If that succeeds, the install can proceed.
+
+### 0.4. Wire Watchtower to the same credentials
+
+Watchtower at 03:00 daily would otherwise fail to pull updates (auto-updates would silently stop after install). Edit `docker\docker-compose.yml`, find the `watchtower:` service, and **uncomment** the line:
+
+```yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${USERPROFILE:-${HOME}}/.docker/config.json:/config.json:ro    # <— this one
+```
+
+> ⚠️ Watchtower upstream does **not** support env-var auth (`WATCHTOWER_AUTH_USERNAME`/`PASSWORD` don't exist). The mounted `config.json` is the only supported method.
+
+When the PAT expires (yearly), regenerate it, re-run `docker login ghcr.io`, and `scripts\stop.ps1 && scripts\start.ps1` so Watchtower re-reads the file.
+
+---
+
+## 3. Step 1 — Download
+
+> Already cloned the repo in step 0.2? Skip ahead to step 2.
 
 Either clone with git:
 
@@ -33,7 +101,7 @@ git lfs pull
 
 Either way, you should now have a `phoresis\` folder with a `scripts\` subfolder inside it.
 
-## 3. Step 2 — Run the installer (admin)
+## 4. Step 2 — Run the installer (admin)
 
 Right-click `scripts\install.ps1` → **Run with PowerShell as Administrator**. (PowerShell will prompt for the elevation; click yes.)
 
@@ -50,17 +118,17 @@ The installer:
 5. Pulls `ghcr.io/gmathy2104/phoresis:latest-${variant}` and starts the stack.
 6. Creates a Windows desktop shortcut to `scripts\start.ps1`.
 
-## 4. Step 3 — Docker Desktop install (if first run)
+## 5. Step 3 — Docker Desktop install (if first run)
 
 If the installer had to install Docker Desktop, **Windows will sign you out** to enable WSL2 / Hyper-V. This is normal. Sign back in, open Docker Desktop once and accept the EULA, then re-run `scripts\install.ps1` from the same folder. It will pick up where it left off.
 
-## 5. Step 4 — Postgres password
+## 6. Step 4 — Postgres password
 
 If the installer had to install PostgreSQL, `winget` will prompt for the postgres superuser password during the install. Pick something you'll remember — the installer will ask for it again a few seconds later when it creates the `phoresis` database and user.
 
 (If PostgreSQL was already installed, the installer just asks for the existing postgres password.)
 
-## 6. Step 5 — `.env` prompts
+## 7. Step 5 — `.env` prompts
 
 After Docker and Postgres are confirmed, the installer walks you through the `.env` file:
 
@@ -77,7 +145,7 @@ You will be asked for:
 
 The `.env` file is written, gitignored, and never printed to stdout.
 
-## 7. Step 6 — First boot
+## 8. Step 6 — First boot
 
 The installer pulls the Docker images (`phoresis`, `caddy`, `redis`, `watchtower`), starts the stack, and waits for `/healthz/` to return 200. The first pull is the longest part — about 5 minutes on a typical lab connection. When the stack is healthy, the installer opens `https://phoresis/` in your default browser.
 
@@ -87,17 +155,17 @@ The installer pulls the Docker images (`phoresis`, `caddy`, `redis`, `watchtower
 
 If the browser shows a certificate warning, the trust-store import in step 3 didn't finish. Re-run `scripts\install.ps1` (it's idempotent) — the Import-Certificate step will retry.
 
-## 8. Step 7 — Sign in
+## 9. Step 7 — Sign in
 
 Use the **lab user** credentials from step 6 (not the admin credentials — those are for `/admin/` only). After sign-in you land on the dashboard, with empty KPI cards and an "Upload your first gel" empty state.
 
-## 9. Step 8 — Daily use
+## 10. Step 8 — Daily use
 
 Double-click the **Phoresis** desktop shortcut (which runs `scripts\start.ps1`). The script ensures Docker Desktop is running, brings the stack up if it isn't, and opens the browser. Closing the browser does **not** stop the stack — Phoresis keeps running in the background so band detection finishes even if you walk away.
 
 To explicitly stop the stack: right-click the desktop shortcut → **Stop**, or run `scripts\stop.ps1`. To wipe regenerable Docker volumes (Caddy state, Redis AOF, staticfiles) without touching your gels: `scripts\stop.ps1 -Wipe`. **`-Wipe` cannot delete user data** — your database is on the host and your media is in a host bind-mount.
 
-## 10. Annotate, analyze, compare
+## 11. Annotate, analyze, compare
 
 Once you have a gel uploaded, the workflow is:
 
@@ -119,7 +187,7 @@ The theme toggle is in the topbar, top-right:
 
 *Light / Dark / System; choice is persisted server-side, so it follows you across devices.*
 
-## 11. Backup setup
+## 12. Backup setup
 
 Phoresis ships with `scripts\backup.ps1`, which dumps Postgres + the media folder + `.env` into a timestamped folder under `%USERPROFILE%\Phoresis-Backups\`. To run it nightly via Task Scheduler:
 
@@ -130,7 +198,7 @@ Phoresis ships with `scripts\backup.ps1`, which dumps Postgres + the media folde
 
 Test by running the task manually once. The first run takes a minute or two; subsequent runs are incremental on the media folder.
 
-## 12. Updating
+## 13. Updating
 
 You don't need to do anything. Watchtower polls `ghcr.io` every day at 03:00 and pulls new versions of the `web`, `worker`, and `scheduler` containers in place. Caddy and Redis are deliberately excluded — they only update when you run the manual update script.
 
@@ -138,7 +206,7 @@ To update everything (Caddy + Redis included) on demand: `scripts\update.ps1`.
 
 To pin to a specific older version (e.g. after a regression): `scripts\update.ps1 -Rollback v1.2.3`. See [DEPLOYMENT.md §6](DEPLOYMENT.md#6-rollback) for details.
 
-## 13. If something breaks
+## 14. If something breaks
 
 Every internal error renders a branded 500 page with a `PHOR-XXXXX` reference ID. **Write that ID down before clicking away.** With it, support (or you, in the admin) can find the exact stack trace under `/admin/phoresis_core/errorlog/`.
 
@@ -151,7 +219,7 @@ docker compose logs -f web    # live tail of the Django container
 
 For the common failure modes (cert warning, healthz failures, Watchtower errors) see the [DEPLOYMENT.md troubleshooting table](DEPLOYMENT.md#10-common-troubleshooting).
 
-## 14. Uninstall
+## 15. Uninstall
 
 To stop the stack and wipe regenerable Docker volumes (your gels are safe — they live on the host):
 

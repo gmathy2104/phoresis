@@ -35,12 +35,20 @@ services:
   # Dockerfile.worker).
   #
   # Default: public GHCR image (no docker login required).
-  # For private-image deployments:
-  #   1. Set the GHCR package visibility to Private in GitHub Packages.
-  #   2. On every Phoresis machine, run: docker login ghcr.io -u <gh-user> -p <PAT>
-  #      where <PAT> has read:packages scope only.
-  #   3. Add WATCHTOWER_AUTH_USERNAME + WATCHTOWER_AUTH_PASSWORD env vars to the
-  #      watchtower service below (or mount ~/.docker/config.json read-only).
+  # For private-image deployments (private repo or private GHCR package):
+  #   1. Create a GitHub Personal Access Token (CLASSIC -- fine-grained PATs
+  #      are not supported by GHCR as of 2026/05). Scopes:
+  #          - `repo`            (required: GHCR inherits visibility from the
+  #                               source repo; private repos need this scope)
+  #          - `read:packages`   (required: pull images from ghcr.io)
+  #   2. On the host, run:
+  #          $env:CR_PAT = "<PAT>"
+  #          $env:CR_PAT | docker login ghcr.io -u <gh-user> --password-stdin
+  #      This writes credentials to `%USERPROFILE%\.docker\config.json`
+  #      (Windows) or `~/.docker/config.json` (Linux/macOS).
+  #   3. Watchtower needs the same credentials -- uncomment the volume mount
+  #      on the `watchtower:` service below (NOT env vars; WATCHTOWER_AUTH_*
+  #      doesn't exist in upstream Watchtower). See docs/INSTALL.md §1b.
   web:
     image: &phoresis_image ${PHORESIS_APP_IMAGE:-ghcr.io/gmathy2104/phoresis-app:latest-${PHORESIS_IMAGE_VARIANT:-cpu}}
     # `build:` lets `docker compose build` produce a local image tagged with
@@ -185,6 +193,11 @@ services:
       DOCKER_API_VERSION: "1.41"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Private GHCR auth: uncomment the next line after `docker login ghcr.io`
+      # on the host. Watchtower reads credentials from /config.json inside the
+      # container (official upstream mechanism -- env-var-based auth such as
+      # WATCHTOWER_AUTH_USERNAME does NOT exist in containrrr/watchtower).
+      # - ${USERPROFILE:-${HOME}}/.docker/config.json:/config.json:ro
     networks: [phoresis_net]
 
 networks:
