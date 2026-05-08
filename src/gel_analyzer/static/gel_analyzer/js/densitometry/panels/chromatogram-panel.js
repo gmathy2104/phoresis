@@ -163,32 +163,54 @@
          * Graphical View toggle when "Quantification curve" is selected.
          */
         async _renderQuantificationView() {
+            const host = document.getElementById('dm-quantification-host');
+            const emptyWrap = document.getElementById('dm-quantification-empty-wrap');
             const empty = document.getElementById('dm-quantification-empty');
-            const canvas = document.getElementById('dm-quantification-chart');
-            if (!canvas) return;
+            const tooltip = document.getElementById('dm-quantification-tooltip');
+            if (!host) return;
 
-            const renderer = window.QuantificationCurveRenderer
+            const rendererModule = window.QuantificationCurveRenderer
                 || (window.Densitometry && window.Densitometry.QuantificationCurveRenderer);
-            if (!renderer) {
-                if (empty) {
-                    empty.hidden = false;
-                    empty.textContent = 'Quantification curve renderer not loaded.';
-                }
-                canvas.style.display = 'none';
+            if (!rendererModule || typeof rendererModule.renderInteractive !== 'function') {
+                if (emptyWrap) emptyWrap.hidden = false;
+                if (empty) empty.textContent = 'Quantification curve renderer not loaded.';
+                host.style.display = 'none';
                 return;
             }
 
             if (!this.api || !this.analysisId) {
-                if (empty) empty.hidden = false;
-                canvas.style.display = 'none';
+                if (emptyWrap) emptyWrap.hidden = false;
+                host.style.display = 'none';
                 return;
             }
 
+            const showCurve = (result) => {
+                host.style.display = '';
+                if (emptyWrap) emptyWrap.hidden = true;
+                if (this._quantController) {
+                    this._quantController.update(result);
+                } else {
+                    this._quantController = rendererModule.renderInteractive(host, result, {
+                        eventBus: this.eventBus,
+                        events: Events,
+                        tooltip,
+                    });
+                }
+            };
+
+            const showEmpty = (message) => {
+                host.style.display = 'none';
+                if (this._quantController) {
+                    this._quantController.destroy();
+                    this._quantController = null;
+                }
+                if (emptyWrap) emptyWrap.hidden = false;
+                if (empty && message) empty.textContent = message;
+            };
+
             // Use cached result on repeated tab clicks within the same calibration.
             if (this._lastQuantResult) {
-                if (empty) empty.hidden = true;
-                canvas.style.display = '';
-                renderer.render(canvas, this._lastQuantResult);
+                showCurve(this._lastQuantResult);
                 return;
             }
 
@@ -196,11 +218,7 @@
                 const meta = await this.api.getActiveQuantification(this.analysisId);
                 const active = meta && (meta.active || meta.data && meta.data.active);
                 if (!active) {
-                    if (empty) {
-                        empty.hidden = false;
-                        empty.textContent = 'No active quantification calibration. Open Quantification modal to set up.';
-                    }
-                    canvas.style.display = 'none';
+                    showEmpty('No active quantification calibration. Open Quantification modal to set up.');
                     return;
                 }
 
@@ -214,17 +232,33 @@
                 // while the gel-viewer api-client wraps it in {ok, status, data}.
                 const result = (r && r.data) ? r.data : r;
                 this._lastQuantResult = result;
-
-                if (empty) empty.hidden = true;
-                canvas.style.display = '';
-                renderer.render(canvas, result);
+                showCurve(result);
             } catch (err) {
                 console.error('[ChromatogramPanel] failed to load quantification:', err);
-                if (empty) {
-                    empty.hidden = false;
-                    empty.textContent = 'Failed to load quantification curve.';
-                }
-                canvas.style.display = 'none';
+                showEmpty(`Failed to load quantification curve: ${(err && err.message) || err}`);
+            }
+        }
+
+        /**
+         * Highlight (or clear) the sample point matching a given band on
+         * the quantification curve sub-view. No-op when the controller
+         * isn't mounted yet (e.g. user never opened the tab) or when the
+         * panel is currently showing a different sub-view.
+         */
+        _highlightQuantBand(bandId) {
+            if (!this._quantController) return;
+            this._quantController.highlight(bandId || null);
+        }
+
+        /**
+         * Resize the quantification curve to match the container — called
+         * when the panel is magnified to fullscreen and again on collapse.
+         * Cheap because the controller short-circuits if dimensions
+         * haven't changed.
+         */
+        _resizeQuantView() {
+            if (this._quantController) {
+                this._quantController.resize();
             }
         }
 
@@ -535,9 +569,12 @@
                 }
             });
 
-            // Band selected - highlight on chart
+            // Band selected - highlight on chart AND on the quantification
+            // curve (if its sub-view has been mounted). The quant
+            // controller no-ops when the band isn't a sample/control/calib.
             this.eventBus.on(Events.BAND_SELECTED, (data) => {
                 this._highlightSelectedBand(data.bandId);
+                this._highlightQuantBand(data.bandId);
             });
 
             // Peaks detected - render markers
@@ -1924,6 +1961,13 @@
                 return;
             }
 
+            // If the current view is the quantification curve, just resize
+            // its SVG to the new container size — no full rebuild.
+            if (this.currentView === 'quantification') {
+                this._resizeQuantView();
+                return;
+            }
+
             // If the current view is not electropherogram, skip chart rebuild entirely.
             // Creating a new SVG while POI Purity or another view is active causes stacking.
             if (this.currentView !== 'electropherogram') {
@@ -1963,6 +2007,10 @@
             if (this.renderer3D) {
                 this.renderer3D.dispose();
                 this.renderer3D = null;
+            }
+            if (this._quantController) {
+                this._quantController.destroy();
+                this._quantController = null;
             }
         }
     }

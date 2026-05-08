@@ -592,10 +592,20 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                       shares the panel content area; visibility is managed by the inline
                       switchView() handler below.
                     {% endcomment %}
+                    {# Quantification curve container — D3 SVG injected by
+                       QuantificationCurveRenderer.renderInteractive at
+                       view-switch time. The previous canvas-based version
+                       lived here; we keep the legacy id (#dm-quantification-chart)
+                       so the modal's separate canvas still finds its own
+                       element by id, and the panel injects SVG into
+                       #dm-quantification-host instead. #}
                     <div id="dm-quantification-container" class="dm-quantification-container" style="display: none;">
-                        <canvas id="dm-quantification-chart" width="700" height="420" data-css-width="700" data-css-height="420"></canvas>
-                        <div class="dm-tab-empty" id="dm-quantification-empty" hidden>
-                            No active quantification calibration. Open Quantification modal to set up.
+                        <div id="dm-quantification-host" class="dm-quantification-host"></div>
+                        <div class="dm-quantification-tooltip" id="dm-quantification-tooltip" role="tooltip"></div>
+                        <div class="dm-quantification-empty-wrap" id="dm-quantification-empty-wrap" hidden>
+                            <div class="dm-tab-empty" id="dm-quantification-empty">
+                                No active quantification calibration. Open Quantification modal to set up.
+                            </div>
                         </div>
                     </div>
                 </div>

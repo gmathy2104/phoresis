@@ -304,8 +304,538 @@
         _drawLegend(ctx, margin.left + plotW - 130, margin.top + 4, showCtrls);
     }
 
+    // ====================================================================
+    // Interactive D3/SVG renderer for the panel "Quantification curve" view
+    // ====================================================================
+    //
+    // The Canvas2D `render` above is kept for the calibration modal
+    // (fixed-size chart inside a 2x2 grid cell, no interactivity). The
+    // panel sub-view in densito's Graphical View needs more:
+    //   - dark theme matching the chromatogram (D3 SVG)
+    //   - responsive sizing (re-renders on container resize, e.g. when
+    //     the magnifier expands the panel to full screen)
+    //   - hover tooltip on calibration / control / sample points
+    //   - click on a sample point → emit BAND_SELECTED so the gel
+    //     overview, results table, and band detail panels follow
+    //   - external highlight(bandId) so a click in any of the other
+    //     panels selects the matching point on the curve
+    //
+    // Returns a small controller {update, highlight, clearHighlight,
+    // resize, destroy} so the host (chromatogram-panel) can drive
+    // re-renders without re-querying anything.
+
+    const PANEL_COLORS = {
+        FIT: '#a78bfa',                // Violet-400 — calibration fit points
+        EXCLUDED: 'rgba(167, 139, 250, 0.35)',
+        CONTROL: '#22d3ee',            // Cyan-400 — controls
+        SAMPLE: '#f87171',             // Red-400 — sample projections
+        CURVE: '#a78bfa',              // Violet-400 — fit curve
+        AXIS: 'rgba(255, 255, 255, 0.45)',
+        AXIS_LINE: 'rgba(255, 255, 255, 0.18)',
+        GRID: 'rgba(255, 255, 255, 0.06)',
+        TEXT: 'rgba(255, 255, 255, 0.72)',
+        TEXT_MUTED: 'rgba(255, 255, 255, 0.45)',
+        EMPTY: 'rgba(255, 255, 255, 0.4)',
+        HIGHLIGHT: '#fbbf24',          // Amber-400 — selection ring
+    };
+
+    function _normalizePoint(p) {
+        return {
+            band_id: p.band_id || null,
+            lane_id: p.lane_id || null,
+            lane_number: p.lane_number ?? null,
+            sample_label: p.sample_label || null,
+            x: p.corrected_area != null ? +p.corrected_area : null,
+            y: p.estimated_amount != null
+                ? +p.estimated_amount
+                : (p.predicted_amount != null
+                    ? +p.predicted_amount
+                    : (p.load_amount != null ? +p.load_amount : null)),
+            is_excluded: !!p.is_excluded,
+            recovery_pct: p.recovery_pct != null ? +p.recovery_pct : null,
+            out_of_spec: !!p.out_of_spec,
+        };
+    }
+
+    /**
+     * Mount an interactive quantification curve into a container.
+     * @param {HTMLElement} container - host div (will get an SVG child)
+     * @param {Object} result - quantification result (same shape as render)
+     * @param {Object} [opts]
+     * @param {Object} [opts.eventBus] - bus to emit BAND_SELECTED on point click
+     * @param {Object} [opts.events] - GelViewer/Densitometry Events constants
+     * @param {HTMLElement} [opts.tooltip] - optional pre-built tooltip element
+     * @returns {Object} controller — update / highlight / clearHighlight / resize / destroy
+     */
+    function renderInteractive(container, result, opts) {
+        opts = opts || {};
+        if (!container || typeof container.querySelector !== 'function') return null;
+        if (typeof global.d3 === 'undefined') {
+            console.warn('[QuantificationCurveRenderer] D3 not loaded — falling back to canvas');
+            return null;
+        }
+        const d3 = global.d3;
+
+        // Tooltip — created if the host page didn't provide one.
+        let tooltip = opts.tooltip || container.parentElement?.querySelector('.dm-quantification-tooltip');
+        const tooltipOwned = !tooltip;
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.className = 'dm-quantification-tooltip';
+            container.appendChild(tooltip);
+        }
+
+        // Reuse existing SVG if present (prevents duplicates after resize).
+        container.querySelectorAll('svg.dm-quantification-svg').forEach(s => s.remove());
+        const svg = d3.select(container)
+            .append('svg')
+            .attr('class', 'dm-quantification-svg')
+            .attr('width', '100%')
+            .attr('height', '100%');
+
+        // Internal state mutated by update / highlight.
+        const state = {
+            result,
+            svg,
+            tooltip,
+            tooltipOwned,
+            highlightedBandId: null,
+            // Reference to the DOM points so highlight() doesn't re-render.
+            pointSelections: { fit: null, ghost: null, control: null, sample: null },
+            // Last known plot scales — used by external highlight() to pulse
+            // a single point without rebuilding the chart.
+            scales: { x: null, y: null },
+            // Plot sizing — kept so resize can short-circuit when nothing changed.
+            lastWidth: 0,
+            lastHeight: 0,
+        };
+
+        function _eventName() {
+            const ev = opts.events;
+            if (ev && ev.BAND_SELECTED) return ev.BAND_SELECTED;
+            return 'band:selected';
+        }
+
+        function _showTooltip(html, mouseEvent) {
+            if (!tooltip) return;
+            tooltip.innerHTML = html;
+            tooltip.classList.add('visible');
+            const rect = container.getBoundingClientRect();
+            const x = mouseEvent.clientX - rect.left + 12;
+            const y = mouseEvent.clientY - rect.top + 12;
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        }
+
+        function _hideTooltip() {
+            if (tooltip) tooltip.classList.remove('visible');
+        }
+
+        function _renderEmpty(message) {
+            svg.selectAll('*').remove();
+            const w = container.clientWidth || 400;
+            const h = container.clientHeight || 300;
+            svg.append('text')
+                .attr('x', w / 2)
+                .attr('y', h / 2)
+                .attr('text-anchor', 'middle')
+                .attr('fill', PANEL_COLORS.EMPTY)
+                .attr('font-size', '13px')
+                .text(message);
+        }
+
+        function _draw() {
+            const r = state.result;
+            if (!r) {
+                _renderEmpty('No quantification calibration loaded.');
+                return;
+            }
+
+            const calibPoints = (r.calibration_points || []).map(_normalizePoint);
+            const controlPoints = (r.control_points || []).map(_normalizePoint);
+            const samplePoints = (r.sample_projections || []).map(_normalizePoint);
+
+            const fitPoints = calibPoints.filter(p => !p.is_excluded && p.x != null && p.y != null);
+            const ghostPoints = calibPoints.filter(p => p.is_excluded && p.x != null && p.y != null);
+            const ctrls = controlPoints.filter(p => p.x != null && p.y != null);
+            const samples = samplePoints.filter(p => p.x != null && p.y != null);
+            const allPts = [...fitPoints, ...ghostPoints, ...ctrls, ...samples];
+
+            const w = container.clientWidth || 400;
+            const h = container.clientHeight || 300;
+            state.lastWidth = w;
+            state.lastHeight = h;
+            svg.attr('viewBox', `0 0 ${w} ${h}`);
+            svg.selectAll('*').remove();
+
+            if (!allPts.length) {
+                _renderEmpty('No data to plot — run densitometry on calibration lanes first.');
+                return;
+            }
+
+            const margin = { top: 18, right: 24, bottom: 42, left: 60 };
+            const plotW = Math.max(60, w - margin.left - margin.right);
+            const plotH = Math.max(60, h - margin.top - margin.bottom);
+
+            const xs = allPts.map(p => p.x);
+            const xMin = d3.min(xs);
+            const xMax = d3.max(xs);
+
+            // Pre-compute the curve so its y-range contributes to scale.
+            const curve = [];
+            if (r.success && xMax > xMin) {
+                for (let i = 0; i <= 80; i++) {
+                    const x = xMin + (xMax - xMin) * (i / 80);
+                    const y = evalCurve(r, x);
+                    if (y !== null && Number.isFinite(y)) curve.push({ x, y });
+                }
+            }
+            const ys = [...allPts.map(p => p.y), ...curve.map(p => p.y)].filter(Number.isFinite);
+            const yMin = d3.min(ys);
+            const yMax = d3.max(ys);
+
+            const xPad = (xMax - xMin) * 0.05 || 1;
+            const yPad = (yMax - yMin) * 0.05 || 1;
+
+            const xScale = d3.scaleLinear()
+                .domain([xMin - xPad, xMax + xPad])
+                .range([0, plotW]);
+            const yScale = d3.scaleLinear()
+                .domain([yMin - yPad, yMax + yPad])
+                .range([plotH, 0]);
+            state.scales.x = xScale;
+            state.scales.y = yScale;
+
+            const root = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Grid + axes — match the chromatogram's subdued style.
+            const xAxis = d3.axisBottom(xScale).ticks(5).tickSizeOuter(0);
+            const yAxis = d3.axisLeft(yScale).ticks(5).tickSizeOuter(0);
+
+            const gridX = root.append('g')
+                .attr('class', 'dm-qcurve-grid')
+                .attr('transform', `translate(0,${plotH})`)
+                .call(d3.axisBottom(xScale).ticks(5).tickSize(-plotH).tickFormat(''));
+            gridX.selectAll('line').attr('stroke', PANEL_COLORS.GRID);
+            gridX.selectAll('path').remove();
+
+            const gridY = root.append('g')
+                .attr('class', 'dm-qcurve-grid')
+                .call(d3.axisLeft(yScale).ticks(5).tickSize(-plotW).tickFormat(''));
+            gridY.selectAll('line').attr('stroke', PANEL_COLORS.GRID);
+            gridY.selectAll('path').remove();
+
+            const xg = root.append('g')
+                .attr('transform', `translate(0,${plotH})`)
+                .call(xAxis);
+            xg.selectAll('line, path').attr('stroke', PANEL_COLORS.AXIS_LINE);
+            xg.selectAll('text').attr('fill', PANEL_COLORS.TEXT_MUTED).attr('font-size', '11px');
+
+            const yg = root.append('g').call(yAxis);
+            yg.selectAll('line, path').attr('stroke', PANEL_COLORS.AXIS_LINE);
+            yg.selectAll('text').attr('fill', PANEL_COLORS.TEXT_MUTED).attr('font-size', '11px');
+
+            // Axis labels.
+            root.append('text')
+                .attr('x', plotW / 2)
+                .attr('y', plotH + 32)
+                .attr('text-anchor', 'middle')
+                .attr('fill', PANEL_COLORS.TEXT)
+                .attr('font-size', '12px')
+                .text('Corrected area');
+
+            root.append('text')
+                .attr('transform', `translate(-44,${plotH / 2}) rotate(-90)`)
+                .attr('text-anchor', 'middle')
+                .attr('fill', PANEL_COLORS.TEXT)
+                .attr('font-size', '12px')
+                .text(`Amount (${r.unit === 'UG_ML' ? 'µg/mL' : 'µg'})`);
+
+            // Equation + R² in the top-left, only if we have a successful fit.
+            if (r.success && (r.equation || typeof r.r_squared === 'number')) {
+                const meta = root.append('g').attr('transform', `translate(8, 6)`);
+                if (r.equation) {
+                    meta.append('text')
+                        .attr('fill', PANEL_COLORS.TEXT)
+                        .attr('font-size', '11px')
+                        .attr('font-family', 'monospace')
+                        .text(r.equation);
+                }
+                if (typeof r.r_squared === 'number') {
+                    meta.append('text')
+                        .attr('y', 14)
+                        .attr('fill', PANEL_COLORS.TEXT_MUTED)
+                        .attr('font-size', '11px')
+                        .text(`R² = ${r.r_squared.toFixed(4)}`);
+                }
+            }
+
+            // The fit curve.
+            if (curve.length > 1) {
+                const lineGen = d3.line()
+                    .x(d => xScale(d.x))
+                    .y(d => yScale(d.y))
+                    .curve(d3.curveMonotoneX);
+                root.append('path')
+                    .datum(curve)
+                    .attr('class', 'dm-qcurve-fit')
+                    .attr('fill', 'none')
+                    .attr('stroke', PANEL_COLORS.CURVE)
+                    .attr('stroke-width', 2)
+                    .attr('d', lineGen);
+            }
+
+            // Points groups (drawn in this order so samples render on top
+            // of the fit line, controls on top of samples for visibility).
+            const pointsLayer = root.append('g').attr('class', 'dm-qcurve-points');
+
+            // Excluded calibration ghosts.
+            state.pointSelections.ghost = pointsLayer.selectAll('.dm-qcurve-ghost')
+                .data(ghostPoints, d => d.band_id || `ghost-${d.x}-${d.y}`)
+                .enter()
+                .append('circle')
+                .attr('class', 'dm-qcurve-point dm-qcurve-ghost')
+                .attr('cx', d => xScale(d.x))
+                .attr('cy', d => yScale(d.y))
+                .attr('r', 5)
+                .attr('fill', PANEL_COLORS.EXCLUDED)
+                .attr('stroke', PANEL_COLORS.FIT)
+                .attr('stroke-dasharray', '2,2')
+                .attr('cursor', 'pointer')
+                .on('mousemove', (event, d) => {
+                    _showTooltip(`
+                        <div class="dm-quantification-tooltip-label">Calibration (excluded)</div>
+                        <div class="dm-quantification-tooltip-row">Lane ${d.lane_number ?? '—'}</div>
+                        <div class="dm-quantification-tooltip-row">Area: ${d.x.toFixed(1)}</div>
+                        <div class="dm-quantification-tooltip-row">Load: ${d.y.toFixed(2)} ${r.unit === 'UG_ML' ? 'µg/mL' : 'µg'}</div>
+                    `, event);
+                })
+                .on('mouseleave', _hideTooltip)
+                .on('click', (event, d) => {
+                    if (d.band_id && opts.eventBus) {
+                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
+                    }
+                });
+
+            // Active calibration points.
+            state.pointSelections.fit = pointsLayer.selectAll('.dm-qcurve-fit-point')
+                .data(fitPoints, d => d.band_id || `fit-${d.x}-${d.y}`)
+                .enter()
+                .append('circle')
+                .attr('class', 'dm-qcurve-point dm-qcurve-fit-point')
+                .attr('cx', d => xScale(d.x))
+                .attr('cy', d => yScale(d.y))
+                .attr('r', 5.5)
+                .attr('fill', PANEL_COLORS.FIT)
+                .attr('stroke', '#1e1b4b')
+                .attr('stroke-width', 1)
+                .attr('cursor', 'pointer')
+                .on('mousemove', (event, d) => {
+                    _showTooltip(`
+                        <div class="dm-quantification-tooltip-label">Calibration point</div>
+                        <div class="dm-quantification-tooltip-row">Lane ${d.lane_number ?? '—'}</div>
+                        <div class="dm-quantification-tooltip-row">Area: ${d.x.toFixed(1)}</div>
+                        <div class="dm-quantification-tooltip-row">Load: ${d.y.toFixed(2)} ${r.unit === 'UG_ML' ? 'µg/mL' : 'µg'}</div>
+                    `, event);
+                })
+                .on('mouseleave', _hideTooltip)
+                .on('click', (event, d) => {
+                    if (d.band_id && opts.eventBus) {
+                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
+                    }
+                });
+
+            // Control diamonds.
+            state.pointSelections.control = pointsLayer.selectAll('.dm-qcurve-control')
+                .data(ctrls, d => d.band_id || `ctrl-${d.x}-${d.y}`)
+                .enter()
+                .append('path')
+                .attr('class', 'dm-qcurve-point dm-qcurve-control')
+                .attr('d', d3.symbol().type(d3.symbolDiamond).size(80))
+                .attr('transform', d => `translate(${xScale(d.x)},${yScale(d.y)})`)
+                .attr('fill', PANEL_COLORS.CONTROL)
+                .attr('stroke', d => d.out_of_spec ? '#ef4444' : '#0e7490')
+                .attr('stroke-width', d => d.out_of_spec ? 2 : 1)
+                .attr('cursor', 'pointer')
+                .on('mousemove', (event, d) => {
+                    _showTooltip(`
+                        <div class="dm-quantification-tooltip-label">Control · Lane ${d.lane_number ?? '—'}</div>
+                        <div class="dm-quantification-tooltip-row">Area: ${d.x.toFixed(1)}</div>
+                        <div class="dm-quantification-tooltip-row">Predicted: ${d.y.toFixed(2)} ${r.unit === 'UG_ML' ? 'µg/mL' : 'µg'}</div>
+                        ${d.recovery_pct != null ? `<div class="dm-quantification-tooltip-row">Recovery: ${d.recovery_pct.toFixed(1)}%${d.out_of_spec ? ' ⚠ OOS' : ''}</div>` : ''}
+                    `, event);
+                })
+                .on('mouseleave', _hideTooltip)
+                .on('click', (event, d) => {
+                    if (d.band_id && opts.eventBus) {
+                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
+                    }
+                });
+
+            // Sample crosses (POI band projections).
+            const sampleSize = 9;
+            const sampleGroup = pointsLayer.selectAll('.dm-qcurve-sample-group')
+                .data(samples, d => d.band_id || `samp-${d.x}-${d.y}`)
+                .enter()
+                .append('g')
+                .attr('class', 'dm-qcurve-point dm-qcurve-sample-group')
+                .attr('transform', d => `translate(${xScale(d.x)},${yScale(d.y)})`)
+                .attr('cursor', 'pointer')
+                .style('color', PANEL_COLORS.SAMPLE)
+                .on('mousemove', (event, d) => {
+                    _showTooltip(`
+                        <div class="dm-quantification-tooltip-label">Sample · Lane ${d.lane_number ?? '—'}</div>
+                        ${d.sample_label ? `<div class="dm-quantification-tooltip-row">${d.sample_label}</div>` : ''}
+                        <div class="dm-quantification-tooltip-row">Area: ${d.x.toFixed(1)}</div>
+                        <div class="dm-quantification-tooltip-row">Predicted: ${d.y.toFixed(2)} ${r.unit === 'UG_ML' ? 'µg/mL' : 'µg'}</div>
+                    `, event);
+                })
+                .on('mouseleave', _hideTooltip)
+                .on('click', (event, d) => {
+                    if (d.band_id && opts.eventBus) {
+                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
+                    }
+                });
+            // Cross-shaped marker drawn as two lines so we can scale the
+            // group when highlighting without redrawing.
+            sampleGroup.append('line')
+                .attr('x1', -sampleSize / 2).attr('y1', -sampleSize / 2)
+                .attr('x2', sampleSize / 2).attr('y2', sampleSize / 2)
+                .attr('stroke', PANEL_COLORS.SAMPLE)
+                .attr('stroke-width', 2)
+                .attr('stroke-linecap', 'round');
+            sampleGroup.append('line')
+                .attr('x1', -sampleSize / 2).attr('y1', sampleSize / 2)
+                .attr('x2', sampleSize / 2).attr('y2', -sampleSize / 2)
+                .attr('stroke', PANEL_COLORS.SAMPLE)
+                .attr('stroke-width', 2)
+                .attr('stroke-linecap', 'round');
+            state.pointSelections.sample = sampleGroup;
+
+            // Legend — same order as the modal.
+            const legend = root.append('g')
+                .attr('class', 'dm-qcurve-legend')
+                .attr('transform', `translate(${plotW - 110}, 6)`);
+            const legendRows = [
+                { color: PANEL_COLORS.FIT, label: 'Calibration', shape: 'circle' },
+                { color: PANEL_COLORS.EXCLUDED, label: 'Excluded', shape: 'circle-ghost' },
+                { color: PANEL_COLORS.CONTROL, label: 'Controls', shape: 'diamond' },
+                { color: PANEL_COLORS.SAMPLE, label: 'Samples', shape: 'cross' },
+            ];
+            legendRows.forEach((row, i) => {
+                const ly = i * 16 + 4;
+                if (row.shape === 'circle') {
+                    legend.append('circle')
+                        .attr('cx', 0).attr('cy', ly).attr('r', 5).attr('fill', row.color);
+                } else if (row.shape === 'circle-ghost') {
+                    legend.append('circle')
+                        .attr('cx', 0).attr('cy', ly).attr('r', 5)
+                        .attr('fill', row.color)
+                        .attr('stroke', PANEL_COLORS.FIT)
+                        .attr('stroke-dasharray', '2,2');
+                } else if (row.shape === 'diamond') {
+                    legend.append('path')
+                        .attr('d', d3.symbol().type(d3.symbolDiamond).size(70))
+                        .attr('transform', `translate(0, ${ly})`)
+                        .attr('fill', row.color);
+                } else if (row.shape === 'cross') {
+                    legend.append('line')
+                        .attr('x1', -4).attr('y1', ly - 4).attr('x2', 4).attr('y2', ly + 4)
+                        .attr('stroke', row.color).attr('stroke-width', 2);
+                    legend.append('line')
+                        .attr('x1', -4).attr('y1', ly + 4).attr('x2', 4).attr('y2', ly - 4)
+                        .attr('stroke', row.color).attr('stroke-width', 2);
+                }
+                legend.append('text')
+                    .attr('x', 12).attr('y', ly + 4)
+                    .attr('fill', PANEL_COLORS.TEXT_MUTED)
+                    .attr('font-size', '11px')
+                    .text(row.label);
+            });
+
+            // Re-apply any pending external highlight after the rebuild.
+            if (state.highlightedBandId) {
+                _applyHighlight(state.highlightedBandId);
+            }
+        }
+
+        function _applyHighlight(bandId) {
+            // Lift every point back to its base look first.
+            const sels = state.pointSelections;
+            ['fit', 'ghost', 'control'].forEach(k => {
+                if (!sels[k]) return;
+                sels[k].classed('is-highlighted', false)
+                    .attr('r', function (d, i, nodes) {
+                        // restore radius for circles only
+                        return nodes[i].tagName === 'circle' ? (k === 'fit' ? 5.5 : 5) : null;
+                    });
+            });
+            if (sels.sample) sels.sample.classed('is-highlighted', false)
+                .attr('transform', d => `translate(${state.scales.x(d.x)},${state.scales.y(d.y)})`);
+
+            if (!bandId) return;
+
+            // Match by band_id across all four point sets.
+            const matchSelector = (sel, scaleFn) => {
+                if (!sel) return;
+                sel.each(function (d) {
+                    if (d && d.band_id === bandId) {
+                        const node = d3.select(this);
+                        node.classed('is-highlighted', true);
+                        if (this.tagName === 'circle') {
+                            node.attr('r', +node.attr('r') * 1.6);
+                        } else if (this.tagName === 'g') {
+                            // Sample cross — scale up via transform on the group.
+                            node.attr('transform', `translate(${state.scales.x(d.x)},${state.scales.y(d.y)}) scale(1.6)`);
+                        } else if (this.tagName === 'path') {
+                            // Control diamond.
+                            node.attr('transform', `translate(${state.scales.x(d.x)},${state.scales.y(d.y)}) scale(1.5)`);
+                        }
+                    }
+                });
+            };
+            matchSelector(sels.fit);
+            matchSelector(sels.ghost);
+            matchSelector(sels.control);
+            matchSelector(sels.sample);
+        }
+
+        // Initial draw.
+        _draw();
+
+        return {
+            update(newResult) {
+                state.result = newResult;
+                _draw();
+            },
+            highlight(bandId) {
+                state.highlightedBandId = bandId || null;
+                _applyHighlight(state.highlightedBandId);
+            },
+            clearHighlight() {
+                state.highlightedBandId = null;
+                _applyHighlight(null);
+            },
+            resize() {
+                // Only redraw if container size actually changed — avoids
+                // expensive rebuilds during continuous resize observers.
+                const w = container.clientWidth || 0;
+                const h = container.clientHeight || 0;
+                if (w === state.lastWidth && h === state.lastHeight) return;
+                _draw();
+            },
+            destroy() {
+                svg.remove();
+                if (tooltipOwned && tooltip && tooltip.parentNode) {
+                    tooltip.parentNode.removeChild(tooltip);
+                }
+            },
+        };
+    }
+
     global.Densitometry = global.Densitometry || {};
-    global.Densitometry.QuantificationCurveRenderer = { render, evalCurve };
+    global.Densitometry.QuantificationCurveRenderer = { render, evalCurve, renderInteractive };
     // Top-level alias for parity with the modal class export.
     global.QuantificationCurveRenderer = global.Densitometry.QuantificationCurveRenderer;
 })(window);
