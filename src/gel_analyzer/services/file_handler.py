@@ -462,13 +462,19 @@ class GelFileHandler:
                     log.info("Inverted SCN image (zero_is=white) to match standard polarity")
 
             elif is_tiff:
-                # Use tifffile for TIFF-based formats
+                # Use tifffile for TIFF-based formats — but fall back to PIL on
+                # *any* failure, not just ImportError. tifffile delegates exotic
+                # codecs (LZW, JPEG, JPEG2000, ...) to the imagecodecs package,
+                # which we don't ship. Pillow handles LZW natively, so the
+                # fallback covers gel scanners that produce LZW-compressed TIFF.
                 try:
                     import tifffile
 
                     img_array = tifffile.imread(io.BytesIO(file_content))
-                except ImportError:
-                    log.warning("tifffile not available, using PIL")
+                except Exception as tiff_err:
+                    log.warning(
+                        f"tifffile failed ({tiff_err}); falling back to PIL"
+                    )
                     pil_img = Image.open(io.BytesIO(file_content))
                     img_array = np.array(pil_img)
             else:
