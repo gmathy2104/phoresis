@@ -174,3 +174,24 @@ class TestSplitPreservesArea:
             # land inside the bbox the user drew, otherwise the densitometry
             # view diverges from the annotation electropherogram.
             assert 85 <= result.peak_center <= 98
+
+    def test_narrow_bbox_does_not_crash_fit(self):
+        """Very narrow bbox must not raise — sigma upper bound floor must hold.
+
+        Regression for ``ValueError: each lower bound must be strictly less
+        than each upper bound`` from ``scipy.optimize.curve_fit`` when the
+        sigma upper bound ``(x[-1] - x[0]) * 2`` collapses to 0/1 on a
+        thin profile slice. The integrator should fall back gracefully
+        (trapezoid) rather than throw or skip the band silently.
+        """
+        profile = self._make_lane_profile()
+        # 6-pixel bbox: slim enough to stress the bound math, fat enough to
+        # clear the ``len(region_y) < 5`` trapezoid-fallback gate so we
+        # actually reach ``_fit_gaussian``.
+        band = _StubBand("thin", position_y=100, bbox_y=98, bbox_height=6)
+
+        params = DensitometryParams(profile_already_corrected=True)
+        integrator = PeakIntegrator(params)
+        # Must not raise.
+        result = integrator.integrate_band(band, profile)
+        assert result.corrected_area >= 0

@@ -323,10 +323,16 @@ class PeakIntegrator:
             # always uses the geometric ``position_y``. Constraining the
             # center to the user-drawn bbox keeps both views aligned and
             # plays well with the bbox-truncated area integral above.
+            # Sigma upper bound must stay strictly above the lower bound
+            # (1 px) — on a 1-2 sample bbox slice ``(x[-1] - x[0]) * 2`` can
+            # be 0 or 1, which makes ``curve_fit`` raise ValueError. Floor it
+            # at 2 so the fitter stays well-formed; the trapezoid fallback
+            # already kicks in for regions with <5 samples upstream of here.
+            sigma_upper = max((x[-1] - x[0]) * 2, 2.0)
             p0 = [amplitude_guess, center_guess, sigma_guess, float(np.min(y))]
             bounds_with_baseline = (
                 [0, x[0], 1, 0],
-                [amplitude_guess * 3, x[-1], (x[-1] - x[0]) * 2, np.max(y)],
+                [amplitude_guess * 3, x[-1], sigma_upper, np.max(y)],
             )
 
             popt, pcov = curve_fit(

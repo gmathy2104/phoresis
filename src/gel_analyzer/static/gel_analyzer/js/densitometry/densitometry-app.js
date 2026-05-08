@@ -380,12 +380,18 @@
                 if (band.densitometry) bandsWithDensitometry += 1;
             }
 
-            // Stale if results exist but don't cover every band, OR if no
-            // results exist at all but some bands do (mixed annotation +
-            // densitometry workflow — common when the user splits and comes
-            // back here without rerunning).
-            const isStale = bandsWithDensitometry < totalBands && this.hasExistingResults
-                || bandsWithDensitometry === 0 && totalBands > 0 && this.hasExistingResults;
+            // Stale if any band lacks a ``densitometry`` block. Two flavours:
+            //   1. ``hasExistingResults`` is true but the fetch returned data
+            //      for only some bands → at least one new band slipped in
+            //      after the last Run Analysis.
+            //   2. ``hasExistingResults`` is false but bands exist → the
+            //      Band-edit signal wiped EVERY ``DensitometryResult`` for
+            //      the analysis (the common post-split case). The earlier
+            //      version of this method gated this branch on
+            //      ``hasExistingResults`` too, which silenced the banner in
+            //      the *exact* scenario it was added to surface.
+            // Either way: bandsWithDensitometry < totalBands ⇔ stale.
+            const isStale = bandsWithDensitometry < totalBands;
 
             banner.hidden = !isStale;
         }
