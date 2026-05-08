@@ -339,21 +339,40 @@
         HIGHLIGHT: '#fbbf24',          // Amber-400 — selection ring
     };
 
-    function _normalizePoint(p) {
+    /**
+     * Normalize a server-side QuantPoint into the {x, y, ...} shape used
+     * by the renderer. The caller passes the explicit y field name
+     * ('load_amount' / 'predicted_amount' / 'estimated_amount') because
+     * the right choice depends on the point's *role*, not on which
+     * fields happen to be populated:
+     *
+     *   - calibration  → load_amount (the measured truth that the fit
+     *                    is trying to approximate; predicted_amount on a
+     *                    calibration point is by construction the curve
+     *                    eval at that area, so plotting it puts the
+     *                    point on the line and erases the residual).
+     *   - control      → predicted_amount (matches the modal's modal
+     *                    QC table, where Predicted is what the curve
+     *                    evaluates and Recovery = Predicted/Known).
+     *   - sample       → estimated_amount (the projection the user
+     *                    cares about).
+     */
+    function _normalizePoint(p, yField) {
+        const yRaw = (yField && p[yField] != null) ? p[yField] : null;
         return {
             band_id: p.band_id || null,
             lane_id: p.lane_id || null,
             lane_number: p.lane_number ?? null,
             sample_label: p.sample_label || null,
             x: p.corrected_area != null ? +p.corrected_area : null,
-            y: p.estimated_amount != null
-                ? +p.estimated_amount
-                : (p.predicted_amount != null
-                    ? +p.predicted_amount
-                    : (p.load_amount != null ? +p.load_amount : null)),
+            y: yRaw != null ? +yRaw : null,
             is_excluded: !!p.is_excluded,
             recovery_pct: p.recovery_pct != null ? +p.recovery_pct : null,
             out_of_spec: !!p.out_of_spec,
+            // Loaded amount kept on the side for tooltips on calibration
+            // ghosts (the user wants to see "Load: X" even when they
+            // toggled the point off the fit).
+            load_amount: p.load_amount != null ? +p.load_amount : null,
         };
     }
 
@@ -451,9 +470,11 @@
                 return;
             }
 
-            const calibPoints = (r.calibration_points || []).map(_normalizePoint);
-            const controlPoints = (r.control_points || []).map(_normalizePoint);
-            const samplePoints = (r.sample_projections || []).map(_normalizePoint);
+            // Per-role y field — see _normalizePoint docstring for why
+            // each role picks a different source field.
+            const calibPoints = (r.calibration_points || []).map(p => _normalizePoint(p, 'load_amount'));
+            const controlPoints = (r.control_points || []).map(p => _normalizePoint(p, 'predicted_amount'));
+            const samplePoints = (r.sample_projections || []).map(p => _normalizePoint(p, 'estimated_amount'));
 
             const fitPoints = calibPoints.filter(p => !p.is_excluded && p.x != null && p.y != null);
             const ghostPoints = calibPoints.filter(p => p.is_excluded && p.x != null && p.y != null);
