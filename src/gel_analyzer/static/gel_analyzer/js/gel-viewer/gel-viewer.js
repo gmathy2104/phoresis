@@ -328,6 +328,12 @@
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
                 onUpdateBand: (id, data) => this._updateBand(id, data),
+                // Local-only sync for callers that already persisted via
+                // their own endpoint (e.g. _promptCalibrationValue uses
+                // the v1 PATCH so the nested quant_point reaches the
+                // BandSerializer). They still need the SVG class swap +
+                // BAND_UPDATED emit so the rest of the UI catches up.
+                onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
                 onStartResize: (id) => this._startLaneResize(id),
                 // Return null when nothing is selected so ContextMenu's `!selection`
                 // guard short-circuits cleanly. Returning a {type:null,id:null}
@@ -1291,22 +1297,43 @@
             return Math.round((leftMW * (1 - t) + rightMW * t) * 100) / 100;
         }
 
-        _updateBand(id, data) {
+        /**
+         * Apply a band patch locally — mutate state, refresh the SVG class
+         * if band_type changed, and emit BAND_UPDATED so panels (properties,
+         * band table, calibration, ...) can refresh. Does NOT call the
+         * server. Reusable from any caller that has already persisted via
+         * its own endpoint (e.g. context menu's PATCH for calibration
+         * quant_point).
+         */
+        _syncBandLocally(id, data) {
             const band = this.stateManager.getBand(id);
-            if (!band) return;
+            if (!band) return null;
 
             Object.assign(band, data);
 
-            // Update SVG class if band_type changed
             if (data.band_type) {
                 const element = this.svg.findOne(`#band-${id}`);
                 if (element) {
-                    // Remove all type classes
-                    element.removeClass('other').removeClass('mw_reference').removeClass('poi');
-                    // Add new type class
+                    // Strip every band-type class we know about, otherwise
+                    // CALIBRATION → OTHER (or any other transition) leaves
+                    // the previous color stuck on the element.
+                    element
+                        .removeClass('other')
+                        .removeClass('mw_reference')
+                        .removeClass('poi')
+                        .removeClass('calibration')
+                        .removeClass('control');
                     element.addClass(data.band_type.toLowerCase());
                 }
             }
+
+            this.eventBus.emit(Events.BAND_UPDATED, band);
+            return band;
+        }
+
+        _updateBand(id, data) {
+            const band = this._syncBandLocally(id, data);
+            if (!band) return;
 
             this.stateManager.trackBandUpdate(id, data);
 

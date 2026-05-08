@@ -76,6 +76,18 @@
             this.eventBus.on(Events.BAND_SAVE_FAILED, (data) => {
                 this._onBandSaveFailed(data);
             });
+
+            // Re-render when the displayed band changes underneath us
+            // (e.g. right-click "Set as Calibration" emits BAND_UPDATED
+            // after the v1 PATCH; without this the panel still shows the
+            // old band_type/quant_point until the user reselects).
+            this.eventBus.on(Events.BAND_UPDATED, (band) => {
+                if (!band) return;
+                const updatedId = band.id || band.band_id;
+                if (this.currentType === 'band' && this.currentId === updatedId) {
+                    this.show('band', updatedId);
+                }
+            });
         }
 
         /**

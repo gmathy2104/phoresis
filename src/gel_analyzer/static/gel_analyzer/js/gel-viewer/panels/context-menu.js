@@ -46,6 +46,7 @@
             if (options.onDeleteBand) this.handlers.onDeleteBand = options.onDeleteBand;
             if (options.onUpdateLane) this.handlers.onUpdateLane = options.onUpdateLane;
             if (options.onUpdateBand) this.handlers.onUpdateBand = options.onUpdateBand;
+            if (options.onSyncBandLocal) this.handlers.onSyncBandLocal = options.onSyncBandLocal;
             if (options.onStartResize) this.handlers.onStartResize = options.onStartResize;
 
             // DOM elements
@@ -233,7 +234,16 @@
             if (this._apiClient && typeof this._apiClient.patchBand === 'function') {
                 try {
                     await this._apiClient.patchBand(bandId, payload);
-                    if (this._stateManager) {
+                    // After the server save, run the same local sync as a
+                    // normal type change: SVG class swap (so the band turns
+                    // calibration-purple) + BAND_UPDATED emit (so the
+                    // properties panel and band table refresh). Without
+                    // this the band stays visually OTHER and the panel
+                    // shows stale band_type until the page is reloaded.
+                    if (this.handlers.onSyncBandLocal) {
+                        this.handlers.onSyncBandLocal(bandId, payload);
+                    } else if (this._stateManager) {
+                        // Fallback for callers that didn't wire onSyncBandLocal.
                         const band = this._stateManager.getBand(bandId);
                         if (band) {
                             band.band_type = 'CALIBRATION';
