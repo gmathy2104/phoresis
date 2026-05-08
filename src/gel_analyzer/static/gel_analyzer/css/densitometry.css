@@ -3608,17 +3608,27 @@
     vertical-align: middle;
 }
 
-.dm-table--lane-level tbody tr.dm-lane-row {
+.dm-table--lane-level tbody tr.dm-lane-row,
+.dm-table--lane-level tbody tr.dm-band-row {
     cursor: pointer;
     transition: background-color 120ms ease;
 }
 
-.dm-table--lane-level tbody tr.dm-lane-row:hover {
+.dm-table--lane-level tbody tr.dm-lane-row:hover,
+.dm-table--lane-level tbody tr.dm-band-row:hover {
     background: rgba(139,92,246,0.06);
 }
 
-.dm-table--lane-level tbody tr.dm-lane-row.selected {
+.dm-table--lane-level tbody tr.dm-lane-row.selected,
+.dm-table--lane-level tbody tr.dm-band-row.selected {
     background: rgba(139,92,246,0.18);
+}
+
+/* Subscript MW (kDa) for ladder marker rows in the Band cell. */
+.dm-table--lane-level .dm-band-mw {
+    color: rgba(255,255,255,0.55);
+    font-size: 0.72rem;
+    margin-left: 4px;
 }
 
 .dm-table--lane-level .dm-expand-icon {
