@@ -3650,3 +3650,222 @@
 .dm-table--lane-level.dm-preset-minimal .col-preset-standard,
 .dm-table--lane-level.dm-preset-minimal .col-preset-full { display: none; }
 .dm-table--lane-level.dm-preset-standard .col-preset-full { display: none; }
+
+/* ============================================================================
+   Quantification Modal (#quantification-modal)
+   ============================================================================
+   The modal HTML uses .dm-modal as its OUTER container with a separate
+   .dm-modal-backdrop child + .dm-modal-card content — a different shape
+   from the other .dm-modal usages on this page (which are content cards
+   already nested inside a .dm-modal-overlay). Without these scoped
+   overrides the outer .dm-modal picks up the card-style rules around
+   line 1910 (no fixed positioning) and the modal renders inline at the
+   bottom of the document instead of as a full-screen overlay.
+   ============================================================================ */
+#quantification-modal.dm-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Reset the card-style rules from the generic .dm-modal block above. */
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+    width: auto;
+    max-width: none;
+    animation: none;
+}
+
+#quantification-modal[hidden] {
+    display: none;
+}
+
+#quantification-modal .dm-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    cursor: pointer;
+}
+
+#quantification-modal .dm-modal-card {
+    position: relative;
+    z-index: 1;
+    background: linear-gradient(180deg, var(--dm-bg-panel-header) 0%, var(--dm-bg-panel) 100%);
+    border: 1px solid var(--dm-border-light);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    display: flex;
+    flex-direction: column;
+    max-height: 92vh;
+    overflow: hidden;
+    animation: dm-slide-in 0.2s ease-out;
+}
+
+#quantification-modal .dm-modal-card--wide {
+    width: 95%;
+    max-width: 1200px;
+}
+
+#quantification-modal .dm-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--dm-border-light);
+    text-align: left;
+    flex-shrink: 0;
+}
+
+#quantification-modal .dm-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--dm-text-primary);
+    flex: 1;
+}
+
+#quantification-modal .dm-modal-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--dm-text-secondary);
+}
+
+#quantification-modal .dm-modal-toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+
+#quantification-modal .dm-modal-toolbar select {
+    background: var(--dm-bg-input, #1e293b);
+    color: var(--dm-text-primary);
+    border: 1px solid var(--dm-border-light);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+}
+
+#quantification-modal .dm-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--dm-text-secondary);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+#quantification-modal .dm-modal-close:hover {
+    color: var(--dm-text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* The 2x2 layout is the heart of the modal: calibration points + curve
+   on top, controls + samples on the bottom. min-height per row keeps the
+   curve canvas readable; overflow auto on cells handles tables that
+   grow beyond the cell. */
+#quantification-modal .dm-modal-grid {
+    flex: 1;
+    overflow: auto;
+    padding: 16px 20px;
+}
+
+#quantification-modal .dm-modal-grid--2x2 {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-auto-rows: minmax(220px, auto);
+    gap: 14px;
+}
+
+#quantification-modal .dm-modal-cell {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--dm-border-light);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow: auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#quantification-modal .dm-modal-cell h4 {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--dm-text-primary);
+}
+
+#quantification-modal .dm-modal-cell canvas {
+    width: 100%;
+    height: auto;
+    max-height: 320px;
+}
+
+#quantification-modal .dm-modal-stats {
+    margin-top: 6px;
+    font-size: 0.82rem;
+    color: var(--dm-text-secondary);
+    line-height: 1.5;
+}
+
+#quantification-modal .dm-modal-stats code {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.78rem;
+}
+
+#quantification-modal .dm-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--dm-border-light);
+    flex-shrink: 0;
+}
+
+/* Tables inside the cells: sticky header + slim row height so two
+   tables can sit side-by-side without dwarfing the curve. */
+#quantification-modal .dm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+#quantification-modal .dm-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--dm-bg-panel-header);
+    color: var(--dm-text-secondary);
+    font-weight: 500;
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--dm-border-light);
+    z-index: 1;
+}
+
+#quantification-modal .dm-table tbody td {
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--dm-text-primary);
+}
+
+/* Narrow viewports: drop to a single column so the modal stays usable
+   on a side-by-side IDE / reduced window. */
+@media (max-width: 900px) {
+    #quantification-modal .dm-modal-grid--2x2 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
