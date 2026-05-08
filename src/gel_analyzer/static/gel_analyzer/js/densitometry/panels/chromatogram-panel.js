@@ -294,15 +294,26 @@
          * Create the D3 chart.
          */
         _createChart() {
-            // Clear existing — but preserve 3D and POI containers if they exist
+            // Clear existing — but preserve sibling sub-view containers
+            // that share the same .dm-panel-content. innerHTML='' wipes
+            // EVERYTHING; we re-append the ones rendered by other code
+            // paths. Forgetting one of these silently destroys that view
+            // (the quantification curve container was missing from this
+            // list, which is why the Quantification curve sub-view
+            // rendered as a black void: by the time the user clicked the
+            // tab, the host div had been wiped at init).
             const container3d = this.contentElement.querySelector('.dm-chromatogram-3d-container');
             const containerPoi = this.contentElement.querySelector('.dm-poi-purity-container');
+            const containerQuant = this.contentElement.querySelector('.dm-quantification-container');
             this.contentElement.innerHTML = '';
             if (container3d) {
                 this.contentElement.appendChild(container3d);
             }
             if (containerPoi) {
                 this.contentElement.appendChild(containerPoi);
+            }
+            if (containerQuant) {
+                this.contentElement.appendChild(containerQuant);
             }
 
             // Get dimensions
