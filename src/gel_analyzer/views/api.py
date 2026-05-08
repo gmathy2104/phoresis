@@ -458,6 +458,7 @@ def api_band_detail(request, pk):
         # leave the lane mismatched even though the v1 PATCH path fixes
         # it up.
         from gel_analyzer.api.serializers import _auto_promote_lane_for_band
+
         _auto_promote_lane_for_band(band)
 
         logger.info(f"Updated band {band.pk}", user=request.user.username, band_id=str(band.pk))
@@ -2206,7 +2207,9 @@ def api_analysis_calibrate(request, pk):
             template_bands = list(template.bands.order_by("band_order"))
             for tb in template_bands:
                 target_mw = round(float(tb.mw_kda), 2)
-                has_active = any(mw == target_mw and band_id not in excluded_set for (band_id, mw) in ladder_assignments)
+                has_active = any(
+                    mw == target_mw and band_id not in excluded_set for (band_id, mw) in ladder_assignments
+                )
                 if has_active:
                     continue
                 has_any = any(mw == target_mw for (_, mw) in ladder_assignments)

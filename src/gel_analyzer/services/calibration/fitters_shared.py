@@ -11,19 +11,15 @@ import numpy as np
 from scipy.stats import linregress
 
 
-def fit_log_linear(
-    rf: np.ndarray, log_mw: np.ndarray
-) -> tuple[float, float, float, np.ndarray]:
+def fit_log_linear(rf: np.ndarray, log_mw: np.ndarray) -> tuple[float, float, float, np.ndarray]:
     """log10(MW) = slope·Rf + intercept. Returns (slope, intercept, r_squared, residuals)."""
     result = linregress(rf, log_mw)
     predicted = result.slope * rf + result.intercept
     residuals = log_mw - predicted
-    return float(result.slope), float(result.intercept), float(result.rvalue ** 2), residuals
+    return float(result.slope), float(result.intercept), float(result.rvalue**2), residuals
 
 
-def fit_polynomial(
-    x: np.ndarray, y: np.ndarray, degree: int
-) -> tuple[list[float], float, np.ndarray]:
+def fit_polynomial(x: np.ndarray, y: np.ndarray, degree: int) -> tuple[list[float], float, np.ndarray]:
     """Generic polynomial fit. Returns (coeffs, r_squared, residuals)."""
     coeffs = np.polyfit(x, y, degree)
     predicted = np.polyval(coeffs, x)

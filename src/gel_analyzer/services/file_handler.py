@@ -472,9 +472,7 @@ class GelFileHandler:
 
                     img_array = tifffile.imread(io.BytesIO(file_content))
                 except Exception as tiff_err:
-                    log.warning(
-                        f"tifffile failed ({tiff_err}); falling back to PIL"
-                    )
+                    log.warning(f"tifffile failed ({tiff_err}); falling back to PIL")
                     pil_img = Image.open(io.BytesIO(file_content))
                     img_array = np.array(pil_img)
             else:

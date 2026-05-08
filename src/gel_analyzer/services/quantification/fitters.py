@@ -99,8 +99,11 @@ def fit_4pl(area: np.ndarray, amount: np.ndarray):
     b0 = 1.0
     try:
         popt, _ = curve_fit(
-            _four_pl, area, amount,
-            p0=[a0, d0, c0, b0], maxfev=5000,
+            _four_pl,
+            area,
+            amount,
+            p0=[a0, d0, c0, b0],
+            maxfev=5000,
         )
     except Exception as e:
         raise ValueError(f"4PL did not converge: {e}") from e

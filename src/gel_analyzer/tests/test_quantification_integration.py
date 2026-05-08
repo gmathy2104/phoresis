@@ -80,9 +80,7 @@ def test_full_quantification_chain_4_calib_2_control_3_sample(sample_analysis, t
             height=200,
         )
         band, area = _make_band_with_densito(lane, area=area, position_y=100, test_user=test_user)
-        ProteinQuantCalibrationPoint.objects.create(
-            band=band, load_amount=amount, load_unit="UG", role="CALIBRATION"
-        )
+        ProteinQuantCalibrationPoint.objects.create(band=band, load_amount=amount, load_unit="UG", role="CALIBRATION")
         cal_pairs.append((band, area))
 
     # Build 2 CONTROL lanes (loads 10 and 20)
@@ -98,9 +96,7 @@ def test_full_quantification_chain_4_calib_2_control_3_sample(sample_analysis, t
             height=200,
         )
         band, area = _make_band_with_densito(lane, area=area, position_y=100, test_user=test_user)
-        ProteinQuantCalibrationPoint.objects.create(
-            band=band, load_amount=amount, load_unit="UG", role="CONTROL"
-        )
+        ProteinQuantCalibrationPoint.objects.create(band=band, load_amount=amount, load_unit="UG", role="CONTROL")
         ctrl_pairs.append((band, area))
 
     # Build 3 SAMPLE lanes with one POI band each (areas 1500 / 2500 / 3500)
@@ -180,12 +176,8 @@ def test_band_split_triggers_recompute_through_invalidation_path(sample_analysis
     cal_specs = [(1000, 5), (2000, 10), (3000, 15)]
     cal_bands = []
     for i, (_area, amount) in enumerate(cal_specs, start=1):
-        band, area = _make_band_with_densito(
-            cal_lane, area=cal_specs[i - 1][0], position_y=i * 50, test_user=test_user
-        )
-        ProteinQuantCalibrationPoint.objects.create(
-            band=band, load_amount=amount, load_unit="UG", role="CALIBRATION"
-        )
+        band, area = _make_band_with_densito(cal_lane, area=cal_specs[i - 1][0], position_y=i * 50, test_user=test_user)
+        ProteinQuantCalibrationPoint.objects.create(band=band, load_amount=amount, load_unit="UG", role="CALIBRATION")
         cal_bands.append(band)
     sample_band = Band.objects.create(
         lane=sample_lane,
@@ -225,20 +217,12 @@ def test_band_split_triggers_recompute_through_invalidation_path(sample_analysis
     # densito row before recompute_if_active can run.
     band_to_split = cal_bands[-1]
     band_to_split.delete()
-    new_band_a, _ = _make_band_with_densito(
-        cal_lane, area=2900, position_y=150, test_user=test_user
-    )
-    new_band_b, _ = _make_band_with_densito(
-        cal_lane, area=3100, position_y=160, test_user=test_user
-    )
+    new_band_a, _ = _make_band_with_densito(cal_lane, area=2900, position_y=150, test_user=test_user)
+    new_band_b, _ = _make_band_with_densito(cal_lane, area=3100, position_y=160, test_user=test_user)
     # The remaining first two calibration bands lost their densito to signals;
     # quant_points survived (CASCADE only on band, not on densitometry).
-    ProteinQuantCalibrationPoint.objects.create(
-        band=new_band_a, load_amount=14, load_unit="UG", role="CALIBRATION"
-    )
-    ProteinQuantCalibrationPoint.objects.create(
-        band=new_band_b, load_amount=16, load_unit="UG", role="CALIBRATION"
-    )
+    ProteinQuantCalibrationPoint.objects.create(band=new_band_a, load_amount=14, load_unit="UG", role="CALIBRATION")
+    ProteinQuantCalibrationPoint.objects.create(band=new_band_b, load_amount=16, load_unit="UG", role="CALIBRATION")
     # Re-persist densitometry for the calibration lane's bands (this models the
     # densito write-back at the end of run_densitometry_task). The sample lane
     # was never touched by the band-split, so its DensitometryResult survives.

@@ -874,6 +874,7 @@ def run_densitometry_task(
         # failures NEVER break a densitometry run.
         if save_results:
             from gel_analyzer.services.quantification.invalidation import recompute_if_active
+
             try:
                 recompute_if_active(analysis)
             except Exception as exc:

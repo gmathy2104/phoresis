@@ -1,4 +1,5 @@
 """Tests for quantification fitters."""
+
 import numpy as np
 import pytest
 
@@ -35,7 +36,7 @@ class TestLinear:
 class TestPoly2:
     def test_perfect_quadratic(self):
         x = np.array([0, 1, 2, 3, 4], dtype=float)
-        y = 2 * x ** 2 + 3 * x + 1
+        y = 2 * x**2 + 3 * x + 1
         coeffs, r2, residuals = fitters.fit_poly2(x, y)
         assert r2 == pytest.approx(1.0)
         assert coeffs["coeffs"] == pytest.approx([2.0, 3.0, 1.0])

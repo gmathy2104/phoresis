@@ -64,9 +64,7 @@ class ProteinQuantCalibration(models.Model):
     UNIT_CHOICES = [(UNIT_UG, "µg"), (UNIT_UG_ML, "µg/mL")]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    analysis = models.ForeignKey(
-        "GelAnalysis", on_delete=models.CASCADE, related_name="quant_calibrations"
-    )
+    analysis = models.ForeignKey("GelAnalysis", on_delete=models.CASCADE, related_name="quant_calibrations")
     method = models.CharField(max_length=20, choices=METHOD_CHOICES)
     unit = models.CharField(max_length=10, choices=UNIT_CHOICES)
     coefficients = models.JSONField()
@@ -82,7 +80,10 @@ class ProteinQuantCalibration(models.Model):
     # refit shifts the fit. Distinguishes user-saved state from drift.
     last_recomputed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="created_quant_calibrations",
     )
     created_at = models.DateTimeField(auto_now_add=True)

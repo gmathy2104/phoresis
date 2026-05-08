@@ -149,9 +149,9 @@ class MultiLadderCalibrationService:
             )
 
         logger.info(
-            f"Calibrating {len(ladder_lanes)} ladder lanes "
-            f"with template {template.name}" if template else
-            f"Calibrating {len(ladder_lanes)} ladder lanes (no template — using assigned MW values)"
+            f"Calibrating {len(ladder_lanes)} ladder lanes with template {template.name}"
+            if template
+            else f"Calibrating {len(ladder_lanes)} ladder lanes (no template — using assigned MW values)"
         )
 
         # Delete existing calibrations for this analysis

@@ -402,9 +402,7 @@ class LaneViewSet(viewsets.ModelViewSet):
         )
         if is_downgrade:
             dependent_ids = list(
-                ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).values_list(
-                    "band_id", flat=True
-                )
+                ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).values_list("band_id", flat=True)
             )
             if dependent_ids and not force:
                 return Response(
@@ -417,9 +415,9 @@ class LaneViewSet(viewsets.ModelViewSet):
             if dependent_ids and force:
                 with transaction.atomic():
                     ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).delete()
-                    _Band.objects.filter(
-                        lane=instance, band_type=_Band.BandType.CALIBRATION
-                    ).update(band_type=_Band.BandType.OTHER)
+                    _Band.objects.filter(lane=instance, band_type=_Band.BandType.CALIBRATION).update(
+                        band_type=_Band.BandType.OTHER
+                    )
         return super().partial_update(request, *args, **kwargs)
 
     @extend_schema(
@@ -762,9 +760,7 @@ def quantification_root(request, analysis_id):
     from django.db import transaction
 
     with transaction.atomic():
-        calib = svc.save_active(
-            analysis, result, user=request.user, notes=request.data.get("notes", "")
-        )
+        calib = svc.save_active(analysis, result, user=request.user, notes=request.data.get("notes", ""))
         svc.apply_to_analysis(calib)
     return Response(_serialize_calib(calib), status=drf_status.HTTP_201_CREATED)
 
@@ -791,9 +787,7 @@ def quantification_preview(request, analysis_id):
     result, _ = _build_full_result(analysis, params)
     return Response(
         result.to_dict(),
-        status=drf_status.HTTP_200_OK
-        if result.success
-        else drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status=drf_status.HTTP_200_OK if result.success else drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
 
@@ -812,9 +806,7 @@ def quantification_detail(request, analysis_id, calib_id):
     try:
         calib = ProteinQuantCalibration.objects.get(pk=calib_id, analysis_id=analysis_id)
     except ProteinQuantCalibration.DoesNotExist:
-        return Response(
-            {"detail": "Calibration not found."}, status=drf_status.HTTP_404_NOT_FOUND
-        )
+        return Response({"detail": "Calibration not found."}, status=drf_status.HTTP_404_NOT_FOUND)
 
     if request.method == "PATCH":
         # update_fields prevents racing with recompute_if_active, which writes
@@ -851,7 +843,5 @@ def quantification_history(request, analysis_id):
     if not GelAnalysis.objects.filter(pk=analysis_id).exists():
         return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
 
-    history = ProteinQuantCalibration.objects.filter(analysis_id=analysis_id).order_by(
-        "-created_at"
-    )
+    history = ProteinQuantCalibration.objects.filter(analysis_id=analysis_id).order_by("-created_at")
     return Response({"history": [_serialize_calib(c) for c in history]})

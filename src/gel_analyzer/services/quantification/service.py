@@ -27,6 +27,7 @@ class ProteinQuantCalibrationService:
     def collect_calibration_points(self, analysis: GelAnalysis) -> list[QuantPoint]:
         """All CALIBRATION-typed bands inside CALIBRATION-typed lanes of the analysis."""
         from gel_analyzer.models import Band, Lane
+
         bands = (
             Band.objects.filter(
                 lane__analysis=analysis,
@@ -42,6 +43,7 @@ class ProteinQuantCalibrationService:
     def collect_control_points(self, analysis: GelAnalysis) -> list[QuantPoint]:
         """All CALIBRATION-typed bands inside CONTROL-typed lanes."""
         from gel_analyzer.models import Band, Lane
+
         bands = (
             Band.objects.filter(
                 lane__analysis=analysis,
@@ -68,6 +70,7 @@ class ProteinQuantCalibrationService:
         to a CALIBRATION lane post-auto-promote (see
         _auto_promote_lane_for_band)."""
         from gel_analyzer.models import Band, Lane
+
         bands = (
             Band.objects.filter(
                 lane__analysis=analysis,
@@ -121,19 +124,25 @@ class ProteinQuantCalibrationService:
         missing = [p.band_id for p in non_excluded if p.corrected_area is None]
         if missing:
             return QuantResult(
-                success=False, method=self.params.method, unit=self.params.unit,
+                success=False,
+                method=self.params.method,
+                unit=self.params.unit,
                 error_message=f"Densitometry missing on {len(missing)} band(s); run densitometry first",
                 calibration_points=points,
             )
         if len(non_excluded) < 2:
             return QuantResult(
-                success=False, method=self.params.method, unit=self.params.unit,
+                success=False,
+                method=self.params.method,
+                unit=self.params.unit,
                 error_message=f"Need at least 2 non-excluded points, got {len(non_excluded)}",
                 calibration_points=points,
             )
         if self.params.method == "FOUR_PL" and len(non_excluded) < 4:
             return QuantResult(
-                success=False, method=self.params.method, unit=self.params.unit,
+                success=False,
+                method=self.params.method,
+                unit=self.params.unit,
                 error_message=f"4PL requires at least 4 non-excluded points, got {len(non_excluded)}",
                 calibration_points=points,
             )
@@ -160,8 +169,11 @@ class ProteinQuantCalibrationService:
         except Exception as e:
             logger.error(f"Quantification fit failed: {e}")
             return QuantResult(
-                success=False, method=self.params.method, unit=self.params.unit,
-                error_message=str(e), calibration_points=points,
+                success=False,
+                method=self.params.method,
+                unit=self.params.unit,
+                error_message=str(e),
+                calibration_points=points,
             )
 
         # residuals = observed - predicted, so predicted = observed - residual
@@ -207,8 +219,11 @@ class ProteinQuantCalibrationService:
         from gel_analyzer.models import Band, DensitometryResult, Lane
 
         result = QuantResult(
-            success=True, method=calibration.method, unit=calibration.unit,
-            coefficients=calibration.coefficients, r_squared=calibration.r_squared,
+            success=True,
+            method=calibration.method,
+            unit=calibration.unit,
+            coefficients=calibration.coefficients,
+            r_squared=calibration.r_squared,
             equation=calibration.equation,
         )
         target_bands = (
@@ -273,9 +288,7 @@ class ProteinQuantCalibrationService:
                 coefficients=result.coefficients,
                 r_squared=result.r_squared,
                 equation=result.equation,
-                excluded_band_ids=[
-                    p.band_id for p in result.calibration_points if p.is_excluded
-                ],
+                excluded_band_ids=[p.band_id for p in result.calibration_points if p.is_excluded],
                 is_active=True,
                 created_by=user,
                 notes=notes,

@@ -607,6 +607,7 @@ class CalibrationService:
 
     def _fit_log_linear(self, rf, log_mw, matches):
         from .fitters_shared import fit_log_linear
+
         try:
             slope, intercept, r_squared, residuals = fit_log_linear(rf, log_mw)
         except Exception as e:
@@ -617,13 +618,17 @@ class CalibrationService:
         slope_sign = "+" if intercept >= 0 else ""
         equation = f"log10(MW) = {slope:.4f} * Rf {slope_sign}{intercept:.4f}"
         return CalibrationResult(
-            success=True, method="LOG_LINEAR",
+            success=True,
+            method="LOG_LINEAR",
             coefficients={"slope": slope, "intercept": intercept},
-            r_squared=r_squared, equation=equation, band_matches=matches,
+            r_squared=r_squared,
+            equation=equation,
+            band_matches=matches,
         )
 
     def _fit_polynomial(self, rf, log_mw, matches, degree):
         from .fitters_shared import fit_polynomial, format_polynomial_equation
+
         try:
             coeffs, r_squared, residuals = fit_polynomial(rf, log_mw, degree)
         except Exception as e:
@@ -633,9 +638,12 @@ class CalibrationService:
             m.residual = float(residuals[i])
         equation = format_polynomial_equation(coeffs, var="Rf", lhs="log10(MW)")
         return CalibrationResult(
-            success=True, method=f"POLYNOMIAL_{degree}",
-            coefficients={"coeffs": coeffs}, r_squared=r_squared,
-            equation=equation, band_matches=matches,
+            success=True,
+            method=f"POLYNOMIAL_{degree}",
+            coefficients={"coeffs": coeffs},
+            r_squared=r_squared,
+            equation=equation,
+            band_matches=matches,
         )
 
     def _calculate_rf(

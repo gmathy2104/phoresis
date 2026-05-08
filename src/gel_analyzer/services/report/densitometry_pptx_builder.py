@@ -640,11 +640,7 @@ class DensitometryPowerPointBuilder:
         for line in [
             f"R² = {calib.r_squared:.4f}",
             f"N = {n_used}",
-            (
-                f"Mean recovery = {sum(recoveries) / len(recoveries):.1f}%"
-                if recoveries
-                else "Mean recovery = —"
-            ),
+            (f"Mean recovery = {sum(recoveries) / len(recoveries):.1f}%" if recoveries else "Mean recovery = —"),
         ]:
             p = tf.add_paragraph()
             p.text = line

@@ -1,4 +1,5 @@
 """Dataclasses for the protein quantification calibration service."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -27,9 +28,9 @@ class QuantPoint:
     lane_id: int
     lane_number: int
     role: Role
-    load_amount: float | None      # known for CALIBRATION + CONTROL; None for SAMPLE
+    load_amount: float | None  # known for CALIBRATION + CONTROL; None for SAMPLE
     load_unit: Unit | None
-    corrected_area: float | None   # None if densitometry not yet run
+    corrected_area: float | None  # None if densitometry not yet run
     is_excluded: bool = False
     residual: float | None = None  # filled at fit time
     predicted_amount: float | None = None  # filled at fit time
@@ -58,7 +59,7 @@ class QuantResult:
             "r_squared": round(self.r_squared, 6),
             "equation": self.equation,
             "calibration_points": [_pt_to_dict(p) for p in self.calibration_points],
-            "control_points":     [_pt_to_dict(p, with_recovery=True) for p in self.control_points],
+            "control_points": [_pt_to_dict(p, with_recovery=True) for p in self.control_points],
             "sample_projections": [_pt_to_dict(p, sample=True) for p in self.sample_projections],
             "warnings": self.warnings,
             "error_message": self.error_message,

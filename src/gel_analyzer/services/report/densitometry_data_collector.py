@@ -191,23 +191,16 @@ class DensitometryDataCollector:
             ProteinQuantCalibrationService,
         )
 
-        active = (
-            ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
-        )
+        active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
         if active is None:
             return None
 
         try:
-            svc = ProteinQuantCalibrationService(
-                QuantParams(method=active.method, unit=active.unit)
-            )
+            svc = ProteinQuantCalibrationService(QuantParams(method=active.method, unit=active.unit))
             cal = svc.collect_calibration_points(analysis)
             result = svc.fit(cal, excluded_band_ids=active.excluded_band_ids)
             if not result.success:
-                logger.warning(
-                    f"Quantification refit for analysis {analysis.id} failed: "
-                    f"{result.error_message}"
-                )
+                logger.warning(f"Quantification refit for analysis {analysis.id} failed: {result.error_message}")
                 return None
 
             ctrls = svc.collect_control_points(analysis)
@@ -226,9 +219,7 @@ class DensitometryDataCollector:
                 points=[
                     (p.corrected_area, p.load_amount)
                     for p in result.calibration_points
-                    if not p.is_excluded
-                    and p.corrected_area is not None
-                    and p.load_amount is not None
+                    if not p.is_excluded and p.corrected_area is not None and p.load_amount is not None
                 ],
                 coeffs=active.coefficients,
                 method=active.method,

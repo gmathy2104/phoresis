@@ -71,9 +71,7 @@ def band_to_dict(band) -> dict:
     corrected_area = None
     densito = getattr(band, "densitometry", None)
     if densito is not None:
-        corrected_area = (
-            float(densito.corrected_area) if densito.corrected_area is not None else None
-        )
+        corrected_area = float(densito.corrected_area) if densito.corrected_area is not None else None
 
     return {
         "id": str(band.pk),  # UUID to string

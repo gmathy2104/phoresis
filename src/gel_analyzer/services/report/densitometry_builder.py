@@ -754,15 +754,11 @@ class DensitometryReportBuilder(BaseReportBuilder):
             self._add_info_table(summary_data, widths=[2.0, 5.0])
 
             # 6.1 Calibration table
-            self._add_section_heading(
-                f"{section_number}.1 Calibration points", level=2
-            )
+            self._add_section_heading(f"{section_number}.1 Calibration points", level=2)
             self._render_calibration_table(data["result"].calibration_points, calib.unit)
 
             # 6.2 Calibration curve PNG
-            self._add_section_heading(
-                f"{section_number}.2 Calibration curve", level=2
-            )
+            self._add_section_heading(f"{section_number}.2 Calibration curve", level=2)
             try:
                 paragraph = self.document.add_paragraph()
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -780,16 +776,12 @@ class DensitometryReportBuilder(BaseReportBuilder):
 
             # 6.3 Controls QC table
             if data["controls"]:
-                self._add_section_heading(
-                    f"{section_number}.3 Quality controls", level=2
-                )
+                self._add_section_heading(f"{section_number}.3 Quality controls", level=2)
                 self._render_controls_table(data["controls"], calib.unit)
 
             # 6.4 Sample quantification table
             if data["samples"]:
-                self._add_section_heading(
-                    f"{section_number}.4 Sample quantification", level=2
-                )
+                self._add_section_heading(f"{section_number}.4 Sample quantification", level=2)
                 self._render_sample_quant_table(data["samples"], calib.unit)
         except Exception as e:
             logger.error(f"Error in _add_quantification: {e}")
@@ -832,9 +824,7 @@ class DensitometryReportBuilder(BaseReportBuilder):
         rows = []
         for c in sorted(controls, key=lambda x: (x.lane_number, x.band_id)):
             known_str = f"{c.load_amount:.2f}" if c.load_amount is not None else "-"
-            predicted_str = (
-                f"{c.predicted_amount:.2f}" if c.predicted_amount is not None else "-"
-            )
+            predicted_str = f"{c.predicted_amount:.2f}" if c.predicted_amount is not None else "-"
             recovery_str = "-"
             status_str = "-"
             if c.predicted_amount is not None and c.load_amount:
@@ -859,9 +849,7 @@ class DensitometryReportBuilder(BaseReportBuilder):
         rows = []
         for s in sorted(samples, key=lambda x: (x.lane_number, x.band_id)):
             area_str = f"{s.corrected_area:.0f}" if s.corrected_area is not None else "-"
-            estimated_str = (
-                f"{s.predicted_amount:.2f}" if s.predicted_amount is not None else "-"
-            )
+            estimated_str = f"{s.predicted_amount:.2f}" if s.predicted_amount is not None else "-"
             band_id_short = s.band_id[:8] if s.band_id else "-"
             rows.append(
                 [

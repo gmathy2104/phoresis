@@ -35,9 +35,7 @@ def recompute_if_active(analysis: GelAnalysis) -> int:
     points = svc.collect_calibration_points(analysis)
     result = svc.fit(points, excluded_band_ids=active.excluded_band_ids)
     if not result.success:
-        logger.warning(
-            f"recompute_if_active({analysis.pk}): refit failed: {result.error_message}"
-        )
+        logger.warning(f"recompute_if_active({analysis.pk}): refit failed: {result.error_message}")
         return 0
 
     # Update the active row's coefficients in place (no new active record — we are
