@@ -39,16 +39,27 @@ def test_patch_band_calibration_without_quant_point_400(authenticated_client, ca
     assert response.status_code == 400
 
 
-def test_patch_band_calibration_in_sample_lane_400(authenticated_client, sample_band):
+def test_patch_band_calibration_in_sample_lane_auto_promotes(authenticated_client, sample_band):
+    """Marking a band as CALIBRATION used to be rejected when its parent
+    lane was SAMPLE/LADDER/EMPTY ("must live in a CALIBRATION or CONTROL
+    lane"). UX feedback: that error forced a manual two-step the user
+    didn't ask for. We now auto-promote the parent lane to CALIBRATION
+    in the same request."""
+    sample_lane = sample_band.lane
+    assert sample_lane.lane_type == "SAMPLE"
+
     url = f"/api/v1/bands/{sample_band.id}/"
     response = authenticated_client.patch(
         url,
         {"band_type": "CALIBRATION", "quant_point": {"load_amount": 10.0, "load_unit": "UG"}},
         format="json",
     )
-    assert response.status_code == 400
-    body_text = response.content.decode().lower()
-    assert "lane" in body_text
+    assert response.status_code == 200, response.content
+
+    sample_band.refresh_from_db()
+    sample_lane.refresh_from_db()
+    assert sample_band.band_type == "CALIBRATION"
+    assert sample_lane.lane_type == "CALIBRATION"
 
 
 # ---------------------------------------------------------------------------

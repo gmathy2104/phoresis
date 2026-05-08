@@ -881,8 +881,13 @@
                         <label class="form-label">Notes</label>
                         <textarea class="form-control form-control-sm" id="prop-band-notes" data-field="notes" rows="2">${band.notes || ''}</textarea>
                     </div>
+                    <div id="prop-band-save-error" class="text-danger small mb-1" style="display: none;"></div>
                     <div class="gv-quick-form-actions">
-                        <button class="btn btn-sm btn-primary" id="prop-save-band-btn">
+                        <!-- Save button is hidden by default — every field auto-saves on
+                             blur / change / Enter. It only surfaces (as "Retry save") when
+                             a server-side save fails, so the user can re-attempt without
+                             retyping. _setSaveErrorState toggles the visibility. -->
+                        <button class="btn btn-sm btn-primary" id="prop-save-band-btn" style="display: none;">
                             <i class="bi bi-save me-1"></i> Save
                         </button>
                         <button class="btn btn-sm btn-outline-danger" id="prop-delete-band-btn">
@@ -966,6 +971,118 @@
                     this._handleBandChange(id, e.target);
                 });
             });
+
+            // Calibration sub-form: load_amount + load_unit auto-save on
+            // blur / Enter. Goes through the v1 PATCH so the nested
+            // quant_point is validated, flashes the input green on
+            // success so the user gets immediate feedback that the value
+            // landed without having to click Save.
+            const loadAmountInput = document.getElementById('prop-band-load-amount');
+            const loadUnitSelect = document.getElementById('prop-band-load-unit');
+            if (loadAmountInput) {
+                loadAmountInput.addEventListener('blur', () => {
+                    this._autoSaveCalibrationValue(id, loadAmountInput);
+                });
+                loadAmountInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        loadAmountInput.blur();
+                    }
+                });
+            }
+            if (loadUnitSelect) {
+                loadUnitSelect.addEventListener('change', () => {
+                    this._autoSaveCalibrationValue(id, loadUnitSelect);
+                });
+            }
+        }
+
+        /**
+         * Auto-save the calibration loaded amount + unit on blur / Enter
+         * change. Sends band_type + quant_point through the v1 PATCH so
+         * the BandSerializer validates atomically. Silent on validation
+         * issues (empty / non-numeric / negative) — those are surfaced by
+         * leaving the field as-is rather than a popup. Flashes the input
+         * green for ~1.2s on a successful save; surfaces the Save/Retry
+         * button on a server error so the user can act on it.
+         */
+        async _autoSaveCalibrationValue(bandId, sourceInput) {
+            const bandTypeSelect = document.getElementById('prop-band-type');
+            if (!bandTypeSelect || bandTypeSelect.value !== 'CALIBRATION') return;
+            const amountStr = document.getElementById('prop-band-load-amount')?.value;
+            const unit = document.getElementById('prop-band-load-unit')?.value || 'UG';
+            if (amountStr === '' || amountStr == null) return;
+            const amount = parseFloat(amountStr);
+            if (!isFinite(amount) || amount < 0) return;
+
+            const payload = {
+                band_type: 'CALIBRATION',
+                quant_point: { load_amount: amount, load_unit: unit },
+            };
+
+            if (!this.apiClient || typeof this.apiClient.patchBand !== 'function') return;
+            try {
+                await this.apiClient.patchBand(bandId, payload);
+                if (this.onSyncBandLocal) {
+                    this.onSyncBandLocal(bandId, payload);
+                }
+                this._flashSavedInput(sourceInput);
+                this._setSaveErrorState(null);
+            } catch (err) {
+                console.error('Auto-save calibration value failed:', err);
+                this._setSaveErrorState(err && err.message ? err.message : String(err));
+            }
+        }
+
+        /**
+         * Briefly highlight an input in green to signal "saved". Removed
+         * automatically; idempotent (re-applying on a still-flashing
+         * input restarts the timer).
+         */
+        _flashSavedInput(input) {
+            if (!input) return;
+            input.classList.remove('gv-input-saved-flash');
+            // Force a reflow so the class re-add re-triggers the transition.
+            // eslint-disable-next-line no-unused-expressions
+            input.offsetWidth;
+            input.classList.add('gv-input-saved-flash');
+            clearTimeout(input._savedFlashTimer);
+            input._savedFlashTimer = setTimeout(() => {
+                input.classList.remove('gv-input-saved-flash');
+            }, 1200);
+        }
+
+        /**
+         * Toggle the visibility of the Save/Retry button + a small status
+         * line. With auto-save covering every field, the explicit Save
+         * button is only useful as a manual retry when an auto-save has
+         * failed. Pass null to clear; pass a message to show the button
+         * with that error message.
+         */
+        _setSaveErrorState(errorMessage) {
+            const saveBtn = document.getElementById('prop-save-band-btn');
+            const errorLine = document.getElementById('prop-band-save-error');
+            if (saveBtn) {
+                if (errorMessage) {
+                    saveBtn.style.display = '';
+                    saveBtn.classList.add('btn-warning');
+                    saveBtn.classList.remove('btn-primary');
+                    saveBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Retry save';
+                } else {
+                    saveBtn.style.display = 'none';
+                    saveBtn.classList.add('btn-primary');
+                    saveBtn.classList.remove('btn-warning');
+                }
+            }
+            if (errorLine) {
+                if (errorMessage) {
+                    errorLine.style.display = '';
+                    errorLine.textContent = `Save failed: ${errorMessage}`;
+                } else {
+                    errorLine.style.display = 'none';
+                    errorLine.textContent = '';
+                }
+            }
         }
 
         /**
@@ -1039,6 +1156,8 @@
             if (bandType === 'CALIBRATION' && this.apiClient && this.apiClient.patchBand) {
                 try {
                     await this.apiClient.patchBand(id, payload);
+                    // Clear any prior error state (the Retry succeeded).
+                    this._setSaveErrorState(null);
                     // Run the unified local sync: mutate state, swap SVG
                     // class to calibration-red, emit BAND_UPDATED so the
                     // auto-promote-lane listener fires (parent lane →

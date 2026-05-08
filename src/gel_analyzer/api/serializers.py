@@ -147,12 +147,14 @@ def _validate_band_quant_point(attrs: dict, instance) -> dict:
             raise serializers.ValidationError(
                 "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
             )
-    if band_type == Band.BandType.CALIBRATION:
-        lane = attrs.get("lane") or (instance.lane if instance else None)
-        if lane and lane.lane_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
-            raise serializers.ValidationError(
-                "band_type=CALIBRATION must live in a CALIBRATION or CONTROL lane"
-            )
+    # Lane-type compatibility used to be a hard validation error here
+    # ("must live in a CALIBRATION or CONTROL lane"), but that forced
+    # users into a manual two-step (promote lane → then mark band).
+    # The user's intent is unambiguous when they mark a band as
+    # CALIBRATION, so we let the *update path* auto-promote a SAMPLE /
+    # LADDER / EMPTY lane to CALIBRATION (see _auto_promote_lane_for_band
+    # below). CONTROL lanes are left alone — a CONTROL band stays a
+    # control point, which is a deliberate analytical choice.
     if qp is not None and band_type == Band.BandType.CALIBRATION:
         lane = attrs.get("lane") or (instance.lane if instance else None)
         if lane is not None:
@@ -162,6 +164,19 @@ def _validate_band_quant_point(attrs: dict, instance) -> dict:
                     f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
                 )
     return attrs
+
+
+def _auto_promote_lane_for_band(band) -> None:
+    """If a band became CALIBRATION but its lane isn't CALIBRATION/CONTROL,
+    promote the lane to CALIBRATION. The user's intent is implicit in the
+    band-type change; failing the request would just force them to do a
+    two-step they shouldn't have to."""
+    if band.band_type != Band.BandType.CALIBRATION:
+        return
+    if band.lane.lane_type in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
+        return
+    band.lane.lane_type = Lane.LaneType.CALIBRATION
+    band.lane.save(update_fields=["lane_type"])
 
 
 def _update_band_quant_point(band, qp_data: dict | None) -> None:
@@ -243,6 +258,7 @@ class BandSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         qp_data = validated_data.pop("quant_point", None)
         band = super().update(instance, validated_data)
+        _auto_promote_lane_for_band(band)
         _update_band_quant_point(band, qp_data)
         return band
 
@@ -284,6 +300,7 @@ class BandWriteSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         qp_data = validated_data.pop("quant_point", None)
         band = super().update(instance, validated_data)
+        _auto_promote_lane_for_band(band)
         _update_band_quant_point(band, qp_data)
         return band
 

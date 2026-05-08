@@ -451,6 +451,15 @@ def api_band_detail(request, pk):
 
         band.save()
 
+        # Mirror the v1 BandSerializer behaviour: a band marked as
+        # CALIBRATION pulls its lane along (SAMPLE/LADDER/EMPTY → CALIBRATION).
+        # Otherwise the legacy PUT path (used by the context-menu "Set
+        # type → Calibration" submenu via apiClient.updateBand) would
+        # leave the lane mismatched even though the v1 PATCH path fixes
+        # it up.
+        from gel_analyzer.api.serializers import _auto_promote_lane_for_band
+        _auto_promote_lane_for_band(band)
+
         logger.info(f"Updated band {band.pk}", user=request.user.username, band_id=str(band.pk))
 
         return JsonResponse(

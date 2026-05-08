@@ -1342,14 +1342,16 @@
         }
 
         /**
-         * Promote the parent lane to CALIBRATION when one of its bands is
-         * marked as a CALIBRATION point. Idempotent — no-op if the band
-         * isn't CALIBRATION or if the lane is already CALIBRATION.
+         * Mirror the server's auto-promote of the parent lane to
+         * CALIBRATION when one of its bands becomes a CALIBRATION point.
+         * The server side persists the lane change atomically with the
+         * band update (BandSerializer.update + the legacy PUT view both
+         * call _auto_promote_lane_for_band), so this method only handles
+         * the *local* visual sync — state + SVG class — to give the user
+         * instant feedback. No extra HTTP round-trip needed.
          *
-         * Persists immediately via apiClient.updateLane (rather than just
-         * marking the lane dirty like _updateLane does) so the band and
-         * the lane stay in sync server-side; otherwise a page reload would
-         * leave the band as CALIBRATION inside a SAMPLE lane.
+         * Idempotent: no-op if the band isn't CALIBRATION or if the lane
+         * is already CALIBRATION.
          */
         _autoPromoteCalibrationLane(band) {
             if (!band || band.band_type !== 'CALIBRATION') return;
@@ -1358,7 +1360,6 @@
             const lane = this.stateManager.getLane(laneId);
             if (!lane || lane.lane_type === 'CALIBRATION') return;
 
-            // Local: mutate state + SVG class for instant feedback
             lane.lane_type = 'CALIBRATION';
             if (typeof StateManager !== 'undefined' && StateManager.getLaneTypeDisplay) {
                 lane.lane_type_display = StateManager.getLaneTypeDisplay('CALIBRATION');
@@ -1373,21 +1374,8 @@
                     .removeClass('empty');
                 element.addClass('calibration');
             }
-
-            // Server: persist now so band + lane don't desync on reload
-            this.apiClient.updateLane(laneId, { lane_type: 'CALIBRATION' })
-                .then(() => {
-                    this.stateManager.pendingChanges.lanes.updated.delete(laneId);
-                    if (!this.stateManager.hasPendingChanges()) {
-                        this.stateManager.markClean();
-                    }
-                    this._showMessage(`Lane ${lane.lane_number} → Calibration (auto)`);
-                    this.eventBus.emit(Events.LANE_UPDATED, lane);
-                })
-                .catch(err => {
-                    console.error('Auto-promote lane failed:', err);
-                    this._showMessage(`Could not promote lane: ${err.message || err}`);
-                });
+            this._showMessage(`Lane ${lane.lane_number} → Calibration (auto)`);
+            this.eventBus.emit(Events.LANE_UPDATED, lane);
         }
 
         _updateBand(id, data) {
