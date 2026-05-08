@@ -398,11 +398,13 @@
                 poi: '#22C55E',
                 mwReference: '#FFC107',
                 other: '#9E9E9E',
+                calibration: '#f87171',  // Red-400, matches annotation panel
             };
 
             switch (bandType) {
                 case 'POI': return colors.poi;
                 case 'MW_REFERENCE': return colors.mwReference;
+                case 'CALIBRATION': return colors.calibration || '#f87171';
                 default: return colors.other;
             }
         },

@@ -39,11 +39,15 @@
             // Digital lane mode
             this.digitalLaneMode = 'bands';  // 'bands' or 'pseudo-gel'
 
-            // Colors - Match annotation panel
+            // Colors - Match annotation panel + handle CALIBRATION
+            // (the panel used to fall through to "other" green for
+            // calibration bands, making them indistinguishable from
+            // regular bands in the digital-lane / pseudo-gel views).
             this.colors = {
-                poi: '#a855f7',        // Purple
-                other: '#22c55e',      // Green
-                mwReference: '#f97316', // Orange
+                poi: '#a855f7',          // Purple
+                other: '#22c55e',        // Green
+                mwReference: '#f97316',  // Orange
+                calibration: '#f87171',  // Red-400 — same as annotation
             };
 
             // Resize handling
@@ -241,6 +245,7 @@
             const typeColors = {
                 'POI': { bg: '#a855f7', label: 'POI' },
                 'MW_REFERENCE': { bg: '#f97316', label: 'REF' },
+                'CALIBRATION': { bg: '#f87171', label: 'Calib' },
                 'OTHER': { bg: '#22c55e', label: 'Other' }
             };
             const typeInfo = typeColors[band.band_type] || typeColors['OTHER'];
@@ -682,6 +687,7 @@
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;
+                case 'CALIBRATION': return this.colors.calibration;
                 default: return this.colors.other;
             }
         }

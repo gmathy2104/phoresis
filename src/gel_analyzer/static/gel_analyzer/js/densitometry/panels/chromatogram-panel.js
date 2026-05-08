@@ -108,6 +108,7 @@
                 poi: '#22C55E',
                 other: '#9E9E9E',
                 mwReference: '#FFC107',
+                calibration: '#f87171',   // Red-400 — matches annotation page
                 orphanPeak: '#FF9800',
                 matchedPeak: '#4CAF50',
                 shoulderPeak: '#9C27B0',
@@ -1005,6 +1006,7 @@
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;
+                case 'CALIBRATION': return this.colors.calibration;
                 default: return this.colors.other;
             }
         }
