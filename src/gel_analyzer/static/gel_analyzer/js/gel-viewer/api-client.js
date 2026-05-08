@@ -8,6 +8,21 @@
 (function(global) {
     'use strict';
 
+    // Shared helper: extracts a useful error message from a non-OK fetch
+    // response. Falls back to status + statusText so a 500 HTML page still
+    // shows up as "500 Internal Server Error" in the UI instead of the
+    // useless `{}` we used to throw.
+    const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError)
+        || (async function fallbackExtract(response, fallback) {
+            // Defensive fallback for the unlikely case the shared module
+            // didn't load — keep behaviour close to the new helper.
+            try {
+                const body = await response.json();
+                if (body && body.detail) return body.detail;
+            } catch (_) { /* ignore */ }
+            return fallback || `${response.status} ${response.statusText || ''}`.trim();
+        });
+
     /**
      * APIClient Class
      * Manages all server-side CRUD operations.
@@ -343,8 +358,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to create band');
+                    throw new Error(await extractApiError(response, 'Failed to create band'));
                 }
 
                 const result = await response.json();
@@ -373,7 +387,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to update band');
+                    throw new Error(await extractApiError(response, 'Failed to update band'));
                 }
 
             } catch (error) {
@@ -400,12 +414,7 @@
                     body: JSON.stringify(data),
                 });
                 if (!response.ok) {
-                    const err = await response.json().catch(() => ({}));
-                    throw new Error(
-                        err.detail
-                        || (typeof err === 'object' ? JSON.stringify(err) : null)
-                        || 'Failed to PATCH band',
-                    );
+                    throw new Error(await extractApiError(response, 'Failed to PATCH band'));
                 }
                 return await response.json();
             } catch (error) {
@@ -426,7 +435,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to delete band');
+                    throw new Error(await extractApiError(response, 'Failed to delete band'));
                 }
 
             } catch (error) {
