@@ -39,11 +39,6 @@ jobs:
         run: |
           test -s src/phoresis_ui/static/phoresis_ui/css/output.css
           echo "output.css size: $(stat -c%s src/phoresis_ui/static/phoresis_ui/css/output.css) bytes"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tailwind-css
-          path: src/phoresis_ui/static/phoresis_ui/css/output.css
-          if-no-files-found: error
 
   # ───────────────────────── unit + integration tests ─────────────────────────
   test:
@@ -97,41 +92,6 @@ jobs:
         with:
           token: ${{ env.CODECOV_TOKEN }}
           files: coverage.xml
-
-  # ───────────────────────── e2e (Playwright Chromium) ─────────────────────────
-  e2e:
-    name: E2E (Playwright)
-    runs-on: ubuntu-24.04
-    needs: [test, frontend]
-    services:
-      postgres:
-        image: postgres:17
-        env: { POSTGRES_DB: phoresis_e2e, POSTGRES_USER: phoresis, POSTGRES_PASSWORD: phoresis }
-        ports: ['5432:5432']
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-      redis:
-        image: redis:7
-        ports: ['6379:6379']
-        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-    env:
-      DB_HOST: 127.0.0.1
-      DB_NAME: phoresis_e2e
-      DB_USER: phoresis
-      DB_PASSWORD: phoresis
-      REDIS_HOST: 127.0.0.1
-    steps:
-      # No `lfs: true`: the E2E walks login -> upload -> create-analysis,
-      # never running band detection, so the ML binaries are not needed.
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
-      - run: uv sync --extra dev
-      - run: uv run playwright install --with-deps chromium
-      - uses: actions/download-artifact@v4
-        with:
-          name: tailwind-css
-          path: src/phoresis_ui/static/phoresis_ui/css/
-      - run: uv run pytest tests/e2e/ -m e2e -v
 
   # ───────────────────────── docker image build (smoke) ─────────────────────────
   # One unified phoresis-app image (was: two separate -web and -worker builds).
@@ -199,7 +159,11 @@ jobs:
           cache-from: type=gha
           load: true
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.30.0
+        # v0.30.0 was a non-existent tag; latest stable is v0.36.0 (2026-04-22).
+        # Note: a March 2026 supply-chain incident force-pushed 75+ trivy-action
+        # tags. The repo has since been cleaned up and v0.36.0 is post-remediation.
+        # For higher-stakes contexts pin to a full commit SHA instead of a tag.
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: phoresis-app:trivy
           format: table

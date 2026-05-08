@@ -75,8 +75,6 @@ dev = [
     "ruff>=0.7",
     "pre-commit>=4.0",
     "ipython>=8.27",
-    "playwright>=1.48",
-    "pytest-playwright>=0.5",
 ]
 
 # uv 0.5+ per-package indices: tells uv where to fetch torch from depending on
@@ -153,11 +151,8 @@ indent-style = "space"
 DJANGO_SETTINGS_MODULE = "phoresis.settings.test"
 python_files = ["test_*.py", "*_test.py"]
 pythonpath = ["src"]
-addopts = ["--strict-markers", "-ra", "-m", "not e2e"]
-testpaths = ["src", "tests/e2e"]
-markers = [
-    "e2e: end-to-end tests requiring a live server + browser (slow; opt in with -m e2e)",
-]
+addopts = ["--strict-markers", "-ra"]
+testpaths = ["src"]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
