@@ -188,9 +188,11 @@ services:
       WATCHTOWER_NOTIFICATION_URL: "${WATCHTOWER_NOTIFICATION_URL:-}"
       TZ: "${TZ:-Europe/Brussels}"
       # Watchtower 1.7.1 ships with an old Docker SDK that negotiates API
-      # v1.25 by default. Modern Docker Desktop (Win/Mac) requires min v1.40.
-      # Force a compatible version explicitly.
-      DOCKER_API_VERSION: "1.41"
+      # v1.25 by default. Modern Docker Desktop bumps its minimum-supported
+      # API version over time -- v1.41 was rejected by Docker Engine 25+
+      # ("client version 1.41 is too old, min 1.44"). Pin to 1.44 (current
+      # daemon minimum as of Docker Desktop 4.x / Engine 25+).
+      DOCKER_API_VERSION: "1.44"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Private GHCR auth: uncomment the next line after `docker login ghcr.io`
