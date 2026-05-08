@@ -167,7 +167,27 @@
             const emptyWrap = document.getElementById('dm-quantification-empty-wrap');
             const empty = document.getElementById('dm-quantification-empty');
             const tooltip = document.getElementById('dm-quantification-tooltip');
-            if (!host) return;
+            // Visible breadcrumb: if the user is running cached old JS
+            // against the new template (or vice-versa) you'll see the
+            // mismatch in DevTools — the old code bails silently because
+            // it looks for #dm-quantification-chart (the legacy canvas id
+            // that no longer exists in the template).
+            console.debug('[DENSITO] Quantification curve render — host:', !!host,
+                'tooltip:', !!tooltip, 'emptyWrap:', !!emptyWrap);
+            if (!host) {
+                // The legacy canvas-based path used to live here. If we hit
+                // this branch and the legacy id IS present, the user has the
+                // old template too — different combination, both caches
+                // need a hard reload (Ctrl+Shift+R).
+                const legacyCanvas = document.getElementById('dm-quantification-chart');
+                console.warn(
+                    '[DENSITO] Quantification host #dm-quantification-host not found. '
+                    + (legacyCanvas
+                        ? 'Legacy #dm-quantification-chart canvas IS present — JS is new but template is stale.'
+                        : 'Both ids missing — hard reload (Ctrl+Shift+R) the densito page.')
+                );
+                return;
+            }
 
             const rendererModule = window.QuantificationCurveRenderer
                 || (window.Densitometry && window.Densitometry.QuantificationCurveRenderer);
@@ -189,12 +209,20 @@
                 if (emptyWrap) emptyWrap.hidden = true;
                 if (this._quantController) {
                     this._quantController.update(result);
-                } else {
-                    this._quantController = rendererModule.renderInteractive(host, result, {
-                        eventBus: this.eventBus,
-                        events: Events,
-                        tooltip,
-                    });
+                    return;
+                }
+                this._quantController = rendererModule.renderInteractive(host, result, {
+                    eventBus: this.eventBus,
+                    events: Events,
+                    tooltip,
+                });
+                if (!this._quantController) {
+                    // renderInteractive returns null only when D3 isn't on
+                    // window or the host element rejected. Fall through to
+                    // the empty-state with a diagnostic so the panel
+                    // doesn't render as a silent black void.
+                    console.error('[DENSITO] renderInteractive returned null — D3 missing or host invalid');
+                    showEmpty('Quantification renderer failed to mount (D3 not loaded?). Check console.');
                 }
             };
 
