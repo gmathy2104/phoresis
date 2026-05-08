@@ -440,12 +440,11 @@ body.ga-minimal {
     fill: rgba(168, 85, 247, 0.1);
     stroke: rgba(168, 85, 247, 0.5);
 }
-/* Calibration / Control mirror their lane counterparts so a band that's
-   marked as a calibration point reads as part of the same family as the
-   CALIBRATION lane (purple) and CONTROL lanes (cyan). */
+/* Calibration uses pink so it stays distinct from POI's purple — the two
+   colors are too close otherwise. Control mirrors its lane (cyan). */
 .gv-band.calibration {
-    fill: rgba(139, 92, 246, 0.15);
-    stroke: rgba(139, 92, 246, 0.6);
+    fill: rgba(236, 72, 153, 0.15);
+    stroke: rgba(236, 72, 153, 0.6);
 }
 .gv-band.control {
     fill: rgba(6, 182, 212, 0.15);
@@ -463,7 +462,7 @@ body.ga-minimal {
     fill: rgba(168, 85, 247, 0.2);
 }
 .gv-band.calibration:hover {
-    fill: rgba(139, 92, 246, 0.25);
+    fill: rgba(236, 72, 153, 0.25);
 }
 .gv-band.control:hover {
     fill: rgba(6, 182, 212, 0.25);
@@ -483,7 +482,7 @@ body.ga-minimal {
     filter: brightness(1.1);
 }
 .gv-band.calibration.selected {
-    stroke: rgba(139, 92, 246, 0.9);
+    stroke: rgba(236, 72, 153, 0.9);
     filter: brightness(1.1);
 }
 .gv-band.control.selected {
