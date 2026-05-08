@@ -33,11 +33,11 @@
             this.container = options.container;
             this.eventBus = options.eventBus;
             this.state = options.state;
-            // Phase 7.1: api + analysisId are needed by the Quantification curve tab.
+            // api + analysisId are needed by the Quantification curve view (called
+            // when the Graphical View toggle switches to "Quantification curve").
             // Both are optional so older callers (and tests) keep working.
             this.api = options.apiClient || null;
             this.analysisId = options.analysisId || null;
-            this.activeTab = 'chromatogram';
             this._lastQuantResult = null;
 
             // Chart dimensions
@@ -141,115 +141,27 @@
             // Setup event listeners
             this._setupEvents();
 
-            // Phase 7.1: tabs above the chart
-            this._setupTabs();
+            // Subscribe to QUANT_CALIBRATION_CHANGED so the curve view refreshes
+            // automatically after the user saves a new calibration via the modal.
+            const quantEvent = (Events && Events.QUANT_CALIBRATION_CHANGED) || 'QUANT_CALIBRATION_CHANGED';
+            this.eventBus.on(quantEvent, () => {
+                this._lastQuantResult = null;  // invalidate cache
+                if (this.currentView === 'quantification') {
+                    this._renderQuantificationView();
+                }
+            });
 
             // Setup resize observer (replaces window resize listener)
             this._setupResizeObserver();
         }
 
         /**
-         * Phase 7.1: Wire the [Chromatogram | POI Purity | Quantification curve]
-         * tab strip. Persists the selection per-browser via safeLocalSet so the
-         * user lands on the same view next time. No-op if the template did not
-         * include the tab markup (graceful degradation).
-         */
-        _setupTabs() {
-            if (!this.panelContent) return;
-            const tabs = this.panelContent.querySelectorAll('.dm-tab');
-            if (!tabs.length) return;  // Tabs not present in this template.
-
-            const KEY = 'phoresis.densito.chromatogramTab';
-            let saved = 'chromatogram';
-            try {
-                if (typeof safeLocalGet === 'function') {
-                    saved = safeLocalGet(KEY, 'chromatogram') || 'chromatogram';
-                }
-            } catch (_) { /* ignore */ }
-            // Only honor a known tab id; reset to default otherwise.
-            if (!['chromatogram', 'poi-purity', 'quantification'].includes(saved)) {
-                saved = 'chromatogram';
-            }
-
-            tabs.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const tab = btn.dataset.tab;
-                    this._activateTab(tab);
-                    try {
-                        if (typeof safeLocalSet === 'function') safeLocalSet(KEY, tab);
-                    } catch (_) { /* ignore */ }
-                });
-            });
-
-            // Subscribe to QUANT_CALIBRATION_CHANGED so the curve refreshes
-            // automatically after the user saves a new calibration.
-            const quantEvent = (Events && Events.QUANT_CALIBRATION_CHANGED) || 'QUANT_CALIBRATION_CHANGED';
-            this.eventBus.on(quantEvent, () => {
-                this._lastQuantResult = null;  // invalidate cache
-                if (this.activeTab === 'quantification') {
-                    this._renderQuantificationTab();
-                }
-            });
-
-            this._activateTab(saved);
-        }
-
-        /**
-         * Show one tab, hide the others. The Chromatogram tab keeps the existing
-         * D3 chart + 3D + POI containers visible (managed by the legacy view
-         * toggle). The POI Purity tab forces the POI sub-view. The Quantification
-         * tab swaps in a Canvas2D scatter rendered by QuantificationCurveRenderer.
-         */
-        _activateTab(tab) {
-            if (!this.panelContent) return;
-            this.activeTab = tab;
-
-            this.panelContent.querySelectorAll('.dm-tab').forEach(b => {
-                const match = b.dataset.tab === tab;
-                b.classList.toggle('active', match);
-                b.setAttribute('aria-selected', match ? 'true' : 'false');
-            });
-            this.panelContent.querySelectorAll('.dm-tab-pane').forEach(p => {
-                const match = p.dataset.tabPane === tab;
-                p.hidden = !match;
-                p.classList.toggle('active', match);
-            });
-
-            // The legacy view toggle (Electropherogram / 3D / POI Purity) only
-            // makes sense on the Chromatogram tab — hide it on the others.
-            const viewToggle = this.container.querySelector('#graphical-view-toggle');
-            if (viewToggle) {
-                viewToggle.style.display = tab === 'chromatogram' ? '' : 'none';
-            }
-
-            if (tab === 'poi-purity') {
-                // Surface the existing POI bar chart by forcing the view mode.
-                // The chart still lives in the Chromatogram pane (existing DOM
-                // structure) so we mirror that container into the POI tab pane
-                // by toggling the legacy view internally.
-                this.currentView = 'poi-purity';
-                this._enforce3DVisibility(false);
-                this.eventBus.emit(Events.VIEW_MODE_CHANGED, { view: 'poi-purity' });
-            } else if (tab === 'chromatogram') {
-                // Restore whichever sub-view was active (defaults to electropherogram).
-                if (!this.currentView || this.currentView === 'poi-purity') {
-                    this.currentView = 'electropherogram';
-                    this.eventBus.emit(Events.VIEW_MODE_CHANGED, { view: 'electropherogram' });
-                }
-                this._enforce3DVisibility(this.is3DMode);
-            } else if (tab === 'quantification') {
-                this._renderQuantificationTab().catch(err => {
-                    console.error('[ChromatogramPanel] quantification tab render failed:', err);
-                });
-            }
-        }
-
-        /**
          * Fetch the active quantification calibration + a fresh preview, then
          * draw the curve via the shared QuantificationCurveRenderer. Shows the
-         * empty-state copy when no active calibration exists.
+         * empty-state copy when no active calibration exists. Triggered by the
+         * Graphical View toggle when "Quantification curve" is selected.
          */
-        async _renderQuantificationTab() {
+        async _renderQuantificationView() {
             const empty = document.getElementById('dm-quantification-empty');
             const canvas = document.getElementById('dm-quantification-chart');
             if (!canvas) return;
@@ -1494,9 +1406,12 @@
             const legendPanel = this.contentElement?.querySelector('.dm-chart-legend-panel');
             const zoomControls = this.contentElement?.querySelector('.dm-zoom-controls');
 
+            const containerQuant = this.contentElement?.querySelector('#dm-quantification-container');
+
             if (show3D) {
                 if (svgEl) svgEl.style.display = 'none';
                 if (containerPoi) containerPoi.style.display = 'none';
+                if (containerQuant) containerQuant.style.display = 'none';
                 if (placeholder) placeholder.style.display = 'none';
                 if (legendPanel) legendPanel.style.display = 'none';
                 if (zoomControls) zoomControls.style.display = 'none';
@@ -1505,10 +1420,12 @@
                 // Don't blindly show SVG — respect the current view mode
                 const showSvg = this.currentView === 'electropherogram';
                 const showPoi = this.currentView === 'poi-purity';
+                const showQuant = this.currentView === 'quantification';
                 if (svgEl) svgEl.style.display = showSvg ? 'block' : 'none';
                 if (containerPoi) containerPoi.style.display = showPoi ? 'flex' : 'none';
-                if (legendPanel) legendPanel.style.display = '';
-                if (zoomControls) zoomControls.style.display = '';
+                if (containerQuant) containerQuant.style.display = showQuant ? 'flex' : 'none';
+                if (legendPanel) legendPanel.style.display = showSvg ? '' : 'none';
+                if (zoomControls) zoomControls.style.display = showSvg ? '' : 'none';
                 if (container3d) container3d.style.display = 'none';
             }
         }

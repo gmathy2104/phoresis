@@ -565,6 +565,9 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                             <button class="dm-view-btn" data-view="poi-purity" data-tooltip="POI Purity (all lanes)">
                                 <i class="bi bi-bar-chart-fill"></i> POI Purity
                             </button>
+                            <button class="dm-view-btn" data-view="quantification" data-tooltip="Protein quantification calibration curve">
+                                <i class="bi bi-droplet-half"></i> Quantification curve
+                            </button>
                         </div>
                         <button class="dm-panel-btn" id="snapshot-btn" data-tooltip="Download as PNG">
                             <i class="bi bi-camera"></i>
@@ -578,38 +581,18 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                     </div>
                 </div>
                 <div class="dm-panel-content">
+                    <!-- D3.js chart will be inserted here -->
+                    <!-- 3D terrain view container (hidden by default, toggled via view toggle) -->
+                    <div class="dm-chromatogram-3d-container" id="chromatogram-3d-container" style="display: none;"></div>
+                    <!-- POI purity bar chart container (hidden by default, toggled via view toggle) -->
+                    <div id="poi-purity-container" class="dm-poi-purity-container" style="display: none;"></div>
                     {% comment %}
-                      Phase 7.1 — Tabs above the chromatogram panes.
-                      "chromatogram" = the existing D3 chart + 3D + POI containers
-                      "poi-purity"   = same POI container surfaced as its own tab
-                      "quantification" = read-only calibration curve (Phase 6 renderer)
+                      Quantification curve is the 4th sub-view (alongside Electropherogram /
+                      3D Mountain / POI Purity), toggled via the same `dm-view-toggle`. It
+                      shares the panel content area; visibility is managed by the inline
+                      switchView() handler below.
                     {% endcomment %}
-                    <div class="dm-tabs" role="tablist" aria-label="Chromatogram views">
-                        <button type="button" class="dm-tab active" data-tab="chromatogram" role="tab" aria-selected="true">Chromatogram</button>
-                        <button type="button" class="dm-tab" data-tab="poi-purity" role="tab" aria-selected="false">POI Purity</button>
-                        <button type="button" class="dm-tab" data-tab="quantification" role="tab" aria-selected="false">Quantification curve</button>
-                    </div>
-
-                    <div class="dm-tab-pane active" data-tab-pane="chromatogram" role="tabpanel">
-                        <!-- D3.js chart will be inserted here -->
-                        <!-- 3D terrain view container (hidden by default, toggled via view toggle) -->
-                        <div class="dm-chromatogram-3d-container" id="chromatogram-3d-container" style="display: none;"></div>
-                        <!-- POI purity bar chart container (hidden by default, toggled via view toggle) -->
-                        <div id="poi-purity-container" class="dm-poi-purity-container" style="display: none;"></div>
-                    </div>
-
-                    <div class="dm-tab-pane" data-tab-pane="poi-purity" role="tabpanel" hidden>
-                        {% comment %}
-                          Reuses the existing #poi-purity-container — chromatogram-panel.js
-                          will move it into this pane on tab activation. The placeholder
-                          below is shown if rendering fails or there is no data yet.
-                        {% endcomment %}
-                        <div class="dm-tab-empty" id="dm-poi-purity-empty" hidden>
-                            POI Purity chart unavailable. Run densitometry analysis first.
-                        </div>
-                    </div>
-
-                    <div class="dm-tab-pane" data-tab-pane="quantification" role="tabpanel" hidden>
+                    <div id="dm-quantification-container" class="dm-quantification-container" style="display: none;">
                         <canvas id="dm-quantification-chart" width="700" height="420" data-css-width="700" data-css-height="420"></canvas>
                         <div class="dm-tab-empty" id="dm-quantification-empty" hidden>
                             No active quantification calibration. Open Quantification modal to set up.
@@ -728,7 +711,7 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
 <script src="{% static 'gel_analyzer/js/densitometry/densitometry-state.js' %}?v=20260120c"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/densitometry-api-client.js' %}?v=20260120c"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/gel-overview-panel.js' %}?v=20260120b"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260507c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260508a"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/band-zoom-panel.js' %}?v=20260121g"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/results-table-panel.js' %}?v=20260507d"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-curve-renderer.js' %}?v=20260507a"></script>
@@ -1752,11 +1735,13 @@ document.addEventListener('DOMContentLoaded', function() {
             const panelContent = chromPanel?.querySelector('.dm-panel-content');
             const container3d = document.getElementById('chromatogram-3d-container');
             const poiContainer = document.getElementById('poi-purity-container');
+            const quantContainer = document.getElementById('dm-quantification-container');
 
             // Hide all containers first (querySelectorAll catches any SVGs)
             panelContent?.querySelectorAll('svg').forEach(svg => svg.style.display = 'none');
             if (container3d) container3d.style.display = 'none';
             if (poiContainer) poiContainer.style.display = 'none';
+            if (quantContainer) quantContainer.style.display = 'none';
             const placeholder = panelContent?.querySelector('.dm-chart-placeholder');
             if (placeholder) placeholder.style.display = 'none';
 
@@ -1813,6 +1798,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     // Re-render on switch for up-to-date data
                     renderPOIPurityChart();
+                }
+            } else if (view === 'quantification') {
+                if (quantContainer) quantContainer.style.display = 'flex';
+                // Delegate the actual fetch + render to ChromatogramPanel
+                // (it owns the api client and the QuantificationCurveRenderer
+                // wiring). Uses _renderQuantificationView under the hood.
+                const chromPanelInstance = app?.panels?.chromatogram;
+                if (chromPanelInstance && typeof chromPanelInstance._renderQuantificationView === 'function') {
+                    chromPanelInstance._renderQuantificationView().catch(err => {
+                        console.error('[densitometry] quantification view render failed:', err);
+                    });
                 }
             }
 
