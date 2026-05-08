@@ -124,6 +124,18 @@
             // Create event bus
             this.eventBus = new EventBus();
 
+            // Shared AutoSave helper — same factory as gel-viewer uses,
+            // bound to this app's eventBus + showMessage so any
+            // fire-and-forget API call we route through autoSave.run()
+            // surfaces a uniform toast on failure (with the actual server
+            // error from densitometry-api-client's extractApiError).
+            this.autoSave = (window.PhoresisShared && window.PhoresisShared.AutoSave)
+                ? window.PhoresisShared.AutoSave.create({
+                    eventBus: this.eventBus,
+                    showToast: (msg) => this.showMessage(msg, 'error'),
+                })
+                : null;
+
             // Create state manager
             this.state = new State({
                 eventBus: this.eventBus,
@@ -366,9 +378,21 @@
             this.eventBus.on(
                 Events.QUANT_CALIBRATION_CHANGED || 'QUANT_CALIBRATION_CHANGED',
                 () => {
-                    this._loadExistingResults().catch(err => {
-                        console.error('[DensitometryApp] post-quant refresh failed:', err);
-                    });
+                    if (this.autoSave) {
+                        this.autoSave.run({
+                            operation: 'Refresh densitometry after calibration',
+                            promise: this._loadExistingResults(),
+                            context: { kind: 'densitometry-refresh', analysisId: this.analysisId },
+                        });
+                    } else {
+                        this._loadExistingResults().catch(err => {
+                            console.error('[DensitometryApp] post-quant refresh failed:', err);
+                            this.showMessage(
+                                `❌ Refresh failed: ${(err && err.message) || err}`,
+                                'error',
+                            );
+                        });
+                    }
                 }
             );
         }
@@ -485,6 +509,12 @@
                 }
             } catch (error) {
                 console.error('[DensitometryApp] Failed to load profile:', error);
+                // Was silent before — surface the actual server error so
+                // users notice when chromatograms are stale.
+                this.showMessage(
+                    `❌ Lane profile load failed: ${(error && error.message) || error}`,
+                    'error',
+                );
             }
         }
 

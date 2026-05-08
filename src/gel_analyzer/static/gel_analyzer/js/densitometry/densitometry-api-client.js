@@ -7,6 +7,20 @@
 (function(global) {
     'use strict';
 
+    // Same shared helper used by gel-viewer/api-client.js: extracts a
+    // useful message from non-OK fetch responses (DRF detail → field
+    // errors → status text → fallback) so the toasts AutoSave shows
+    // are actually informative.
+    const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError)
+        || (async function fallbackExtract(response, fallback) {
+            try {
+                const body = await response.json();
+                if (body && body.detail) return body.detail;
+                if (body && body.error) return body.error;
+            } catch (_) { /* ignore */ }
+            return fallback || `${response.status} ${response.statusText || ''}`.trim();
+        });
+
     /**
      * DensitometryApiClient Class
      */
@@ -36,8 +50,7 @@
             const response = await fetch(url, { ...defaultOptions, ...options });
 
             if (!response.ok) {
-                const error = await response.json().catch(() => ({ error: 'Request failed' }));
-                throw new Error(error.error || `HTTP ${response.status}`);
+                throw new Error(await extractApiError(response, `HTTP ${response.status}`));
             }
 
             return response.json();
@@ -176,8 +189,7 @@
             );
 
             if (!response.ok) {
-                const error = await response.json().catch(() => ({ error: 'Export failed' }));
-                throw new Error(error.error || `HTTP ${response.status}`);
+                throw new Error(await extractApiError(response, 'Export failed'));
             }
 
             // Return blob for download

@@ -164,6 +164,12 @@
 
         // Quantification events
         QUANT_CALIBRATION_CHANGED: 'QUANT_CALIBRATION_CHANGED',
+
+        // Auto-save lifecycle (mirrored from gel-viewer event-bus so the
+        // shared AutoSave helper emits the same names whether it's
+        // wired against the gel-viewer or densitometry app).
+        AUTOSAVE_OK: 'autosave:ok',
+        AUTOSAVE_FAILED: 'autosave:failed',
     };
 
     // Export to namespace
