@@ -465,7 +465,9 @@
                 this._showMessage('Export successful', 'success');
             } catch (e) {
                 console.error('[SampleComparisonApp] Export failed:', e);
-                this._showMessage('Export failed', 'error');
+                // Was 'Export failed' generic — surface the actual cause
+                // so a 500 / network / permission error reads as such.
+                this._showMessage(`❌ Export failed: ${(e && e.message) || e}`, 'error');
             }
         }
 
