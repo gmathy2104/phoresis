@@ -1953,7 +1953,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 .range([height, 0]);
 
             // X Axis
-            const rotation = chartData.length > 10 ? -45 : -30;
+            const rotation = lanesData.length > 10 ? -45 : -30;
             g.append('g')
                 .attr('class', 'x-axis')
                 .attr('transform', `translate(0,${height})`)
