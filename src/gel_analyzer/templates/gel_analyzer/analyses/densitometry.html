@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }}{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'gel_analyzer/css/densitometry.css' %}?v=20260130a">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/densitometry.css' %}?v=20260508c">
 {% endblock %}
 
 {% block body %}
@@ -703,21 +703,21 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 
 <!-- Shared Utilities (must load before module scripts) -->
-<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}?v=20260508b"></script>
-<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}?v=20260129a"></script>
+<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}?v=20260508c"></script>
 
 <!-- Densitometry Module Scripts -->
-<script src="{% static 'gel_analyzer/js/densitometry/densitometry-event-bus.js' %}?v=20260120b"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/densitometry-state.js' %}?v=20260508a"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/densitometry-api-client.js' %}?v=20260120c"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/gel-overview-panel.js' %}?v=20260120b"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260508a"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/band-zoom-panel.js' %}?v=20260121g"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/results-table-panel.js' %}?v=20260507d"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-curve-renderer.js' %}?v=20260507a"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-modal.js' %}?v=20260507b"></script>
-<script src="{% static 'gel_analyzer/js/densitometry/densitometry-app.js' %}?v=20260507a"></script>
-<script src="{% static 'gel_analyzer/js/report/report-capture.js' %}?v=20260129d"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-event-bus.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-state.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-api-client.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/gel-overview-panel.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/band-zoom-panel.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/results-table-panel.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-curve-renderer.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-modal.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/densitometry-app.js' %}?v=20260508c"></script>
+<script src="{% static 'gel_analyzer/js/report/report-capture.js' %}?v=20260508c"></script>
 
 <!-- 3D Terrain Renderer (ES Module — attaches to window.Densitometry for IIFE interop) -->
 <script type="module">
