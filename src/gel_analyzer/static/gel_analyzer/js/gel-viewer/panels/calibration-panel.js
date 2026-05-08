@@ -301,7 +301,7 @@
             if (!templateId) {
                 this.selectedTemplate = null;
                 if (infoEl) infoEl.style.display = 'none';
-                this._updateFooterHint('Select a template to begin calibration.');
+                this._updateFooterHint('Assign MW values to your ladder bands (Band Editor) and click Run Calibration.');
                 return;
             }
 
@@ -665,19 +665,20 @@
                 `;
             }).join('');
 
+            // Surface the Run Calibration action whenever at least one
+            // ladder lane has ≥3 MW-assigned bands. The template picker
+            // was removed from the modal — assignment now lives entirely
+            // in the Band Editor's "Apply ladder template" flow.
+            const anyLaneReady = this.ladderLanes.some(lane => {
+                const bands = this.stateManager?.getBandsForLane(lane.id) || lane.bands || [];
+                return bands.filter(b => b.estimated_mw_kda > 0).length >= 3;
+            });
             if (actionsEl) {
-                // Surface the Run Calibration action either when a template
-                // has been picked (legacy auto-attribute flow) OR when at
-                // least one ladder lane already has ≥3 MW-assigned bands —
-                // the template is unused in that case and there is nothing
-                // for the user to "match" against, so gating purely on
-                // template selection hid the button when it should have
-                // been ready to fire.
-                const anyLaneReady = this.ladderLanes.some(lane => {
-                    const bands = this.stateManager?.getBandsForLane(lane.id) || lane.bands || [];
-                    return bands.filter(b => b.estimated_mw_kda > 0).length >= 3;
-                });
-                actionsEl.style.display = (this.selectedTemplate || anyLaneReady) ? 'flex' : 'none';
+                actionsEl.style.display = anyLaneReady ? 'flex' : 'none';
+            }
+            const runBtn = document.getElementById('calibration-run');
+            if (runBtn) {
+                runBtn.disabled = !anyLaneReady;
             }
         }
 
@@ -1669,7 +1670,7 @@
             }
 
             this._renderLadderList();
-            this._updateFooterHint('Select a template to begin calibration.');
+            this._updateFooterHint('Assign MW values to your ladder bands (Band Editor) and click Run Calibration.');
         }
 
         /**

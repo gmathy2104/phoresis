@@ -21,37 +21,12 @@
         <!-- ============== Left column: workflow ============== -->
         <div class="gv-calibration-col-workflow">
 
-            <!-- Step 1: Select Template -->
+            <!-- Step 1: Ladder Lanes — the actual fit input.
+                 Used to be Step 2; promoted to Step 1 because the template
+                 picker (now Step 2) is optional. -->
             <div class="gv-calibration-step" id="calibration-step-1">
                 <div class="gv-calibration-step-header">
                     <span class="gv-calibration-step-number">1</span>
-                    <span class="gv-calibration-step-title">Select Ladder Template</span>
-                </div>
-                <div class="gv-calibration-step-content">
-                    <select id="calibration-template" class="form-select form-select-sm">
-                        <option value="">Loading templates...</option>
-                    </select>
-                    <div class="gv-calibration-template-info" id="calibration-template-info" style="display: none;">
-                        <div class="gv-calibration-template-detail">
-                            <i class="bi bi-building"></i>
-                            <span id="calibration-template-manufacturer">-</span>
-                        </div>
-                        <div class="gv-calibration-template-detail">
-                            <i class="bi bi-list-ol"></i>
-                            <span id="calibration-template-bands">- bands</span>
-                        </div>
-                        <div class="gv-calibration-template-detail">
-                            <i class="bi bi-arrows-expand"></i>
-                            <span id="calibration-template-range">- kDa</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Step 2: Ladder Lanes -->
-            <div class="gv-calibration-step" id="calibration-step-2">
-                <div class="gv-calibration-step-header">
-                    <span class="gv-calibration-step-number">2</span>
                     <span class="gv-calibration-step-title">Ladder Lanes</span>
                 </div>
                 <div class="gv-calibration-step-content">
@@ -65,10 +40,14 @@
                 </div>
             </div>
 
-            <!-- Step 3: Method + Run -->
+            <!-- Step 2: Method + Run.
+                 Used to be Step 3; renumbered after removing the template
+                 picker. The element id stays "calibration-step-3" for
+                 backwards-compatibility with JS that drives the visible
+                 step state. -->
             <div class="gv-calibration-step" id="calibration-step-3">
                 <div class="gv-calibration-step-header">
-                    <span class="gv-calibration-step-number">3</span>
+                    <span class="gv-calibration-step-number">2</span>
                     <span class="gv-calibration-step-title">Run Calibration</span>
                 </div>
                 <div class="gv-calibration-step-content">
@@ -167,7 +146,7 @@
     <div class="gv-calibration-footer">
         <div class="gv-calibration-footer-hint">
             <i class="bi bi-info-circle"></i>
-            <span id="calibration-footer-hint">Select a template to begin calibration.</span>
+            <span id="calibration-footer-hint">Assign MW values to your ladder bands (Band Editor) and click Run Calibration.</span>
         </div>
         <button class="gv-calibration-btn gv-calibration-btn-reset" id="calibration-reset" title="Reset calibration">
             <i class="bi bi-arrow-counterclockwise"></i>
