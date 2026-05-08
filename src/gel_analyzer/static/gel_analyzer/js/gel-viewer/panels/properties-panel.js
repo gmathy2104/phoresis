@@ -38,6 +38,11 @@
             // lets _saveBandProperties trigger the auto-promote-lane flow
             // without re-issuing an API call.
             this.onSyncBandLocal = options.onSyncBandLocal;
+            // Shared AutoSave instance owned by the host gel-viewer; used
+            // for v1 PATCH writes (calibration value, properties save) so
+            // failures surface the same toast + AUTOSAVE_FAILED event as
+            // every other band write in the app.
+            this.autoSave = options.autoSave || null;
             this.onSelectBand = options.onSelectBand;
 
             // DOM elements
@@ -100,6 +105,27 @@
                     return;
                 }
                 this.show('band', updatedId);
+            });
+
+            // AutoSave wiring — green flash on success for any field the
+            // user just edited (label / MW / notes / band_type / load_amount),
+            // inline Retry button on failure. The shared AutoSave helper
+            // handles the global error toast itself.
+            this.eventBus.on(Events.AUTOSAVE_OK, ({ context, source }) => {
+                if (!context || context.kind !== 'band') return;
+                if (this.currentType !== 'band' || this.currentId !== context.id) return;
+                // Clear any prior error state — a successful save means the
+                // last failure is moot.
+                this._setSaveErrorState(null);
+                if (source && this.contentContainer && this.contentContainer.contains(source)) {
+                    this._flashSavedInput(source);
+                }
+            });
+
+            this.eventBus.on(Events.AUTOSAVE_FAILED, ({ context, message }) => {
+                if (!context || context.kind !== 'band') return;
+                if (this.currentType !== 'band' || this.currentId !== context.id) return;
+                this._setSaveErrorState(message || 'Save failed');
             });
         }
 
@@ -1006,7 +1032,7 @@
          * green for ~1.2s on a successful save; surfaces the Save/Retry
          * button on a server error so the user can act on it.
          */
-        async _autoSaveCalibrationValue(bandId, sourceInput) {
+        _autoSaveCalibrationValue(bandId, sourceInput) {
             const bandTypeSelect = document.getElementById('prop-band-type');
             if (!bandTypeSelect || bandTypeSelect.value !== 'CALIBRATION') return;
             const amountStr = document.getElementById('prop-band-load-amount')?.value;
@@ -1021,17 +1047,33 @@
             };
 
             if (!this.apiClient || typeof this.apiClient.patchBand !== 'function') return;
-            try {
-                await this.apiClient.patchBand(bandId, payload);
-                if (this.onSyncBandLocal) {
-                    this.onSyncBandLocal(bandId, payload);
-                }
+            if (this.autoSave) {
+                this.autoSave.run({
+                    operation: 'Calibration value',
+                    promise: this.apiClient.patchBand(bandId, payload),
+                    context: { kind: 'band', id: bandId },
+                    source: sourceInput,
+                    onSuccess: () => {
+                        if (this.onSyncBandLocal) {
+                            this.onSyncBandLocal(bandId, payload);
+                        }
+                        // _flashSavedInput + _setSaveErrorState(null) are
+                        // handled by the AUTOSAVE_OK listener (universal
+                        // for every band field), so no per-call work here.
+                    },
+                });
+                return;
+            }
+            // Defensive fallback if AutoSave wasn't injected — keeps the
+            // pre-refactor behaviour so we don't lose calibration saves.
+            this.apiClient.patchBand(bandId, payload).then(() => {
+                if (this.onSyncBandLocal) this.onSyncBandLocal(bandId, payload);
                 this._flashSavedInput(sourceInput);
                 this._setSaveErrorState(null);
-            } catch (err) {
+            }).catch(err => {
                 console.error('Auto-save calibration value failed:', err);
                 this._setSaveErrorState(err && err.message ? err.message : String(err));
-            }
+            });
         }
 
         /**
@@ -1107,9 +1149,12 @@
                 value = value === '' ? null : parseFloat(value);
             }
 
-            // Update via callback
+            // Update via callback. Pass the source input so that, after
+            // AutoSave succeeds, the AUTOSAVE_OK listener below can flash
+            // exactly the field the user just edited (rather than the
+            // last-edited input we'd otherwise have to track manually).
             if (this.onUpdateBand) {
-                this.onUpdateBand(id, { [field]: value });
+                this.onUpdateBand(id, { [field]: value }, { source: input });
             }
 
             // Emit event for potential sync
@@ -1149,23 +1194,16 @@
                 };
             }
 
-            // Route through the v1 PATCH endpoint so the nested quant_point
-            // payload is validated against the CALIBRATION rules in
-            // _validate_band_quant_point. Falls back to the legacy onUpdateBand
-            // for non-CALIBRATION saves to preserve the existing flow.
+            // Route CALIBRATION saves through the v1 PATCH endpoint (so
+            // the nested quant_point gets validated by
+            // _validate_band_quant_point on the server) AND through the
+            // shared AutoSave helper, so a server failure surfaces the
+            // same toast + Retry button as every other band write.
             if (bandType === 'CALIBRATION' && this.apiClient && this.apiClient.patchBand) {
-                try {
-                    await this.apiClient.patchBand(id, payload);
-                    // Clear any prior error state (the Retry succeeded).
-                    this._setSaveErrorState(null);
-                    // Run the unified local sync: mutate state, swap SVG
-                    // class to calibration-red, emit BAND_UPDATED so the
-                    // auto-promote-lane listener fires (parent lane →
-                    // CALIBRATION) and the band table refreshes.
+                const onSaveSuccess = () => {
                     if (this.onSyncBandLocal) {
                         this.onSyncBandLocal(id, payload);
                     } else {
-                        // Fallback for callers that didn't wire onSyncBandLocal.
                         const band = this.stateManager.getBand(id);
                         if (band) {
                             Object.assign(band, payload);
@@ -1175,8 +1213,24 @@
                     this.eventBus.emit(Events.BAND_PROPERTY_CHANGED, {
                         id, field: 'band_type', value: bandType,
                     });
-                } catch (err) {
-                    window.alert(`Could not save band: ${err.message || err}`);
+                    // _setSaveErrorState(null) handled by the AUTOSAVE_OK
+                    // listener up above.
+                };
+                if (this.autoSave) {
+                    this.autoSave.run({
+                        operation: 'Calibration value',
+                        promise: this.apiClient.patchBand(id, payload),
+                        context: { kind: 'band', id },
+                        onSuccess: onSaveSuccess,
+                    });
+                } else {
+                    // Defensive fallback if AutoSave wasn't injected.
+                    this.apiClient.patchBand(id, payload).then(() => {
+                        this._setSaveErrorState(null);
+                        onSaveSuccess();
+                    }).catch(err => {
+                        window.alert(`Could not save band: ${err.message || err}`);
+                    });
                 }
                 return;
             }

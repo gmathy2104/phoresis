@@ -298,11 +298,12 @@
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 apiClient: this.apiClient,
+                autoSave: this.autoSave,
                 onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
-                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
                 onSelectBand: (bandId) => this._selectAnnotation('band', bandId)
             });
 
@@ -318,7 +319,7 @@
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 onSelectBand: (bandId) => this._selectAnnotation('band', bandId),
-                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
                 onDeleteBand: (id) => this._deleteBand(id)
             });
 
@@ -339,7 +340,7 @@
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
-                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
                 // Local-only sync for callers that already persisted via
                 // their own endpoint (e.g. _promptCalibrationValue uses
                 // the v1 PATCH so the nested quant_point reaches the
