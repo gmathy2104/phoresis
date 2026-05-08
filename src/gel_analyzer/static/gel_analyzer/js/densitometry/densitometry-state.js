@@ -120,6 +120,20 @@
                             const band = this.bands.get(bandResult.band_id);
                             if (band) {
                                 band.densitometry = bandResult;
+                                // Sync bbox to the band top-level so the
+                                // chromatogram render (chromatogram-utils
+                                // calculateBandBounds reads band.bbox_y /
+                                // band.bbox_height) stays in lock-step with
+                                // whatever the densito server just integrated.
+                                // Without this, an edit-without-page-reload
+                                // leaves the JS bbox stale even though the
+                                // server-side integration used the new values.
+                                if (bandResult.bbox_y != null) {
+                                    band.bbox_y = bandResult.bbox_y;
+                                }
+                                if (bandResult.bbox_height != null) {
+                                    band.bbox_height = bandResult.bbox_height;
+                                }
                             }
                         });
                     }
