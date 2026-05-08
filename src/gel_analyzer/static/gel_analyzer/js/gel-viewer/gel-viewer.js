@@ -615,7 +615,12 @@
                     // Update toolbar state
                     this._updateToolbarState();
                 } catch (error) {
+                    // Was silent before — surface the actual server error
+                    // so a calibration refresh that fails (e.g. 500 from
+                    // the server, network drop) doesn't just leave the
+                    // user wondering why MW lines are stale.
                     console.error('Failed to update calibration data:', error);
+                    this._showMessage(`❌ Calibration refresh failed: ${(error && error.message) || error}`);
                 }
             });
 
@@ -870,7 +875,7 @@
 
             } catch (error) {
                 console.error('Failed to load annotations:', error);
-                this._showMessage('Failed to load annotations');
+                this._showMessage(`❌ Failed to load annotations: ${(error && error.message) || error}`);
             } finally {
                 this._hideLoading();
             }
@@ -1684,7 +1689,7 @@
                 } catch (error) {
                     console.error('Failed to clear existing lanes:', error);
                     this._hideLoading();
-                    this._showMessage('Failed to clear existing lanes');
+                    this._showMessage(`❌ Failed to clear existing lanes: ${(error && error.message) || error}`);
                     return;
                 }
             }
@@ -2045,7 +2050,7 @@
 
             } catch (error) {
                 console.error('Failed to reload annotations:', error);
-                this._showMessage('Failed to reload data');
+                this._showMessage(`❌ Failed to reload data: ${(error && error.message) || error}`);
             }
         }
 
