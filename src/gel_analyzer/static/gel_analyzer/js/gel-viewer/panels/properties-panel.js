@@ -84,9 +84,17 @@
             this.eventBus.on(Events.BAND_UPDATED, (band) => {
                 if (!band) return;
                 const updatedId = band.id || band.band_id;
-                if (this.currentType === 'band' && this.currentId === updatedId) {
-                    this.show('band', updatedId);
+                if (this.currentType !== 'band' || this.currentId !== updatedId) return;
+                // Don't rebuild the DOM if the user is actively editing a
+                // field in this panel — the form values are the source of
+                // truth while focus is on them, and a rebuild would wipe
+                // any half-typed value (e.g. "5" they were typing into
+                // Loaded amount before tabbing).
+                const active = document.activeElement;
+                if (active && this.contentContainer && this.contentContainer.contains(active)) {
+                    return;
                 }
+                this.show('band', updatedId);
             });
         }
 
