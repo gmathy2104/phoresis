@@ -82,8 +82,10 @@ jobs:
       # `env.X` is permitted and equivalent here.
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
+      # No `lfs: true`: pytest never loads the ML model binaries (they're only
+      # touched at inference time, never during test collection or migrations).
+      # Skipping LFS here saves ~111 MB of bandwidth per CI run.
       - uses: actions/checkout@v5
-        with: { lfs: true }
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -118,8 +120,9 @@ jobs:
       DB_PASSWORD: phoresis
       REDIS_HOST: 127.0.0.1
     steps:
+      # No `lfs: true`: the E2E walks login -> upload -> create-analysis,
+      # never running band detection, so the ML binaries are not needed.
       - uses: actions/checkout@v5
-        with: { lfs: true }
       - uses: astral-sh/setup-uv@v6
         with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - run: uv sync --extra dev
@@ -137,8 +140,32 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [lint]
     steps:
+      # Checkout WITHOUT LFS first; the cache step below restores .git/lfs
+      # from the previous run when the model pointer files haven't changed.
+      # Cache key is hashed on the LFS pointer files (each pointer embeds the
+      # SHA-256 of the actual binary), so any model change invalidates the
+      # cache and triggers a fresh `git lfs pull` -- otherwise zero LFS
+      # bandwidth is consumed.
       - uses: actions/checkout@v5
-        with: { lfs: true }
+      - name: Cache Git LFS objects
+        id: lfs-cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: ${{ runner.os }}-lfs-${{ hashFiles('src/gel_analyzer/static/gel_analyzer/ml/**') }}
+          restore-keys: |
+            ${{ runner.os }}-lfs-
+      - name: Pull LFS files (cache miss only) and materialize working copy
+        run: |
+          if [ "${{ steps.lfs-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "Cache miss -- fetching LFS objects from origin"
+            git lfs pull
+          else
+            echo "Cache hit -- reusing previously fetched LFS objects"
+          fi
+          # `lfs checkout` rewrites pointer files in the working tree with the
+          # actual binaries (cached or freshly pulled). Cheap when a no-op.
+          git lfs checkout
       - uses: docker/setup-buildx-action@v3
       - name: Build phoresis-app (cpu)
         uses: docker/build-push-action@v6
