@@ -70,6 +70,17 @@
 
             // Core instances
             this.eventBus = new EventBus();
+            // Shared AutoSave helper — every fire-and-forget API call in
+            // the app goes through this.autoSave.run(...) so error toasts,
+            // success/failure events, and inline retry feedback stay
+            // consistent across panels. Defined at boot so module
+            // constructors below can capture it.
+            this.autoSave = (window.PhoresisShared && window.PhoresisShared.AutoSave)
+                ? window.PhoresisShared.AutoSave.create({
+                    eventBus: this.eventBus,
+                    showToast: (msg) => this._showMessage(msg),
+                })
+                : null;
             this.svg = null;
 
             // SVG groups

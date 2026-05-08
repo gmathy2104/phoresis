@@ -664,6 +664,10 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
 <!-- GelViewer Modular Architecture -->
+<!-- Shared cross-app helpers (must load before gel-viewer modules) -->
+<script src="{% static 'gel_analyzer/js/shared/api-error.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/auto-save.js' %}"></script>
+
 <!-- Core Infrastructure -->
 <script src="{% static 'gel_analyzer/js/gel-viewer/event-bus.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/gel-viewer/api-client.js' %}"></script>
