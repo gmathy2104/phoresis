@@ -321,11 +321,15 @@
 
             if (this.currentLaneType === 'LADDER') {
                 // Ladder row: #, MW, Label, Notes, Delete
+                // Round to 1 decimal — kDa precision beyond that is noise.
+                const ladderMw = band.estimated_mw_kda != null
+                    ? parseFloat(band.estimated_mw_kda).toFixed(1)
+                    : '';
                 row.innerHTML = `
                     <td class="band-index">${index}</td>
                     <td>
                         <input type="number" data-field="estimated_mw_kda"
-                               value="${band.estimated_mw_kda || ''}" step="0.1" min="0"
+                               value="${ladderMw}" step="0.1" min="0"
                                placeholder="MW" class="band-input-mw">
                     </td>
                     <td>

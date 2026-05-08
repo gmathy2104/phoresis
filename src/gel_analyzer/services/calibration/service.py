@@ -702,7 +702,7 @@ class CalibrationService:
                     ladder_bottom,
                 )
                 if mw is not None:
-                    band.estimated_mw_kda = mw
+                    band.estimated_mw_kda = round(mw, 1)
                     band.mw_estimation_method = calibration.method
                     band.save(update_fields=["estimated_mw_kda", "mw_estimation_method"])
                     updated += 1

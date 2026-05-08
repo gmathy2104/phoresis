@@ -367,7 +367,9 @@
 
             bandList.innerHTML = bands.map((band, index) => {
                 const typeLabel = this._getBandTypeLabel(band.band_type);
-                const mwLabel = band.estimated_mw_kda ? `${band.estimated_mw_kda} kDa` : '';
+                const mwLabel = band.estimated_mw_kda
+                    ? `${Number(band.estimated_mw_kda).toFixed(1)} kDa`
+                    : '';
                 const label = band.label || `Band ${index + 1}`;
 
                 return `
@@ -877,7 +879,7 @@
                     <div class="mb-2">
                         <label class="form-label" id="prop-mw-label">${mwLabel}</label>
                         <input type="number" class="form-control form-control-sm" id="prop-mw" data-field="estimated_mw_kda"
-                               value="${band.estimated_mw_kda || ''}" step="0.1" placeholder="${mwPlaceholder}">
+                               value="${band.estimated_mw_kda != null ? Number(band.estimated_mw_kda).toFixed(1) : ''}" step="0.1" placeholder="${mwPlaceholder}">
                     </div>
                     <section class="gv-prop-section mb-2" id="prop-band-calib-section"
                              style="display: ${isCalibration ? '' : 'none'};">

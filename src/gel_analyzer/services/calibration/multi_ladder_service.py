@@ -522,8 +522,10 @@ class MultiLadderCalibrationService:
                     bands_failed += 1
                     continue
 
-                # Update band (round MW to 2 decimal places for cleaner display)
-                band.estimated_mw_kda = round(result.estimated_mw_kda, 2)
+                # Round MW to 1 decimal place — kDa precision beyond that
+                # is meaningless given the calibration error budget, and
+                # the extra digits clutter every UI surface that shows MW.
+                band.estimated_mw_kda = round(result.estimated_mw_kda, 1)
                 band.mw_estimation_method = f"MULTI_{result.method}"
                 band.save(update_fields=["estimated_mw_kda", "mw_estimation_method"])
                 bands_updated += 1
