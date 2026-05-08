@@ -104,7 +104,7 @@ class MultiLadderCalibrationService:
 
     def calibrate_all_ladders(
         self,
-        template: LadderTemplate,
+        template: LadderTemplate | None,
         user: User,
         method: str = "LOG_LINEAR",
         excluded_band_ids: list[str] | None = None,
@@ -148,7 +148,11 @@ class MultiLadderCalibrationService:
                 errors=[{"message": "No ladder lanes found in analysis"}],
             )
 
-        logger.info(f"Calibrating {len(ladder_lanes)} ladder lanes with template {template.name}")
+        logger.info(
+            f"Calibrating {len(ladder_lanes)} ladder lanes "
+            f"with template {template.name}" if template else
+            f"Calibrating {len(ladder_lanes)} ladder lanes (no template — using assigned MW values)"
+        )
 
         # Delete existing calibrations for this analysis
         self.analysis.ladder_calibrations.all().delete()
@@ -267,8 +271,8 @@ class MultiLadderCalibrationService:
 
         return MultiLadderCalibrationResult(
             success=len(calibration_models) > 0,
-            template_id=str(template.id),
-            template_name=template.name,
+            template_id=str(template.id) if template else None,
+            template_name=template.name if template else None,
             calibrations=calibration_results,
             errors=errors,
             ladder_count=len(calibration_models),

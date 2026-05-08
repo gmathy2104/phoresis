@@ -534,7 +534,7 @@ class CalibrationService:
     def calibrate(
         self,
         lane: Lane,
-        template: LadderTemplate,
+        template: LadderTemplate | None,
         matches: list[BandMatch] | None = None,
         warnings: list[str] | None = None,
     ) -> CalibrationResult:
@@ -543,7 +543,10 @@ class CalibrationService:
 
         Args:
             lane: Lane model instance
-            template: LadderTemplate used for calibration
+            template: LadderTemplate used for calibration. Optional — when
+                ladder bands carry MW values from the Band Editor, the fit
+                consumes those directly and the template is unused. Only
+                relevant for the legacy "auto-attribute by template" fallback.
             matches: Pre-computed band matches. If None, will compute.
             warnings: Pre-collected warnings to include in result.
 
@@ -557,8 +560,10 @@ class CalibrationService:
             matches, match_warnings = self.get_bands_with_assigned_mw(lane)
             collected_warnings.extend(match_warnings)
 
-            # If no bands with MW, fall back to template matching (with warning)
-            if not matches:
+            # If no bands with MW, fall back to template matching (with warning).
+            # Only possible when a template was provided — otherwise we have
+            # no source of truth for the marker MWs.
+            if not matches and template is not None:
                 logger.info(f"Falling back to template-based matching for lane {lane.lane_number}")
                 matches = self.match_bands_to_template(lane, template)
                 if matches:

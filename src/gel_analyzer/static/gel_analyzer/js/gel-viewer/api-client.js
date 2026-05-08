@@ -1009,18 +1009,21 @@
          */
         async calibrateSingle(laneId, templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
+                const body = {
+                    lane_id: laneId,
+                    method: method,
+                    excluded_band_ids: excludedBandIds,
+                };
+                // Template is optional — omit when null so the backend
+                // doesn't try to look it up.
+                if (templateId) body.template_id = templateId;
                 const response = await fetch(`/api/analyses/${this.analysisId}/calibrate/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': this.csrfToken,
                     },
-                    body: JSON.stringify({
-                        lane_id: laneId,
-                        template_id: templateId,
-                        method: method,
-                        excluded_band_ids: excludedBandIds,
-                    }),
+                    body: JSON.stringify(body),
                 });
 
                 if (!response.ok) {
@@ -1044,17 +1047,18 @@
          */
         async calibrateMulti(templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
+                const body = {
+                    method: method,
+                    excluded_band_ids: excludedBandIds,
+                };
+                if (templateId) body.template_id = templateId;
                 const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-multi/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': this.csrfToken,
                     },
-                    body: JSON.stringify({
-                        template_id: templateId,
-                        method: method,
-                        excluded_band_ids: excludedBandIds,
-                    }),
+                    body: JSON.stringify(body),
                 });
 
                 if (!response.ok) {

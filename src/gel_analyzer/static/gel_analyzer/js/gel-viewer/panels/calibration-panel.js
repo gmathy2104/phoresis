@@ -666,7 +666,18 @@
             }).join('');
 
             if (actionsEl) {
-                actionsEl.style.display = this.selectedTemplate ? 'flex' : 'none';
+                // Surface the Run Calibration action either when a template
+                // has been picked (legacy auto-attribute flow) OR when at
+                // least one ladder lane already has ≥3 MW-assigned bands —
+                // the template is unused in that case and there is nothing
+                // for the user to "match" against, so gating purely on
+                // template selection hid the button when it should have
+                // been ready to fire.
+                const anyLaneReady = this.ladderLanes.some(lane => {
+                    const bands = this.stateManager?.getBandsForLane(lane.id) || lane.bands || [];
+                    return bands.filter(b => b.estimated_mw_kda > 0).length >= 3;
+                });
+                actionsEl.style.display = (this.selectedTemplate || anyLaneReady) ? 'flex' : 'none';
             }
         }
 
@@ -1058,8 +1069,8 @@
          * This is the main user action - one click does it all.
          */
         async _runCalibration() {
-            if (!this.selectedTemplate || this.ladderLanes.length === 0) {
-                this._showMessage('Select a template and ensure ladder lanes with bands exist');
+            if (this.ladderLanes.length === 0) {
+                this._showMessage('Add a ladder lane before calibrating');
                 return;
             }
 
@@ -1073,7 +1084,11 @@
                 return;
             }
 
-            // Check if bands have MW values assigned (use fresh data from StateManager)
+            // Check if bands have MW values assigned (use fresh data from StateManager).
+            // The template is OPTIONAL — once MWs are assigned to ladder bands
+            // (manually or via "Apply ladder template"), the fit reads those
+            // values directly. If the user hasn't assigned MWs AND hasn't
+            // picked a template either, we have nothing to fit on.
             const lanesWithMW = lanesWithBands.filter(l => {
                 const bands = this.stateManager?.getBandsForLane(l.id) || l.bands || [];
                 const bandsWithMW = bands.filter(b =>
@@ -1082,8 +1097,11 @@
                 return bandsWithMW.length >= 3;
             });
 
-            if (lanesWithMW.length === 0) {
-                this._showMessage('Bands need MW values assigned. Use Band Editor or apply a ladder template first.');
+            if (lanesWithMW.length === 0 && !this.selectedTemplate) {
+                this._showMessage(
+                    'Bands need MW values assigned (use the Band Editor) or select a ladder template '
+                    + 'so MWs can be auto-attributed.'
+                );
                 return;
             }
 
@@ -1114,19 +1132,21 @@
 
                 const excludedIds = Array.from(this.excludedBandIds);
 
+                // Template is optional — pass null when none is selected so
+                // the api-client omits it from the request body and the
+                // backend skips the unmatched-template-bands report.
+                const templateId = this.selectedTemplate ? this.selectedTemplate.id : null;
                 if (this.isMultiLadder) {
-                    // Multi-ladder calibration
                     result = await this.apiClient.calibrateMulti(
-                        this.selectedTemplate.id,
+                        templateId,
                         method,
                         excludedIds
                     );
                 } else {
-                    // Single ladder calibration
                     const laneId = this.ladderLanes[0]?.id;
                     result = await this.apiClient.calibrateSingle(
                         laneId,
-                        this.selectedTemplate.id,
+                        templateId,
                         method,
                         excludedIds
                     );
@@ -1358,6 +1378,12 @@
             // server actually persisted. Fall back to per-calibration
             // average only if the backend didn't supply the aggregate
             // (older responses or single-lane path).
+            // Read R² in this order: top-level average / per-calibration
+            // average / top-level r_squared / nested calibration.r_squared /
+            // nested result.r_squared. The last two cover older or thinner
+            // single-ladder responses that only nested R² inside the
+            // wrapper objects — without those fallbacks the indicator
+            // would show 0.0000 for a perfectly valid fit.
             let avgR2 = null;
             if (result.average_r_squared != null) {
                 avgR2 = result.average_r_squared;
@@ -1368,6 +1394,10 @@
                 }
             } else if (result.r_squared != null) {
                 avgR2 = result.r_squared;
+            } else if (result.calibration && result.calibration.r_squared != null) {
+                avgR2 = result.calibration.r_squared;
+            } else if (result.result && result.result.r_squared != null) {
+                avgR2 = result.result.r_squared;
             }
             if (avgR2 == null) avgR2 = 0;
 

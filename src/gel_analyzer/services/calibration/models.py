@@ -343,7 +343,7 @@ class MultiLadderCalibrationResult:
 
     success: bool
     template_id: str | None = None
-    template_name: str = ""
+    template_name: str | None = None
     calibrations: list[CalibrationResult] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     ladder_count: int = 0
