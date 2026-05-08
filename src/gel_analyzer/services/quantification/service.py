@@ -55,15 +55,25 @@ class ProteinQuantCalibrationService:
         return [self._band_to_point(b, role="CONTROL") for b in bands]
 
     def collect_sample_bands(self, analysis: GelAnalysis) -> list[QuantPoint]:
-        """All non-MW_REFERENCE bands of SAMPLE lanes; corrected_area is None if
-        densitometry has not been run for the band."""
+        """POI bands of SAMPLE lanes; corrected_area is None if densitometry has
+        not been run for the band.
+
+        Used to be "all non-MW_REFERENCE bands" but that flooded the
+        quantification modal's "Samples projected" table (and the curve
+        plot) with every contaminant / OTHER band the user had drawn on
+        a sample lane. The user explicitly asked to show only POI here
+        — those are the bands we actually quantify. OTHER / CALIBRATION
+        bands on a SAMPLE lane shouldn't drive a projection: OTHER is
+        noise we don't care to quantify, and CALIBRATION points belong
+        to a CALIBRATION lane post-auto-promote (see
+        _auto_promote_lane_for_band)."""
         from gel_analyzer.models import Band, Lane
         bands = (
             Band.objects.filter(
                 lane__analysis=analysis,
                 lane__lane_type=Lane.LaneType.SAMPLE,
+                band_type=Band.BandType.POI,
             )
-            .exclude(band_type=Band.BandType.MW_REFERENCE)
             .select_related("lane")
             .prefetch_related("densitometry")
         )
