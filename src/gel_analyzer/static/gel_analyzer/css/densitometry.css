@@ -3210,6 +3210,11 @@
     opacity: 0.3;
 }
 
+.dm-poi-bar.selected {
+    stroke: #fff;
+    stroke-width: 1.5;
+}
+
 .dm-poi-value-label {
     font-family: 'Roboto Mono', monospace;
     font-size: 12px;
