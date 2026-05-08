@@ -381,6 +381,10 @@
      * @param {HTMLElement} container - host div (will get an SVG child)
      * @param {Object} result - quantification result (same shape as render)
      * @param {Object} [opts]
+     * @param {Object} [opts.state] - densitometry state — preferred path for
+     *     clicks so state.selectBand() runs and the parent lane is also
+     *     selected, mirroring a real gel-band click. Falls back to raw
+     *     eventBus.emit when state is absent.
      * @param {Object} [opts.eventBus] - bus to emit BAND_SELECTED on point click
      * @param {Object} [opts.events] - GelViewer/Densitometry Events constants
      * @param {HTMLElement} [opts.tooltip] - optional pre-built tooltip element
@@ -433,6 +437,24 @@
             const ev = opts.events;
             if (ev && ev.BAND_SELECTED) return ev.BAND_SELECTED;
             return 'band:selected';
+        }
+
+        // Route clicks through state.selectBand() when available so the
+        // selection cascades exactly like a real gel-band click: parent
+        // lane gets auto-selected, state.selectedBandId updates, and the
+        // BAND_SELECTED event payload includes {band, previousBandId}
+        // that downstream listeners (results-table, band-zoom, band-detail,
+        // gel-overview) read. The raw emit fallback exists for standalone
+        // / testing use where no state is wired.
+        function _selectBand(bandId) {
+            if (!bandId) return;
+            if (opts.state && typeof opts.state.selectBand === 'function') {
+                opts.state.selectBand(bandId);
+                return;
+            }
+            if (opts.eventBus) {
+                opts.eventBus.emit(_eventName(), { bandId });
+            }
         }
 
         function _showTooltip(html, mouseEvent) {
@@ -633,11 +655,7 @@
                     `, event);
                 })
                 .on('mouseleave', _hideTooltip)
-                .on('click', (event, d) => {
-                    if (d.band_id && opts.eventBus) {
-                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
-                    }
-                });
+                .on('click', (event, d) => _selectBand(d.band_id));
 
             // Active calibration points.
             state.pointSelections.fit = pointsLayer.selectAll('.dm-qcurve-fit-point')
@@ -661,11 +679,7 @@
                     `, event);
                 })
                 .on('mouseleave', _hideTooltip)
-                .on('click', (event, d) => {
-                    if (d.band_id && opts.eventBus) {
-                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
-                    }
-                });
+                .on('click', (event, d) => _selectBand(d.band_id));
 
             // Control diamonds.
             state.pointSelections.control = pointsLayer.selectAll('.dm-qcurve-control')
@@ -688,11 +702,7 @@
                     `, event);
                 })
                 .on('mouseleave', _hideTooltip)
-                .on('click', (event, d) => {
-                    if (d.band_id && opts.eventBus) {
-                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
-                    }
-                });
+                .on('click', (event, d) => _selectBand(d.band_id));
 
             // Sample crosses (POI band projections).
             const sampleSize = 9;
@@ -713,11 +723,7 @@
                     `, event);
                 })
                 .on('mouseleave', _hideTooltip)
-                .on('click', (event, d) => {
-                    if (d.band_id && opts.eventBus) {
-                        opts.eventBus.emit(_eventName(), { bandId: d.band_id });
-                    }
-                });
+                .on('click', (event, d) => _selectBand(d.band_id));
             // Cross-shaped marker drawn as two lines so we can scale the
             // group when highlighting without redrawing.
             sampleGroup.append('line')

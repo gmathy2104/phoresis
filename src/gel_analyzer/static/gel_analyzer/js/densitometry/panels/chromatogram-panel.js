@@ -212,6 +212,7 @@
                     return;
                 }
                 this._quantController = rendererModule.renderInteractive(host, result, {
+                    state: this.state,
                     eventBus: this.eventBus,
                     events: Events,
                     tooltip,
