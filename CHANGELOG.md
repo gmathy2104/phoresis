@@ -9,6 +9,13 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.1.1](https://github.com/gmathy2104/phoresis/compare/v1.1.0...v1.1.1) (2026-05-08)
+
+
+### Bug fixes
+
+* **docker:** bump Watchtower DOCKER_API_VERSION 1.41 -&gt; 1.44 ([532306a](https://github.com/gmathy2104/phoresis/commit/532306ad088f1b8b7de60f50c9a507818efdc430))
+
 ## [1.1.0](https://github.com/gmathy2104/phoresis/compare/v1.0.41...v1.1.0) (2026-05-08)
 
 
