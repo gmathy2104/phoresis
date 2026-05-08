@@ -45,23 +45,46 @@
         // Data Extraction
         // =====================================================================
 
+        /**
+         * Build a grouped-bar dataset: one group per sample, one bar per
+         * POI band inside the group. Per-bar purity =
+         * band.corrected_area / lane_total × 100. The previous
+         * lane.densitometry.poi_percentage shape collapsed multi-POI
+         * lanes into a single sum which hid the per-POI math the user
+         * cares about.
+         */
         _getChartData() {
             const samples = this.state.getSamples();
             if (!samples || samples.length === 0) return [];
 
             return samples.map(sample => {
-                const poiPurity = sample.densitometry?.poi_percentage ?? null;
-                const totalBands = sample.bands?.length || 0;
-                const poiBands = sample.bands?.filter(b => b.band_type === 'POI').length || 0;
+                const allBands = sample.bands || [];
+                const totalArea = allBands.reduce(
+                    (s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0
+                );
+                const poiBands = allBands
+                    .filter(b => b.band_type === 'POI')
+                    .sort((a, b) => (a.band_number || 0) - (b.band_number || 0));
+                const bars = (totalArea > 0 ? poiBands : []).map((b, idx) => {
+                    const area = (b.densitometry || {}).corrected_area || 0;
+                    return {
+                        bandId: b.id,
+                        bandNumber: b.band_number,
+                        bandKey: `b${b.band_number || idx}`,
+                        mw: b.estimated_mw_kda,
+                        area,
+                        purity: (area / totalArea) * 100,
+                    };
+                });
 
                 return {
                     sampleId: sample.sampleId,
                     label: sample.label || `Sample ${sample.sampleId}`,
                     color: sample.color || '#2196F3',
-                    poiPurity: poiPurity,
                     gelName: sample.analysis?.name || sample.gel_name || '',
-                    totalBands: totalBands,
-                    poiBands: poiBands,
+                    totalBands: allBands.length,
+                    poiCount: poiBands.length,
+                    bars,
                 };
             });
         }
@@ -88,10 +111,10 @@
             }
 
             // Empty state
-            if (data.length === 0 || !data.some(d => d.poiPurity !== null)) {
+            if (data.length === 0 || !data.some(d => d.bars && d.bars.length > 0)) {
                 this._showEmptyState(data.length === 0
                     ? 'Add samples to view POI purity'
-                    : 'No POI purity data available for selected samples');
+                    : 'No POI bands across the loaded samples — calibrate or annotate POIs first.');
                 return;
             }
 
@@ -127,10 +150,9 @@
             // Bars
             this._renderBars(data);
 
-            // Apply selection if any
-            if (this.state.selectedSampleId) {
-                this._highlightSelectedSample(this.state.selectedSampleId);
-            }
+            // Apply current selection — both sample-level dimming and
+            // band-level outline.
+            this._highlightSelection(this.state.selectedSampleId, this.state.selectedBandId);
         }
 
         _renderGrid() {
@@ -239,96 +261,129 @@
 
         _renderBars(data) {
             const self = this;
-            const barWidth = this.xScale.bandwidth();
-            const barRadius = Math.min(4, barWidth / 4);
+            const groupWidth = this.xScale.bandwidth();
+            const barRadius = 4;
+            const selectedBandId = this.state.selectedBandId;
+            const selectedSampleId = this.state.selectedSampleId;
 
             data.forEach((d, i) => {
-                const x = this.xScale(d.sampleId);
-                const hasData = d.poiPurity !== null;
-                const barHeight = hasData ? this.height - this.yScale(d.poiPurity) : this.height * 0.3;
-                const barY = hasData ? this.yScale(d.poiPurity) : this.height - barHeight;
-
-                const barGroup = this.chartGroup.append('g')
+                const groupX = this.xScale(d.sampleId);
+                const sampleGroup = this.chartGroup.append('g')
                     .attr('class', 'dm-poi-bar-group')
-                    .attr('data-sample-id', d.sampleId)
-                    .style('cursor', 'pointer');
+                    .attr('data-sample-id', d.sampleId);
 
-                if (hasData) {
-                    // Rounded-top bar using path
-                    const path = this._roundedTopRect(x, this.height, barWidth, 0, barRadius);
-                    const targetPath = this._roundedTopRect(x, barY, barWidth, barHeight, barRadius);
-
-                    barGroup.append('path')
-                        .attr('class', 'dm-poi-bar')
-                        .attr('d', path)
-                        .attr('fill', d.color)
-                        .attr('opacity', 0.85)
-                        .transition()
-                        .duration(500)
-                        .delay(i * 80)
-                        .ease(d3.easeCubicOut)
-                        .attr('d', targetPath);
-
-                    // Value label
-                    barGroup.append('text')
-                        .attr('class', 'dm-poi-value-label')
-                        .attr('x', x + barWidth / 2)
-                        .attr('y', this.height)
-                        .attr('text-anchor', 'middle')
-                        .attr('fill', '#fff')
-                        .attr('font-family', "'Roboto Mono', monospace")
-                        .attr('font-size', '12px')
-                        .attr('font-weight', '600')
-                        .text(`${d.poiPurity.toFixed(1)}%`)
-                        .transition()
-                        .duration(500)
-                        .delay(i * 80)
-                        .ease(d3.easeCubicOut)
-                        .attr('y', barY - 8);
-                } else {
-                    // No-data bar: dashed outline
-                    barGroup.append('rect')
+                if (!d.bars || d.bars.length === 0) {
+                    // Sample has no POI band → render a dashed N/A placeholder.
+                    const phHeight = this.height * 0.3;
+                    const phY = this.height - phHeight;
+                    sampleGroup.append('rect')
                         .attr('class', 'dm-poi-bar dm-poi-bar-nodata')
-                        .attr('x', x)
-                        .attr('y', barY)
-                        .attr('width', barWidth)
-                        .attr('height', barHeight)
+                        .attr('x', groupX)
+                        .attr('y', phY)
+                        .attr('width', groupWidth)
+                        .attr('height', phHeight)
                         .attr('rx', barRadius)
                         .attr('fill', 'none')
                         .attr('stroke', 'rgba(255,255,255,0.2)')
                         .attr('stroke-width', 1.5)
                         .attr('stroke-dasharray', '4,3');
 
-                    // N/A label
-                    barGroup.append('text')
-                        .attr('x', x + barWidth / 2)
-                        .attr('y', barY + barHeight / 2)
+                    sampleGroup.append('text')
+                        .attr('x', groupX + groupWidth / 2)
+                        .attr('y', phY + phHeight / 2)
                         .attr('text-anchor', 'middle')
                         .attr('dominant-baseline', 'middle')
                         .attr('fill', 'rgba(255,255,255,0.4)')
                         .attr('font-size', '11px')
                         .attr('font-family', 'Roboto, sans-serif')
                         .text('N/A');
+
+                    sampleGroup.style('cursor', 'pointer')
+                        .on('click', () => self.state.selectSample(d.sampleId));
+                    return;
                 }
 
-                // Interaction handlers
-                barGroup
-                    .on('mouseenter', function(event) {
-                        d3.select(this).select('.dm-poi-bar')
-                            .attr('filter', 'brightness(1.2)');
-                        self._showTooltip(event, d);
-                    })
-                    .on('mousemove', function(event) {
-                        self._moveTooltip(event);
-                    })
-                    .on('mouseleave', function() {
-                        d3.select(this).select('.dm-poi-bar')
-                            .attr('filter', null);
-                        self._hideTooltip();
-                    })
-                    .on('click', function() {
-                        self.state.selectSample(d.sampleId);
-                    });
+                // Inner band scale: one bar per POI inside the sample group.
+                const xInner = d3.scaleBand()
+                    .domain(d.bars.map(b => b.bandKey))
+                    .range([0, groupWidth])
+                    .padding(0.12);
+
+                d.bars.forEach((bar, j) => {
+                    const bx = groupX + xInner(bar.bandKey);
+                    const bw = xInner.bandwidth();
+                    const by = this.yScale(bar.purity);
+                    const bh = this.height - by;
+
+                    const initialPath = this._roundedTopRect(bx, this.height, bw, 0, Math.min(barRadius, bw / 2));
+                    const targetPath = this._roundedTopRect(bx, by, bw, bh, Math.min(barRadius, bw / 2, bh));
+                    const isSelected = !!(selectedBandId && bar.bandId === selectedBandId);
+
+                    const barGroup = sampleGroup.append('g')
+                        .attr('class', 'dm-poi-bar-cell')
+                        .attr('data-band-id', bar.bandId)
+                        .attr('data-sample-id', d.sampleId)
+                        .style('cursor', 'pointer');
+
+                    barGroup.append('path')
+                        .attr('class', 'dm-poi-bar' + (isSelected ? ' selected' : ''))
+                        .attr('d', initialPath)
+                        .attr('fill', d.color)
+                        .attr('opacity', 0.85)
+                        .attr('stroke', isSelected ? '#fff' : null)
+                        .attr('stroke-width', isSelected ? 1.5 : null)
+                        .transition()
+                        .duration(400)
+                        .delay(i * 60 + j * 30)
+                        .ease(d3.easeCubicOut)
+                        .attr('d', targetPath);
+
+                    if (bw >= 22) {
+                        barGroup.append('text')
+                            .attr('class', 'dm-poi-value-label')
+                            .attr('x', bx + bw / 2)
+                            .attr('y', this.height)
+                            .attr('text-anchor', 'middle')
+                            .attr('fill', '#fff')
+                            .attr('font-family', "'Roboto Mono', monospace")
+                            .attr('font-size', bw < 32 ? '10px' : '12px')
+                            .attr('font-weight', '600')
+                            .text(`${bar.purity.toFixed(0)}%`)
+                            .transition()
+                            .duration(400)
+                            .delay(i * 60 + j * 30)
+                            .ease(d3.easeCubicOut)
+                            .attr('y', by - 6);
+                    }
+
+                    barGroup
+                        .on('mouseenter', function(event) {
+                            d3.select(this).select('.dm-poi-bar').attr('filter', 'brightness(1.2)');
+                            self._showTooltip(event, d, bar);
+                        })
+                        .on('mousemove', function(event) {
+                            self._moveTooltip(event);
+                        })
+                        .on('mouseleave', function() {
+                            d3.select(this).select('.dm-poi-bar').attr('filter', null);
+                            self._hideTooltip();
+                        })
+                        .on('click', function() {
+                            // state.selectBand cascades through the comparison
+                            // state: parent sample auto-selected, then band
+                            // detail / results-table / chromatogram all sync.
+                            if (bar.bandId && self.state.selectBand) {
+                                self.state.selectBand(bar.bandId);
+                            } else {
+                                self.state.selectSample(d.sampleId);
+                            }
+                        });
+                });
+
+                // Dim the entire group when another sample is selected.
+                if (selectedSampleId && selectedSampleId !== d.sampleId) {
+                    sampleGroup.attr('opacity', 0.4);
+                }
             });
         }
 
@@ -353,20 +408,22 @@
         // Tooltip
         // =====================================================================
 
-        _showTooltip(event, d) {
+        _showTooltip(event, d, bar) {
             const tooltip = this._getTooltip();
-            const hasData = d.poiPurity !== null;
 
             let html = `<strong style="color:${d.color}">${d.label}</strong><br>`;
-            if (hasData) {
-                html += `POI Purity: <strong>${d.poiPurity.toFixed(1)}%</strong><br>`;
+            if (bar) {
+                html += `POI B${bar.bandNumber || '?'}`;
+                if (bar.mw != null) html += ` &middot; ${Math.round(bar.mw)} kDa`;
+                html += `<br>Area: ${Math.round(bar.area)}<br>`;
+                html += `Purity: <strong>${bar.purity.toFixed(1)}%</strong><br>`;
             } else {
                 html += `POI Purity: <em>N/A</em><br>`;
             }
             if (d.gelName) {
                 html += `Source: ${d.gelName}<br>`;
             }
-            html += `Bands: ${d.poiBands} POI / ${d.totalBands} total`;
+            html += `Bands: ${d.poiCount} POI / ${d.totalBands} total`;
 
             tooltip.innerHTML = html;
             tooltip.style.left = `${event.pageX + 15}px`;
@@ -400,38 +457,28 @@
         // Selection Highlighting
         // =====================================================================
 
-        _highlightSelectedSample(sampleId) {
+        _highlightSelection(sampleId, bandId) {
             if (!this.chartGroup) return;
 
-            const barGroups = this.chartGroup.selectAll('.dm-poi-bar-group');
+            // Sample-level dimming: full group fades out when another
+            // sample is selected.
+            this.chartGroup.selectAll('.dm-poi-bar-group')
+                .attr('opacity', function() {
+                    const id = d3.select(this).attr('data-sample-id');
+                    if (!sampleId) return 1;
+                    return id === sampleId ? 1 : 0.4;
+                });
 
-            if (!sampleId) {
-                // Clear selection - restore all bars
-                barGroups.select('.dm-poi-bar').attr('opacity', 0.85);
-                barGroups.select('.dm-poi-bar').attr('stroke', null).attr('stroke-width', null);
-                return;
+            // Band-level outline: white stroke on the matching bar.
+            this.chartGroup.selectAll('.dm-poi-bar-cell .dm-poi-bar')
+                .attr('stroke', null)
+                .attr('stroke-width', null);
+            if (bandId) {
+                this.chartGroup
+                    .selectAll(`.dm-poi-bar-cell[data-band-id="${bandId}"] .dm-poi-bar`)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 1.5);
             }
-
-            barGroups.each(function() {
-                const group = d3.select(this);
-                const id = group.attr('data-sample-id');
-                const bar = group.select('.dm-poi-bar');
-                const isSelected = id === sampleId;
-
-                if (bar.classed('dm-poi-bar-nodata')) {
-                    bar.attr('stroke-opacity', isSelected ? 1 : 0.3);
-                } else {
-                    bar.attr('opacity', isSelected ? 1 : 0.3);
-                }
-
-                if (isSelected && !bar.classed('dm-poi-bar-nodata')) {
-                    bar.attr('stroke', '#fff')
-                       .attr('stroke-width', 2);
-                } else {
-                    bar.attr('stroke', bar.classed('dm-poi-bar-nodata') ? 'rgba(255,255,255,0.2)' : null)
-                       .attr('stroke-width', bar.classed('dm-poi-bar-nodata') ? 1.5 : null);
-                }
-            });
         }
 
         // =====================================================================
@@ -460,7 +507,10 @@
             this.eventBus.on(ComparisonEvents.SAMPLE_REMOVED, () => this._render());
             this.eventBus.on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._render());
             this.eventBus.on(ComparisonEvents.SAMPLE_SELECTED, (data) => {
-                this._highlightSelectedSample(data.sampleId);
+                this._highlightSelection(data && data.sampleId, this.state.selectedBandId);
+            });
+            this.eventBus.on(ComparisonEvents.BAND_SELECTED, (data) => {
+                this._highlightSelection(this.state.selectedSampleId, data && data.bandId);
             });
         }
 

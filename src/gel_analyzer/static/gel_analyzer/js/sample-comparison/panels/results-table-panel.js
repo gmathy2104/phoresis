@@ -1,27 +1,32 @@
 /**
- * Comparison Results Table Panel — lane-level (Phase 8.1 refactor).
+ * Comparison Results Table Panel — per-band, important-only.
  *
- * One row per compared lane. Columns are split into 4 groups via <th colspan>:
- *   - Identity      Lane# | Type (badge) | Sample | Condition | Loading µg | Loading µL
- *   - Densitometry  Total area | # bands | POI area | % purity
- *   - Quantification (HIDDEN unless any compared analysis has an active calibration):
- *                   Estimated amount + unit | %Recovery (CONTROL only) | Calib method
- *   - Quality       Avg fit R² | # MW markers | Status icon
+ * Phase 8.2: one row per *important* band rather than one row per lane,
+ * mirroring the densitometry results-table-panel refactor. "Important"
+ * = any band whose band_type is not OTHER (CALIBRATION / POI /
+ * MW_REFERENCE). A sample lane with three POI bands now produces three
+ * comparison rows so the per-band math is visible instead of being
+ * collapsed into a lane summary.
  *
- * Lane# + Type are sticky-left (CSS .cmp-sticky-left). Rows are tinted by lane
- * type using existing classes from gel_viewer_standalone.css
- * (`gv-table-row--calibration`, `gv-table-row--control`).
+ * Columns are grouped via <th colspan> into 4 sections:
+ *   - Identity      Lane# | Type | Sample | Band
+ *   - Densitometry  Total area | Band area | % lane
+ *   - Quantification Est. amount | Recovery % (CONTROL only) | Calib method
+ *   - Quality       Fit R² | Flag
+ *
+ * Clicking a row calls state.selectBand(bandId) — the comparison state
+ * auto-selects the parent sample and emits BAND_SELECTED + SAMPLE_SELECTED,
+ * so the band detail / gel overview / chromatogram / POI / content panels
+ * all sync the same way they do for a real gel-band click.
  *
  * Toolbar:
- *   - "Show only quantified lanes" filter (toggles row visibility based on
- *     whether the lane has a non-null estimated amount)
+ *   - "Show only quantified bands" filter (toggles row visibility based
+ *     on whether the band has a non-null estimated_amount)
  *   - Column preset selector (minimal | standard | full), persisted via
  *     safeLocalSet under `phoresis.compare.tableColumns`.
  *
- * CONTROL-recovery semantics match Phase 7's results-table fix: the known
- * amount comes from the CONTROL lane's CALIBRATION-typed band's
- * quant_point.load_amount; the predicted comes from that band's
- * densitometry.estimated_amount. protein_load_ug is loading-metadata only.
+ * The Quantification group is hidden when no compared analysis has an
+ * active calibration AND no band has an estimated_amount.
  */
 
 (function(global) {
@@ -41,6 +46,17 @@
         DOT: 'Dot',
     };
 
+    const BAND_TYPE_DISPLAY = {
+        POI: 'POI',
+        CALIBRATION: 'Calibration',
+        MW_REFERENCE: 'Marker',
+        OTHER: 'Other',
+    };
+
+    function _isImportantBand(b) {
+        return b && b.band_type && b.band_type !== 'OTHER';
+    }
+
     class ComparisonResultsTablePanel {
         constructor(options) {
             this.container = options.container;
@@ -52,7 +68,6 @@
             this.thead = null;
             this.tbody = null;
 
-            this.sortField = 'lane_number';
             this.sortDir = 'asc';
 
             // Filters
@@ -89,9 +104,8 @@
             this.eventBus.on(ComparisonEvents.SAMPLE_ADDED, () => this._render());
             this.eventBus.on(ComparisonEvents.SAMPLE_REMOVED, () => this._render());
             this.eventBus.on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._render());
-            this.eventBus.on(ComparisonEvents.SAMPLE_SELECTED, (data) => this._highlightLane(data?.sampleId));
             this.eventBus.on(ComparisonEvents.BAND_SELECTED, (data) => {
-                if (data && data.sampleId) this._highlightLane(data.sampleId);
+                if (data && data.bandId) this._highlightBand(data.bandId);
             });
         }
 
@@ -105,7 +119,7 @@
                     <div class="cmp-toolbar">
                         <label class="cmp-toolbar-filter">
                             <input type="checkbox" id="cmp-only-quant">
-                            Show only quantified lanes
+                            Show only quantified bands
                         </label>
                         <div class="cmp-toolbar-presets">
                             <label for="cmp-table-preset">Columns:</label>
@@ -166,145 +180,28 @@
 
         _renderHeader() {
             if (!this.thead) return;
-
-            // Identity has 4 visible columns by default (Sample, Condition,
-            // Loading µg, Loading µL). The Loading µL column is hidden when no
-            // sample uses it, but we keep the colspan stable to keep
-            // header alignment simple.
+            // 11 data columns total. Top row groups; bottom row labels.
             this.thead.innerHTML = `
                 <tr class="cmp-section-row">
-                    <th colspan="2" class="cmp-sticky-left">&nbsp;</th>
                     <th colspan="4" class="cmp-section-identity">Identity</th>
-                    <th colspan="4" class="cmp-section-densito">Densitometry</th>
-                    <th colspan="3" class="cmp-section-quant" id="cmp-quant-header">Quantification</th>
-                    <th colspan="3" class="cmp-section-quality">Quality</th>
+                    <th colspan="3" class="cmp-section-densito">Densitometry</th>
+                    <th colspan="2" class="cmp-section-quant" id="cmp-quant-header">Quantification</th>
+                    <th colspan="2" class="cmp-section-quality">Quality</th>
                 </tr>
                 <tr class="cmp-column-row">
-                    <th class="cmp-sticky-left col-lane">Lane#</th>
-                    <th class="cmp-sticky-left col-type">Type</th>
-                    <th class="col-sample">Sample</th>
-                    <th class="col-condition col-preset-standard">Condition</th>
-                    <th class="col-load-ug">Loading (µg)</th>
-                    <th class="col-load-ul col-preset-full" id="cmp-col-load-ul">Loading (µL)</th>
+                    <th class="col-lane">Lane#</th>
+                    <th class="col-type">Type</th>
+                    <th class="col-sample col-preset-standard">Sample</th>
+                    <th class="col-band">Band</th>
                     <th class="col-total-area">Total area</th>
-                    <th class="col-band-count col-preset-standard"># bands</th>
-                    <th class="col-poi-area col-preset-full">POI area</th>
-                    <th class="col-purity">% purity</th>
+                    <th class="col-band-area">Band area</th>
+                    <th class="col-pct-lane col-preset-standard">% lane</th>
                     <th class="cmp-section-quant col-est-amount">Est. amount</th>
-                    <th class="cmp-section-quant col-recovery col-preset-standard">%Rec</th>
-                    <th class="cmp-section-quant col-calib-method col-preset-full">Calib method</th>
-                    <th class="col-r2 col-preset-standard">Avg fit R²</th>
-                    <th class="col-mw-markers col-preset-full"># MW markers</th>
-                    <th class="col-status">Status</th>
+                    <th class="cmp-section-quant col-recovery col-preset-standard">Recovery %</th>
+                    <th class="col-r2 col-preset-standard">Fit R²</th>
+                    <th class="col-flag col-preset-full">Flag</th>
                 </tr>
             `;
-        }
-
-        // -----------------------------------------------------------------
-        // Per-lane summary
-        // -----------------------------------------------------------------
-
-        _summarizeLane(sample) {
-            const lane = sample.lane || {};
-            const bands = sample.bands || [];
-
-            // Prefer the persisted lane-level summary fields; fall back to
-            // computing them from the bands list when missing.
-            const dlane = sample.densitometry || {};
-            let totalArea = dlane.total_integrated_area;
-            let poiArea = dlane.poi_integrated_area;
-            let purity = dlane.poi_percentage;
-            let bandCount = dlane.band_count != null ? dlane.band_count : bands.length;
-
-            let r2Sum = 0;
-            let r2Count = 0;
-            let estAmountSum = 0;
-            let estAmountCount = 0;
-
-            if (totalArea == null || poiArea == null) {
-                let _total = 0;
-                let _poi = 0;
-                let _other = 0;
-                bands.forEach(b => {
-                    const d = b.densitometry || {};
-                    const a = d.corrected_area || 0;
-                    _total += a;
-                    if (b.band_type === 'POI') _poi += a;
-                    else if (b.band_type !== 'MW_REFERENCE') _other += a;
-                });
-                if (totalArea == null) totalArea = _total;
-                if (poiArea == null) poiArea = _poi;
-                if (purity == null) {
-                    const denom = _poi + _other;
-                    purity = denom > 0 ? (_poi / denom) * 100 : null;
-                }
-            }
-
-            bands.forEach(b => {
-                const d = b.densitometry || {};
-                if (d.fit_r_squared != null) {
-                    r2Sum += d.fit_r_squared;
-                    r2Count += 1;
-                }
-                if (d.estimated_amount != null) {
-                    estAmountSum += d.estimated_amount;
-                    estAmountCount += 1;
-                }
-            });
-
-            const avgR2 = r2Count > 0 ? r2Sum / r2Count : null;
-
-            // CONTROL recovery semantics (Phase 7 fix): known amount lives on
-            // the CONTROL lane's CALIBRATION band's quant_point.load_amount;
-            // predicted lives on that same band's densitometry.estimated_amount.
-            // SAMPLE lanes show the POI band's predicted amount.
-            // protein_load_ug is loading metadata only and does NOT feed the
-            // recovery math.
-            let laneEstAmount = null;
-            let laneEstUnit = null;
-            let knownAmount = null;
-            let knownUnit = null;
-
-            if (lane.lane_type === 'CONTROL') {
-                const ctrlBand = bands.find(b =>
-                    b.band_type === 'CALIBRATION' && b.quant_point && b.quant_point.load_amount != null
-                );
-                if (ctrlBand) {
-                    knownAmount = ctrlBand.quant_point.load_amount;
-                    knownUnit = ctrlBand.quant_point.load_unit;
-                    if (ctrlBand.densitometry && ctrlBand.densitometry.estimated_amount != null) {
-                        laneEstAmount = ctrlBand.densitometry.estimated_amount;
-                        laneEstUnit = ctrlBand.densitometry.estimated_amount_unit;
-                    }
-                }
-            } else {
-                const poiBand = bands.find(b => b.band_type === 'POI');
-                if (poiBand && poiBand.densitometry && poiBand.densitometry.estimated_amount != null) {
-                    laneEstAmount = poiBand.densitometry.estimated_amount;
-                    laneEstUnit = poiBand.densitometry.estimated_amount_unit;
-                } else if (estAmountCount > 0) {
-                    laneEstAmount = estAmountSum;
-                }
-            }
-
-            let recoveryPct = null;
-            if (lane.lane_type === 'CONTROL' && laneEstAmount != null && knownAmount) {
-                recoveryPct = (laneEstAmount / knownAmount) * 100;
-            }
-
-            return {
-                bands,
-                bandCount,
-                totalArea: totalArea || 0,
-                poiArea: poiArea || 0,
-                purity,
-                avgR2,
-                estAmount: laneEstAmount,
-                estUnit: laneEstUnit,
-                knownAmount,
-                knownUnit,
-                recoveryPct,
-            };
         }
 
         // -----------------------------------------------------------------
@@ -318,7 +215,7 @@
             if (samples.length === 0) {
                 this.tbody.innerHTML = `
                     <tr class="dm-empty-row">
-                        <td colspan="16">
+                        <td colspan="11">
                             <div class="dm-placeholder">
                                 <i class="bi bi-table"></i>
                                 <span>No samples to compare</span>
@@ -330,35 +227,59 @@
                 return;
             }
 
-            // Step 2 of plan: hide the Quantification group when no compared
-            // analysis has an active calibration.
-            const anyActive = samples.some(s => s.analysis && s.analysis.active_quant_calibration);
-            this._updateQuantHeaderVisibility(anyActive);
-
-            // Detect whether to show Loading-µL column at all
-            const hasLoadingUl = samples.some(s => s.lane && s.lane.loading_volume_ul != null);
-            const ulHeader = this.thead.querySelector('#cmp-col-load-ul');
-            if (ulHeader) ulHeader.style.display = hasLoadingUl ? '' : 'none';
-
-            // Sort by lane number
-            const sorted = [...samples].sort((a, b) => {
+            // Sort samples by lane number for stable display order.
+            const sortedSamples = [...samples].sort((a, b) => {
                 const an = a.lane?.lane_number || 0;
                 const bn = b.lane?.lane_number || 0;
                 return this.sortDir === 'asc' ? an - bn : bn - an;
             });
 
-            const rows = sorted.map(sample => {
-                const summary = this._summarizeLane(sample);
-                return this._renderLaneRow(sample, summary, anyActive, hasLoadingUl);
+            // Build (sample, important-band, lane-total) tuples; one row per band.
+            const tuples = [];
+            sortedSamples.forEach(sample => {
+                const bands = sample.bands || [];
+                const totalArea = bands.reduce(
+                    (s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0
+                );
+                const important = bands
+                    .filter(_isImportantBand)
+                    .sort((a, b) => (a.band_number || 0) - (b.band_number || 0));
+                if (!important.length) return;
+                important.forEach(band => tuples.push({ sample, band, totalArea }));
             });
 
-            this.tbody.innerHTML = rows.join('');
+            if (tuples.length === 0) {
+                this.tbody.innerHTML = `
+                    <tr class="dm-empty-row">
+                        <td colspan="11">
+                            <div class="dm-placeholder">
+                                <i class="bi bi-table"></i>
+                                <span>No important bands across the loaded samples</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                this._updateQuantHeaderVisibility(false);
+                return;
+            }
 
-            // Wire row click → select sample
-            this.tbody.querySelectorAll('tr[data-row-type="lane"]').forEach(row => {
-                row.addEventListener('click', () => {
-                    const sampleId = row.dataset.sampleId;
-                    if (sampleId) this.state.selectSample(sampleId);
+            // Show the Quantification group when any tuple has an active
+            // calibration on its parent analysis OR any band has an
+            // estimated amount (server-side back-fill).
+            const anyQuant = tuples.some(t =>
+                (t.sample.analysis && t.sample.analysis.active_quant_calibration)
+                || (t.band.densitometry && t.band.densitometry.estimated_amount != null)
+            );
+            this._updateQuantHeaderVisibility(anyQuant);
+
+            this.tbody.innerHTML = tuples.map(t => this._renderBandRow(t)).join('');
+
+            // Wire row click → select band (cascades through state.selectBand).
+            this.tbody.querySelectorAll('tr.cmp-band-row').forEach(row => {
+                row.addEventListener('click', (e) => {
+                    if (e.target.closest('a, button')) return;
+                    const bandId = row.dataset.bandId;
+                    if (bandId) this.state.selectBand(bandId);
                 });
                 row.style.cursor = 'pointer';
             });
@@ -377,91 +298,92 @@
             }
         }
 
-        _renderLaneRow(sample, summary, quantActive, hasLoadingUl) {
+        _renderBandRow({ sample, band, totalArea }) {
             const lane = sample.lane || {};
             const laneType = lane.lane_type || 'SAMPLE';
             const typeLower = laneType.toLowerCase();
             const typeLabel = LANE_TYPE_DISPLAY[laneType] || laneType;
-
             const tintClass = (laneType === 'CALIBRATION')
                 ? 'gv-table-row--calibration'
                 : (laneType === 'CONTROL') ? 'gv-table-row--control' : '';
 
-            // Identity
-            const sampleName = this._escape(lane.sample_name || sample.label || '');
-            const condition = lane.is_reduced === true
-                ? 'Reduced'
-                : lane.is_reduced === false ? 'Non-reduced' : '—';
-            const loadUg = lane.protein_load_ug != null ? lane.protein_load_ug : null;
-            const loadUl = lane.loading_volume_ul != null ? lane.loading_volume_ul : null;
+            const bandType = band.band_type || 'OTHER';
+            const bandTypeLabel = BAND_TYPE_DISPLAY[bandType] || bandType;
+            const bandTypeLower = bandType.toLowerCase();
 
-            // Quantification cells
+            const d = band.densitometry || {};
+            const bandArea = d.corrected_area || 0;
+            const pctLane = totalArea > 0 ? (bandArea / totalArea) * 100 : null;
+            const fitR2 = d.fit_r_squared;
+
             const calib = sample.analysis?.active_quant_calibration || null;
-            const showQuantValue = !!calib || laneType === 'CONTROL';
+            const calibActive = !!calib;
+            const calibUnit = calib && calib.unit;
 
-            let estAmountDisplay = '—';
-            if (showQuantValue && summary.estAmount != null) {
-                const unit = this._formatUnit(summary.estUnit || (calib && calib.unit));
-                estAmountDisplay = `${summary.estAmount.toFixed(2)} ${unit}`;
+            // Estimated amount — show when the band has one (server back-fills
+            // the value during apply_to_analysis once a calibration is active).
+            let estDisplay = '—';
+            if (d.estimated_amount != null) {
+                const unit = this._formatUnit(d.estimated_amount_unit || calibUnit);
+                estDisplay = `${d.estimated_amount.toFixed(2)} ${unit}`;
             }
 
+            // Recovery % + flag — only on CONTROL lanes' calibration band where
+            // a known reference (quant_point.load_amount) exists AND the
+            // server emitted an estimated amount on the band.
             let recoveryDisplay = '—';
-            if (laneType === 'CONTROL' && summary.recoveryPct != null) {
-                recoveryDisplay = `${summary.recoveryPct.toFixed(0)}%`;
+            let flagHtml = '';
+            if (laneType === 'CONTROL' && bandType === 'CALIBRATION') {
+                const known = band.quant_point && band.quant_point.load_amount;
+                if (known && d.estimated_amount != null) {
+                    const pct = (d.estimated_amount / known) * 100;
+                    recoveryDisplay = `${pct.toFixed(0)}%`;
+                    if (pct < 80 || pct > 120) {
+                        flagHtml = '<span class="cmp-status cmp-status-warn" title="Out-of-spec recovery (target 80-120%)">&#9888;</span>';
+                    }
+                }
             }
 
-            const calibMethod = calib ? this._formatMethod(calib.method) : '—';
+            const sampleName = this._escape(lane.sample_name || sample.label || '');
+            const bandRefMain = `B${band.band_number || '?'}`;
+            const mwSuffix = (bandType === 'MW_REFERENCE' && band.estimated_mw_kda != null)
+                ? ` <span class="cmp-band-mw">${Math.round(band.estimated_mw_kda)} kDa</span>`
+                : '';
+            const bandRefHtml = `
+                ${bandRefMain}
+                <span class="gv-prop-type-badge gv-prop-type-${bandTypeLower}">${bandTypeLabel}</span>
+                ${mwSuffix}
+            `;
 
-            // Quality
-            const r2Display = summary.avgR2 != null ? summary.avgR2.toFixed(3) : '—';
-            const mwMarkers = sample.analysis?.mw_marker_count != null
-                ? sample.analysis.mw_marker_count
-                : 0;
-
-            // Status icon
-            let statusIcon = '<span class="cmp-status cmp-status-ok" title="OK">&#10003;</span>';
-            if (laneType === 'CONTROL' && summary.recoveryPct != null
-                && (summary.recoveryPct < 80 || summary.recoveryPct > 120)) {
-                statusIcon = '<span class="cmp-status cmp-status-warn" title="Out-of-spec recovery (target 80-120%)">&#9888;</span>';
-            } else if (!sample.profile) {
-                statusIcon = '<span class="cmp-status cmp-status-warn" title="No densitometry profile">&#9888;</span>';
-            }
-
-            // data-estimated-amount drives the "Show only quantified lanes"
-            // filter — set the dataset attribute only when there IS a
-            // predicted estimated amount for this lane.
-            const dataEstAttr = summary.estAmount != null
-                ? `data-estimated-amount="${summary.estAmount}"`
+            // data-estimated-amount drives the "Show only quantified bands"
+            // filter — set the dataset attribute only when the band has a
+            // predicted estimated amount.
+            const dataEstAttr = d.estimated_amount != null
+                ? `data-estimated-amount="${d.estimated_amount}"`
                 : '';
 
-            const ulCellStyle = hasLoadingUl ? '' : 'style="display:none;"';
-
             return `
-                <tr class="cmp-lane-row ${tintClass}"
-                    data-row-type="lane"
+                <tr class="cmp-band-row ${tintClass}"
+                    data-band-id="${band.id}"
                     data-sample-id="${sample.sampleId}"
                     data-lane-id="${lane.id || ''}"
                     data-lane-type="${laneType}"
+                    data-band-type="${bandType}"
                     ${dataEstAttr}
                     style="border-left: 3px solid ${sample.color || 'transparent'};">
-                    <td class="cmp-sticky-left col-lane">${lane.lane_number != null ? lane.lane_number : ''}</td>
-                    <td class="cmp-sticky-left col-type">
+                    <td class="col-lane">${lane.lane_number != null ? lane.lane_number : ''}</td>
+                    <td class="col-type">
                         <span class="gv-prop-type-badge gv-prop-type-${typeLower}">${typeLabel}</span>
                     </td>
-                    <td class="col-sample">${sampleName || '<span class="cmp-muted">—</span>'}</td>
-                    <td class="col-condition col-preset-standard">${condition}</td>
-                    <td class="col-load-ug">${loadUg != null ? loadUg : '—'}</td>
-                    <td class="col-load-ul col-preset-full" ${ulCellStyle}>${loadUl != null ? loadUl : '—'}</td>
-                    <td class="col-total-area">${this._fmtNum(summary.totalArea, 0)}</td>
-                    <td class="col-band-count col-preset-standard">${summary.bandCount}</td>
-                    <td class="col-poi-area col-preset-full">${this._fmtNum(summary.poiArea, 0)}</td>
-                    <td class="col-purity">${summary.purity != null ? summary.purity.toFixed(1) + '%' : '—'}</td>
-                    <td class="cmp-section-quant col-est-amount">${estAmountDisplay}</td>
+                    <td class="col-sample col-preset-standard">${sampleName || '<span class="cmp-muted">—</span>'}</td>
+                    <td class="col-band">${bandRefHtml}</td>
+                    <td class="col-total-area">${this._fmtNum(totalArea, 0)}</td>
+                    <td class="col-band-area">${this._fmtNum(bandArea, 0)}</td>
+                    <td class="col-pct-lane col-preset-standard">${pctLane != null ? pctLane.toFixed(1) + '%' : '—'}</td>
+                    <td class="cmp-section-quant col-est-amount">${estDisplay}</td>
                     <td class="cmp-section-quant col-recovery col-preset-standard">${recoveryDisplay}</td>
-                    <td class="cmp-section-quant col-calib-method col-preset-full">${calibMethod}</td>
-                    <td class="col-r2 col-preset-standard">${r2Display}</td>
-                    <td class="col-mw-markers col-preset-full">${mwMarkers}</td>
-                    <td class="col-status">${statusIcon}</td>
+                    <td class="col-r2 col-preset-standard">${fitR2 != null ? fitR2.toFixed(3) : '—'}</td>
+                    <td class="col-flag col-preset-full">${flagHtml}</td>
                 </tr>
             `;
         }
@@ -473,7 +395,7 @@
         _applyOnlyQuantFilter() {
             if (!this.table) return;
             const filter = this.onlyQuantified;
-            this.table.querySelectorAll('tr[data-row-type="lane"]').forEach(r => {
+            this.table.querySelectorAll('tr.cmp-band-row').forEach(r => {
                 const hasEst = r.dataset.estimatedAmount != null && r.dataset.estimatedAmount !== '';
                 r.hidden = filter && !hasEst;
             });
@@ -483,11 +405,11 @@
         // Highlight
         // -----------------------------------------------------------------
 
-        _highlightLane(sampleId) {
+        _highlightBand(bandId) {
             if (!this.tbody) return;
-            this.tbody.querySelectorAll('tr.cmp-lane-row.selected').forEach(r => r.classList.remove('selected'));
-            if (!sampleId) return;
-            const row = this.tbody.querySelector(`tr.cmp-lane-row[data-sample-id="${sampleId}"]`);
+            this.tbody.querySelectorAll('tr.cmp-band-row.selected').forEach(r => r.classList.remove('selected'));
+            if (!bandId) return;
+            const row = this.tbody.querySelector(`tr.cmp-band-row[data-band-id="${bandId}"]`);
             if (row) {
                 row.classList.add('selected');
                 row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -509,15 +431,6 @@
         _formatUnit(unit) {
             if (unit === 'UG_ML' || unit === 'µg/mL') return 'µg/mL';
             return 'µg';
-        }
-
-        _formatMethod(method) {
-            const map = {
-                LINEAR: 'Linear',
-                POLYNOMIAL_2: 'Poly2',
-                FOUR_PL: '4PL',
-            };
-            return map[method] || (method || '—');
         }
 
         _escape(s) {

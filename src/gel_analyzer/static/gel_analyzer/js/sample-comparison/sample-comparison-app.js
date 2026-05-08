@@ -272,6 +272,20 @@
                     state: this.state,
                 });
             }
+
+            // Content (estimated amount) chart — only renders bars when
+            // a sample has quantified POI bands (server-side back-fill of
+            // estimated_amount). The host page's view-toggle listens to
+            // a `content-chart:availability` event the panel emits to
+            // show / hide the Content view button.
+            const ContentChartPanel = Panels.ContentChart;
+            if (ContentChartPanel) {
+                this.panels.contentChart = new ContentChartPanel({
+                    container: document.getElementById('content-chart-container'),
+                    eventBus: this.eventBus,
+                    state: this.state,
+                });
+            }
         }
 
         _setupEventHandlers() {

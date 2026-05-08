@@ -854,6 +854,51 @@
     font-size: 0.7rem;
 }
 
+/* Shown in lieu of bands when the lane has no MW calibration —
+ * positioning by MW would collapse every band to 50% which used to
+ * render as a stray bar in the middle of the column. */
+.dm-lane-body .dm-lane-no-mw {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 100%;
+    padding: 8px;
+    text-align: center;
+    color: rgba(255,255,255,0.55);
+}
+
+.dm-lane-body .dm-lane-no-mw i {
+    font-size: 1.4rem;
+    color: rgba(255,193,7,0.7);
+}
+
+.dm-lane-body .dm-lane-no-mw-title {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.85);
+    font-weight: 600;
+}
+
+.dm-lane-body .dm-lane-no-mw-hint {
+    font-size: 0.68rem;
+    line-height: 1.3;
+    color: rgba(255,255,255,0.45);
+    max-width: 12em;
+}
+
+.dm-lane-body .dm-lane-no-mw-partial {
+    position: absolute;
+    bottom: 4px;
+    left: 6px;
+    right: 6px;
+    text-align: center;
+    font-size: 0.62rem;
+    color: rgba(255,193,7,0.7);
+    font-style: italic;
+    pointer-events: none;
+}
+
 .dm-lane-body .dm-digital-band {
     position: absolute;
     left: 10%;
@@ -2099,6 +2144,31 @@
 }
 
 
+/* --- Content chart (estimated amount per POI) --- */
+
+.cmp-content-chart-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.cmp-content-bar-cell {
+    cursor: pointer;
+}
+
+.cmp-content-bar {
+    transition: filter 0.15s ease;
+}
+
+.cmp-content-bar.cmp-content-bar-nodata {
+    pointer-events: none;
+}
+
+.cmp-content-value-label {
+    pointer-events: none;
+}
+
+
 /* --- View Toggle (Electropherogram / POI Purity) --- */
 
 .dm-view-toggle {
@@ -2305,11 +2375,13 @@
 .cmp-comparison-table .cmp-section-quant    { color: #c4b5fd; }
 .cmp-comparison-table .cmp-section-quality  { color: #fca5a5; }
 
-.cmp-comparison-table tbody tr.cmp-lane-row:hover {
+.cmp-comparison-table tbody tr.cmp-lane-row:hover,
+.cmp-comparison-table tbody tr.cmp-band-row:hover {
     background: rgba(255,255,255,0.04);
 }
 
-.cmp-comparison-table tbody tr.cmp-lane-row.selected {
+.cmp-comparison-table tbody tr.cmp-lane-row.selected,
+.cmp-comparison-table tbody tr.cmp-band-row.selected {
     background: rgba(139, 92, 246, 0.18);
 }
 
@@ -2323,8 +2395,17 @@
 }
 
 .cmp-comparison-table tbody tr.cmp-lane-row.selected.gv-table-row--calibration,
-.cmp-comparison-table tbody tr.cmp-lane-row.selected.gv-table-row--control {
+.cmp-comparison-table tbody tr.cmp-lane-row.selected.gv-table-row--control,
+.cmp-comparison-table tbody tr.cmp-band-row.selected.gv-table-row--calibration,
+.cmp-comparison-table tbody tr.cmp-band-row.selected.gv-table-row--control {
     background: rgba(139, 92, 246, 0.22);
+}
+
+/* Subscript MW (kDa) for ladder marker rows in the Band cell. */
+.cmp-comparison-table .cmp-band-mw {
+    color: rgba(255,255,255,0.55);
+    font-size: 0.72rem;
+    margin-left: 4px;
 }
 
 .cmp-status {
