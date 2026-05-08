@@ -14,6 +14,7 @@
         <div class="dm-header-left">
             <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.id %}" class="dm-back-link" data-tooltip="Back to Analysis" data-tooltip-pos="bottom">
                 {% icon "arrow-left" size=16 %}
+                <span>Back</span>
             </a>
             <h1 class="dm-title">{{ analysis.name }}</h1>
             <span class="dm-subtitle">Densitometry Analysis</span>

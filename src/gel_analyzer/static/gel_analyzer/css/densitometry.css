@@ -103,17 +103,33 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
-    color: var(--dm-text-secondary);
+    padding: 5px 12px 5px 10px;
+    /* Use a brighter foreground than text-secondary — the previous slate
+     * was washed out against the panel header background, making the
+     * button visually disappear. */
+    color: rgba(255, 255, 255, 0.92);
     text-decoration: none;
-    font-size: 14px;
-    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     transition: all var(--dm-transition);
 }
 
 .dm-back-link:hover {
-    color: var(--dm-primary);
-    background-color: rgba(59, 130, 246, 0.08);
+    color: #fff;
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* The {% icon %} tag emits an <svg><use href="…lucide#…"/></svg> — the
+ * <use> element needs an explicit stroke off the parent's currentColor
+ * to actually render in some browsers, hence the explicit override. */
+.dm-back-link svg {
+    stroke: currentColor;
+    fill: none;
+    flex-shrink: 0;
 }
 
 .dm-title {
