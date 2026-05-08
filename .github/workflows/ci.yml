@@ -159,11 +159,13 @@ jobs:
           cache-from: type=gha
           load: true
       - name: Trivy scan
-        # v0.30.0 was a non-existent tag; latest stable is v0.36.0 (2026-04-22).
-        # Note: a March 2026 supply-chain incident force-pushed 75+ trivy-action
-        # tags. The repo has since been cleaned up and v0.36.0 is post-remediation.
-        # For higher-stakes contexts pin to a full commit SHA instead of a tag.
-        uses: aquasecurity/trivy-action@0.36.0
+        # Pinned to the v0.36.0 commit SHA (not a tag) because the
+        # aquasecurity/trivy-action repo suffered a March 2026 supply-chain
+        # attack: 75+ tags were force-pushed to malicious commits. Tags are
+        # mutable; a full commit SHA is not. v0.36.0 was published 2026-04-22,
+        # post-remediation. To bump: fetch the new tag's sha via
+        #   gh api repos/aquasecurity/trivy-action/git/refs/tags/<tag> --jq .object.sha
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: phoresis-app:trivy
           format: table
