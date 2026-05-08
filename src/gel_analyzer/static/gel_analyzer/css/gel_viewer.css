@@ -482,6 +482,18 @@
     stroke: var(--gv-ladder-stroke);
 }
 
+/* Lane CALIBRATION + CONTROL mirror their band-type counterparts so a
+   lane that holds calibration points reads as the same family as those
+   points. */
+.gv-lane.calibration {
+    fill: rgba(248, 113, 113, 0.12);
+    stroke: rgba(248, 113, 113, 0.7);
+}
+.gv-lane.control {
+    fill: rgba(6, 182, 212, 0.12);
+    stroke: rgba(6, 182, 212, 0.7);
+}
+
 /* Band polygons */
 .gv-band {
     fill: var(--gv-band-fill);

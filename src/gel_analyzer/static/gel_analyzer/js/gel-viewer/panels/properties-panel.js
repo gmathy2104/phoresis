@@ -33,6 +33,11 @@
             this.onDeleteBand = options.onDeleteBand;
             this.onUpdateLane = options.onUpdateLane;
             this.onUpdateBand = options.onUpdateBand;
+            // Local-only sync helper (state + SVG + emit BAND_UPDATED) for
+            // callers that already persisted via the v1 PATCH endpoint —
+            // lets _saveBandProperties trigger the auto-promote-lane flow
+            // without re-issuing an API call.
+            this.onSyncBandLocal = options.onSyncBandLocal;
             this.onSelectBand = options.onSelectBand;
 
             // DOM elements
@@ -1034,11 +1039,19 @@
             if (bandType === 'CALIBRATION' && this.apiClient && this.apiClient.patchBand) {
                 try {
                     await this.apiClient.patchBand(id, payload);
-                    // Mirror to local state so the panel + table re-render correctly.
-                    const band = this.stateManager.getBand(id);
-                    if (band) {
-                        Object.assign(band, payload);
-                        band.quant_point = payload.quant_point;
+                    // Run the unified local sync: mutate state, swap SVG
+                    // class to calibration-red, emit BAND_UPDATED so the
+                    // auto-promote-lane listener fires (parent lane →
+                    // CALIBRATION) and the band table refreshes.
+                    if (this.onSyncBandLocal) {
+                        this.onSyncBandLocal(id, payload);
+                    } else {
+                        // Fallback for callers that didn't wire onSyncBandLocal.
+                        const band = this.stateManager.getBand(id);
+                        if (band) {
+                            Object.assign(band, payload);
+                            band.quant_point = payload.quant_point;
+                        }
                     }
                     this.eventBus.emit(Events.BAND_PROPERTY_CHANGED, {
                         id, field: 'band_type', value: bandType,
