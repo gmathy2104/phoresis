@@ -102,6 +102,19 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Throttle rates for the custom scopes declared in
+    # gel_analyzer/api/throttles.py. Without these keys, every
+    # v1-viewset write request (Bands, Lanes, GelImages, GelAnalysis,
+    # LadderTemplates, SavedComparisons) crashes in DRF's get_throttles()
+    # with ImproperlyConfigured: "No default throttle rate set for
+    # 'user_write' scope". Numbers tuned for a single-user laptop
+    # deployment: ~5 writes/min and 1 heavy compute/min covers a busy
+    # annotation session, low enough that a runaway client gets caught.
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "1000/hour",
+        "user_write": "300/hour",
+        "user_computation": "60/hour",
+    },
 }
 
 LOGIN_URL = "accounts:login"
