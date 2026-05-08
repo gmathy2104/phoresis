@@ -135,6 +135,12 @@ def gel_analysis(db, gel_image, test_user):
 
 
 @pytest.fixture
+def sample_analysis(gel_analysis):
+    """Alias for plan-referenced fixture name; same as gel_analysis."""
+    return gel_analysis
+
+
+@pytest.fixture
 def sample_lane(db, gel_analysis):
     """Create a sample Lane instance."""
     return Lane.objects.create(
@@ -183,6 +189,12 @@ def band(db, sample_lane, test_user):
 
 
 @pytest.fixture
+def sample_band(band):
+    """Alias for plan-referenced fixture name; same as band."""
+    return band
+
+
+@pytest.fixture
 def yolo_band(db, sample_lane):
     """Create a YOLO-detected Band instance."""
     return Band.objects.create(
@@ -204,6 +216,123 @@ def yolo_band(db, sample_lane):
 def mw_marker(db, ladder_lane):
     """Create a MWMarker instance."""
     return MWMarker.objects.create(lane=ladder_lane, mw_kda=75.0, position_y=120)
+
+
+@pytest.fixture
+def authenticated_client(authenticated_api_client):
+    """Plan-referenced fixture name; alias for authenticated_api_client."""
+    return authenticated_api_client
+
+
+@pytest.fixture
+def calibration_lane(db, gel_analysis):
+    """Create a CALIBRATION-type Lane."""
+    return Lane.objects.create(
+        analysis=gel_analysis,
+        lane_number=3,
+        lane_type=Lane.LaneType.CALIBRATION,
+        detection_source=Lane.DetectionSource.MANUAL,
+        x=150,
+        y=10,
+        width=40,
+        height=480,
+    )
+
+
+@pytest.fixture
+def calibration_band(db, calibration_lane, test_user):
+    """Create a Band of type CALIBRATION inside a CALIBRATION lane."""
+    return Band.objects.create(
+        lane=calibration_lane,
+        detection_source=Band.DetectionSource.MANUAL,
+        band_type=Band.BandType.CALIBRATION,
+        position_y=120,
+        bbox_x=150,
+        bbox_y=110,
+        bbox_width=40,
+        bbox_height=20,
+        created_by=test_user,
+    )
+
+
+@pytest.fixture
+def calib_lane_with_point(db, calibration_lane, test_user):
+    """A CALIBRATION lane containing one CALIBRATION band + quant_point."""
+    from gel_analyzer.models import ProteinQuantCalibrationPoint
+
+    band = Band.objects.create(
+        lane=calibration_lane,
+        detection_source=Band.DetectionSource.MANUAL,
+        band_type=Band.BandType.CALIBRATION,
+        position_y=130,
+        bbox_x=150,
+        bbox_y=120,
+        bbox_width=40,
+        bbox_height=20,
+        created_by=test_user,
+    )
+    ProteinQuantCalibrationPoint.objects.create(
+        band=band,
+        load_amount=10.0,
+        load_unit=ProteinQuantCalibrationPoint.UNIT_UG,
+        role=ProteinQuantCalibrationPoint.ROLE_CALIBRATION,
+    )
+    return calibration_lane
+
+
+@pytest.fixture
+def three_calib_points_analysis(db, gel_analysis, test_user):
+    """Analysis with 3 CALIBRATION lanes, each with a CALIBRATION band +
+    densitometry + quant_point at loads 5/10/15 µg."""
+    from gel_analyzer.models import (
+        DensitometryResult,
+        ProteinQuantCalibrationPoint,
+    )
+
+    loads = [5.0, 10.0, 15.0]
+    # Roughly linear corrected_area vs load (slope ~1000 area / µg)
+    areas = [5000.0, 10000.0, 15000.0]
+    for i, (load, area) in enumerate(zip(loads, areas, strict=False)):
+        lane = Lane.objects.create(
+            analysis=gel_analysis,
+            lane_number=10 + i,
+            lane_type=Lane.LaneType.CALIBRATION,
+            detection_source=Lane.DetectionSource.MANUAL,
+            x=200 + i * 50,
+            y=10,
+            width=40,
+            height=480,
+        )
+        band = Band.objects.create(
+            lane=lane,
+            detection_source=Band.DetectionSource.MANUAL,
+            band_type=Band.BandType.CALIBRATION,
+            position_y=100 + i * 5,
+            bbox_x=200 + i * 50,
+            bbox_y=90 + i * 5,
+            bbox_width=40,
+            bbox_height=20,
+            created_by=test_user,
+        )
+        DensitometryResult.objects.create(
+            band=band,
+            peak_center_y=100.0 + i * 5,
+            peak_amplitude=200.0,
+            peak_sigma=5.0,
+            fwhm=12.0,
+            integrated_area=area,
+            background_area=0.0,
+            corrected_area=area,
+            fit_r_squared=0.99,
+            snr=20.0,
+        )
+        ProteinQuantCalibrationPoint.objects.create(
+            band=band,
+            load_amount=load,
+            load_unit=ProteinQuantCalibrationPoint.UNIT_UG,
+            role=ProteinQuantCalibrationPoint.ROLE_CALIBRATION,
+        )
+    return gel_analysis
 
 
 @pytest.fixture

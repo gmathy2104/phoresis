@@ -25,6 +25,7 @@ class Lane(models.Model):
         EMPTY = "EMPTY", "Empty Lane"
         CONTROL = "CONTROL", "Control"
         DOT = "DOT", "Dot (for Dot Blots)"
+        CALIBRATION = "CALIBRATION", "Calibration Standard"
 
     class DetectionSource(models.TextChoices):
         """Detection source choices."""
@@ -95,6 +96,12 @@ class Lane(models.Model):
     )
     protein_load_type = models.CharField(
         max_length=20, choices=ProteinLoadType.choices, blank=True, help_text="Type of protein loaded"
+    )
+    loading_volume_ul = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Loading volume in µL (used to convert µg/mL → µg for samples)",
     )
 
     # Free-text sample identifier (Phoresis has no central sample registry).
@@ -218,6 +225,7 @@ class Band(models.Model):
         MW_REFERENCE = "MW_REFERENCE", "MW Reference"
         POI = "POI", "Protein of Interest"
         OTHER = "OTHER", "Other"
+        CALIBRATION = "CALIBRATION", "Calibration Point"
 
     # Primary key
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

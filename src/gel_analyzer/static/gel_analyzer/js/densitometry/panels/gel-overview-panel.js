@@ -53,17 +53,32 @@
             // Band overlay visibility
             this.showBands = true;
 
-            // Colors - Match annotation panel (gel_viewer.css)
+            // Colors — kept in sync with the annotation gel-viewer
+            // (gel_viewer.css / gel_viewer_standalone.css). Adding a
+            // CALIBRATION/CONTROL/LADDER differentiation here so users
+            // see the same colour story across annotate → densito; the
+            // panel used to fall through everything to "lane" blue and
+            // any non-POI/MW_REFERENCE band to "bandOther" green, which
+            // hid the CALIBRATION points completely.
             this.colors = {
-                // Lane colors (blue)
-                lane: 'rgba(59, 130, 246, 0.35)',
-                laneSelected: 'rgba(59, 130, 246, 0.5)',
-                laneBorder: '#3b82f6',
-                // Band colors by type
-                bandPOI: 'rgba(168, 85, 247, 0.35)',       // Purple
-                bandOther: 'rgba(34, 197, 94, 0.35)',      // Green
-                bandRef: 'rgba(249, 115, 22, 0.35)',       // Orange (MW_REFERENCE)
-                bandSelected: '#ef4444',                   // Red
+                // Lane colors by lane_type
+                laneSample:      'rgba(59, 130, 246, 0.35)',  // Blue
+                laneSelected:    'rgba(59, 130, 246, 0.55)',  // Brighter blue when selected
+                laneSampleBorder:      '#3b82f6',
+                laneLadder:      'rgba(249, 115, 22, 0.35)',  // Orange
+                laneLadderBorder:      '#f97316',
+                laneCalibration: 'rgba(248, 113, 113, 0.35)', // Red-400 (matches calibration band)
+                laneCalibrationBorder: '#f87171',
+                laneControl:     'rgba(6, 182, 212, 0.35)',   // Cyan
+                laneControlBorder:     '#06b6d4',
+                laneEmpty:       'rgba(107, 114, 128, 0.20)', // Grey
+                laneEmptyBorder:       '#6b7280',
+                // Band colors by band_type
+                bandPOI:         'rgba(168, 85, 247, 0.35)',  // Purple
+                bandOther:       'rgba(34, 197, 94, 0.35)',   // Green
+                bandRef:         'rgba(249, 115, 22, 0.35)',  // Orange (MW_REFERENCE)
+                bandCalibration: 'rgba(248, 113, 113, 0.45)', // Red-400 (slightly stronger fill so CALIBRATION points stand out on top of a CALIBRATION lane)
+                bandSelected:    '#ef4444',                   // Red border on selection
             };
 
             // ResizeObserver with debouncing
@@ -664,12 +679,36 @@
 
                 const isSelected = lane.id === selectedLaneId;
 
-                // Fill
-                ctx.fillStyle = isSelected ? this.colors.laneSelected : this.colors.lane;
+                // Fill + border colors keyed off lane_type so a
+                // CALIBRATION lane reads red, CONTROL reads cyan,
+                // LADDER reads orange — matching the annotation page.
+                let fill, border;
+                switch (lane.lane_type) {
+                    case 'CALIBRATION':
+                        fill = this.colors.laneCalibration;
+                        border = this.colors.laneCalibrationBorder;
+                        break;
+                    case 'CONTROL':
+                        fill = this.colors.laneControl;
+                        border = this.colors.laneControlBorder;
+                        break;
+                    case 'LADDER':
+                        fill = this.colors.laneLadder;
+                        border = this.colors.laneLadderBorder;
+                        break;
+                    case 'EMPTY':
+                        fill = this.colors.laneEmpty;
+                        border = this.colors.laneEmptyBorder;
+                        break;
+                    case 'SAMPLE':
+                    default:
+                        fill = this.colors.laneSample;
+                        border = this.colors.laneSampleBorder;
+                }
+                ctx.fillStyle = isSelected ? this.colors.laneSelected : fill;
                 ctx.fillRect(topLeft.x, topLeft.y, width, height);
 
-                // Border
-                ctx.strokeStyle = this.colors.laneBorder;
+                ctx.strokeStyle = border;
                 ctx.lineWidth = isSelected ? 2 : 1;
                 ctx.strokeRect(topLeft.x, topLeft.y, width, height);
 
@@ -703,7 +742,10 @@
 
                 const isSelected = band.id === selectedBandId;
 
-                // Fill color based on band type
+                // Fill color based on band type — CALIBRATION used to
+                // fall through to bandOther (green), making calibration
+                // points indistinguishable from regular bands once the
+                // user crossed over from annotate to densito.
                 let fillColor;
                 switch (band.band_type) {
                     case 'POI':
@@ -711,6 +753,9 @@
                         break;
                     case 'MW_REFERENCE':
                         fillColor = this.colors.bandRef;
+                        break;
+                    case 'CALIBRATION':
+                        fillColor = this.colors.bandCalibration;
                         break;
                     default:
                         fillColor = this.colors.bandOther;

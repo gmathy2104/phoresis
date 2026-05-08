@@ -33,6 +33,12 @@
             this.container = options.container;
             this.eventBus = options.eventBus;
             this.state = options.state;
+            // api + analysisId are needed by the Quantification curve view (called
+            // when the Graphical View toggle switches to "Quantification curve").
+            // Both are optional so older callers (and tests) keep working.
+            this.api = options.apiClient || null;
+            this.analysisId = options.analysisId || null;
+            this._lastQuantResult = null;
 
             // Chart dimensions
             this.margin = { top: 20, right: 30, bottom: 50, left: 60 };
@@ -102,6 +108,7 @@
                 poi: '#22C55E',
                 other: '#9E9E9E',
                 mwReference: '#FFC107',
+                calibration: '#f87171',   // Red-400 — matches annotation page
                 orphanPeak: '#FF9800',
                 matchedPeak: '#4CAF50',
                 shoulderPeak: '#9C27B0',
@@ -119,12 +126,15 @@
                 return;
             }
 
-            // Find the content element (inside the panel, not the panel itself)
-            this.contentElement = this.container.querySelector('.dm-panel-content');
-            if (!this.contentElement) {
-                console.warn('[ChromatogramPanel] No .dm-panel-content element found');
-                this.contentElement = this.container;  // Fallback
-            }
+            // Find the content element (inside the panel, not the panel itself).
+            // Phase 7.1 introduced tabs inside .dm-panel-content. The chromatogram
+            // chart now lives in the [data-tab-pane="chromatogram"] sub-element;
+            // _createChart() and friends still target a single host, so we point
+            // contentElement at that pane when the tab markup is present. This
+            // keeps the rest of the file (which uses contentElement) untouched.
+            this.panelContent = this.container.querySelector('.dm-panel-content') || this.container;
+            const chartPane = this.panelContent.querySelector('[data-tab-pane="chromatogram"]');
+            this.contentElement = chartPane || this.panelContent;
 
             // Create chart container
             this._createChart();
@@ -132,23 +142,179 @@
             // Setup event listeners
             this._setupEvents();
 
+            // Subscribe to QUANT_CALIBRATION_CHANGED so the curve view refreshes
+            // automatically after the user saves a new calibration via the modal.
+            const quantEvent = (Events && Events.QUANT_CALIBRATION_CHANGED) || 'QUANT_CALIBRATION_CHANGED';
+            this.eventBus.on(quantEvent, () => {
+                this._lastQuantResult = null;  // invalidate cache
+                if (this.currentView === 'quantification') {
+                    this._renderQuantificationView();
+                }
+            });
+
             // Setup resize observer (replaces window resize listener)
             this._setupResizeObserver();
+        }
+
+        /**
+         * Fetch the active quantification calibration + a fresh preview, then
+         * draw the curve via the shared QuantificationCurveRenderer. Shows the
+         * empty-state copy when no active calibration exists. Triggered by the
+         * Graphical View toggle when "Quantification curve" is selected.
+         */
+        async _renderQuantificationView() {
+            const host = document.getElementById('dm-quantification-host');
+            const emptyWrap = document.getElementById('dm-quantification-empty-wrap');
+            const empty = document.getElementById('dm-quantification-empty');
+            const tooltip = document.getElementById('dm-quantification-tooltip');
+            // Visible breadcrumb: if the user is running cached old JS
+            // against the new template (or vice-versa) you'll see the
+            // mismatch in DevTools — the old code bails silently because
+            // it looks for #dm-quantification-chart (the legacy canvas id
+            // that no longer exists in the template).
+            console.debug('[DENSITO] Quantification curve render — host:', !!host,
+                'tooltip:', !!tooltip, 'emptyWrap:', !!emptyWrap);
+            if (!host) {
+                // The legacy canvas-based path used to live here. If we hit
+                // this branch and the legacy id IS present, the user has the
+                // old template too — different combination, both caches
+                // need a hard reload (Ctrl+Shift+R).
+                const legacyCanvas = document.getElementById('dm-quantification-chart');
+                console.warn(
+                    '[DENSITO] Quantification host #dm-quantification-host not found. '
+                    + (legacyCanvas
+                        ? 'Legacy #dm-quantification-chart canvas IS present — JS is new but template is stale.'
+                        : 'Both ids missing — hard reload (Ctrl+Shift+R) the densito page.')
+                );
+                return;
+            }
+
+            const rendererModule = window.QuantificationCurveRenderer
+                || (window.Densitometry && window.Densitometry.QuantificationCurveRenderer);
+            if (!rendererModule || typeof rendererModule.renderInteractive !== 'function') {
+                if (emptyWrap) emptyWrap.hidden = false;
+                if (empty) empty.textContent = 'Quantification curve renderer not loaded.';
+                host.style.display = 'none';
+                return;
+            }
+
+            if (!this.api || !this.analysisId) {
+                if (emptyWrap) emptyWrap.hidden = false;
+                host.style.display = 'none';
+                return;
+            }
+
+            const showCurve = (result) => {
+                host.style.display = '';
+                if (emptyWrap) emptyWrap.hidden = true;
+                if (this._quantController) {
+                    this._quantController.update(result);
+                    return;
+                }
+                this._quantController = rendererModule.renderInteractive(host, result, {
+                    state: this.state,
+                    eventBus: this.eventBus,
+                    events: Events,
+                    tooltip,
+                });
+                if (!this._quantController) {
+                    // renderInteractive returns null only when D3 isn't on
+                    // window or the host element rejected. Fall through to
+                    // the empty-state with a diagnostic so the panel
+                    // doesn't render as a silent black void.
+                    console.error('[DENSITO] renderInteractive returned null — D3 missing or host invalid');
+                    showEmpty('Quantification renderer failed to mount (D3 not loaded?). Check console.');
+                }
+            };
+
+            const showEmpty = (message) => {
+                host.style.display = 'none';
+                if (this._quantController) {
+                    this._quantController.destroy();
+                    this._quantController = null;
+                }
+                if (emptyWrap) emptyWrap.hidden = false;
+                if (empty && message) empty.textContent = message;
+            };
+
+            // Use cached result on repeated tab clicks within the same calibration.
+            if (this._lastQuantResult) {
+                showCurve(this._lastQuantResult);
+                return;
+            }
+
+            try {
+                const meta = await this.api.getActiveQuantification(this.analysisId);
+                const active = meta && (meta.active || meta.data && meta.data.active);
+                if (!active) {
+                    showEmpty('No active quantification calibration. Open Quantification modal to set up.');
+                    return;
+                }
+
+                const previewBody = {
+                    method: active.method,
+                    unit: active.unit,
+                    excluded_band_ids: active.excluded_band_ids || [],
+                };
+                const r = await this.api.previewQuantification(this.analysisId, previewBody);
+                // The densitometry api-client returns the parsed JSON directly,
+                // while the gel-viewer api-client wraps it in {ok, status, data}.
+                const result = (r && r.data) ? r.data : r;
+                this._lastQuantResult = result;
+                showCurve(result);
+            } catch (err) {
+                console.error('[ChromatogramPanel] failed to load quantification:', err);
+                showEmpty(`Failed to load quantification curve: ${(err && err.message) || err}`);
+            }
+        }
+
+        /**
+         * Highlight (or clear) the sample point matching a given band on
+         * the quantification curve sub-view. No-op when the controller
+         * isn't mounted yet (e.g. user never opened the tab) or when the
+         * panel is currently showing a different sub-view.
+         */
+        _highlightQuantBand(bandId) {
+            if (!this._quantController) return;
+            this._quantController.highlight(bandId || null);
+        }
+
+        /**
+         * Resize the quantification curve to match the container — called
+         * when the panel is magnified to fullscreen and again on collapse.
+         * Cheap because the controller short-circuits if dimensions
+         * haven't changed.
+         */
+        _resizeQuantView() {
+            if (this._quantController) {
+                this._quantController.resize();
+            }
         }
 
         /**
          * Create the D3 chart.
          */
         _createChart() {
-            // Clear existing — but preserve 3D and POI containers if they exist
+            // Clear existing — but preserve sibling sub-view containers
+            // that share the same .dm-panel-content. innerHTML='' wipes
+            // EVERYTHING; we re-append the ones rendered by other code
+            // paths. Forgetting one of these silently destroys that view
+            // (the quantification curve container was missing from this
+            // list, which is why the Quantification curve sub-view
+            // rendered as a black void: by the time the user clicked the
+            // tab, the host div had been wiped at init).
             const container3d = this.contentElement.querySelector('.dm-chromatogram-3d-container');
             const containerPoi = this.contentElement.querySelector('.dm-poi-purity-container');
+            const containerQuant = this.contentElement.querySelector('.dm-quantification-container');
             this.contentElement.innerHTML = '';
             if (container3d) {
                 this.contentElement.appendChild(container3d);
             }
             if (containerPoi) {
                 this.contentElement.appendChild(containerPoi);
+            }
+            if (containerQuant) {
+                this.contentElement.appendChild(containerQuant);
             }
 
             // Get dimensions
@@ -443,9 +609,12 @@
                 }
             });
 
-            // Band selected - highlight on chart
+            // Band selected - highlight on chart AND on the quantification
+            // curve (if its sub-view has been mounted). The quant
+            // controller no-ops when the band isn't a sample/control/calib.
             this.eventBus.on(Events.BAND_SELECTED, (data) => {
                 this._highlightSelectedBand(data.bandId);
+                this._highlightQuantBand(data.bandId);
             });
 
             // Peaks detected - render markers
@@ -914,6 +1083,7 @@
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;
+                case 'CALIBRATION': return this.colors.calibration;
                 default: return this.colors.other;
             }
         }
@@ -1315,9 +1485,12 @@
             const legendPanel = this.contentElement?.querySelector('.dm-chart-legend-panel');
             const zoomControls = this.contentElement?.querySelector('.dm-zoom-controls');
 
+            const containerQuant = this.contentElement?.querySelector('#dm-quantification-container');
+
             if (show3D) {
                 if (svgEl) svgEl.style.display = 'none';
                 if (containerPoi) containerPoi.style.display = 'none';
+                if (containerQuant) containerQuant.style.display = 'none';
                 if (placeholder) placeholder.style.display = 'none';
                 if (legendPanel) legendPanel.style.display = 'none';
                 if (zoomControls) zoomControls.style.display = 'none';
@@ -1326,10 +1499,12 @@
                 // Don't blindly show SVG — respect the current view mode
                 const showSvg = this.currentView === 'electropherogram';
                 const showPoi = this.currentView === 'poi-purity';
+                const showQuant = this.currentView === 'quantification';
                 if (svgEl) svgEl.style.display = showSvg ? 'block' : 'none';
                 if (containerPoi) containerPoi.style.display = showPoi ? 'flex' : 'none';
-                if (legendPanel) legendPanel.style.display = '';
-                if (zoomControls) zoomControls.style.display = '';
+                if (containerQuant) containerQuant.style.display = showQuant ? 'flex' : 'none';
+                if (legendPanel) legendPanel.style.display = showSvg ? '' : 'none';
+                if (zoomControls) zoomControls.style.display = showSvg ? '' : 'none';
                 if (container3d) container3d.style.display = 'none';
             }
         }
@@ -1826,6 +2001,13 @@
                 return;
             }
 
+            // If the current view is the quantification curve, just resize
+            // its SVG to the new container size — no full rebuild.
+            if (this.currentView === 'quantification') {
+                this._resizeQuantView();
+                return;
+            }
+
             // If the current view is not electropherogram, skip chart rebuild entirely.
             // Creating a new SVG while POI Purity or another view is active causes stacking.
             if (this.currentView !== 'electropherogram') {
@@ -1865,6 +2047,10 @@
             if (this.renderer3D) {
                 this.renderer3D.dispose();
                 this.renderer3D = null;
+            }
+            if (this._quantController) {
+                this._quantController.destroy();
+                this._quantController = null;
             }
         }
     }

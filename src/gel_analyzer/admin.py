@@ -20,6 +20,8 @@ from gel_analyzer.models import (
     LadderTemplate,
     Lane,
     MWMarker,
+    ProteinQuantCalibration,
+    ProteinQuantCalibrationPoint,
     SavedComparison,
     SavedComparisonLane,
 )
@@ -357,6 +359,7 @@ class LaneAdmin(admin.ModelAdmin):
             "EMPTY": "#6B7280",
             "CONTROL": "#14A44D",
             "DOT": "#8B5CF6",
+            "CALIBRATION": "#8B5CF6",
         }
         color = colors.get(obj.lane_type, "#6B7280")
         return format_html(
@@ -721,3 +724,26 @@ class SavedComparisonAdmin(SimpleHistoryAdmin):
         return obj.lanes.count()
 
     lane_count_display.short_description = "Lanes"
+
+
+@admin.register(ProteinQuantCalibration)
+class ProteinQuantCalibrationAdmin(admin.ModelAdmin):
+    """Admin for ProteinQuantCalibration model."""
+
+    list_display = ("id", "analysis", "method", "unit", "r_squared", "is_active", "created_at")
+    list_filter = ("method", "unit", "is_active")
+    # Search on text columns only — searching analysis.id would issue a LIKE
+    # against a UUID column and 500 on any non-hex character.
+    search_fields = ("analysis__name",)
+    readonly_fields = ("id", "created_at", "superseded_at")
+
+
+@admin.register(ProteinQuantCalibrationPoint)
+class ProteinQuantCalibrationPointAdmin(admin.ModelAdmin):
+    """Admin for ProteinQuantCalibrationPoint model."""
+
+    list_display = ("band", "load_amount", "load_unit", "role", "is_excluded_from_fit", "created_at")
+    list_filter = ("role", "load_unit", "is_excluded_from_fit")
+    # Search on text columns only — searching band.id (UUID) would 500 on non-hex input.
+    search_fields = ("band__lane__sample_name", "band__label")
+    readonly_fields = ("created_at",)

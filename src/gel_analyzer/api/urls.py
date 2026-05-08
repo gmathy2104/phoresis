@@ -14,6 +14,10 @@ from gel_analyzer.api.views import (
     LadderTemplateViewSet,
     LaneViewSet,
     SavedComparisonViewSet,
+    quantification_detail,
+    quantification_history,
+    quantification_preview,
+    quantification_root,
 )
 from phoresis_core.api_schema import PhoresisSchemaView as GelAnalyzerSchemaView
 
@@ -27,9 +31,34 @@ router.register(r"bands", BandViewSet, basename="band")
 router.register(r"ladder-templates", LadderTemplateViewSet, basename="ladder-template")
 router.register(r"comparisons", SavedComparisonViewSet, basename="saved-comparison")
 
+quantification_urlpatterns = [
+    path(
+        "analyses/<uuid:analysis_id>/quantification/",
+        quantification_root,
+        name="quantification-root",
+    ),
+    path(
+        "analyses/<uuid:analysis_id>/quantification/preview/",
+        quantification_preview,
+        name="quantification-preview",
+    ),
+    path(
+        "analyses/<uuid:analysis_id>/quantification/history/",
+        quantification_history,
+        name="quantification-history",
+    ),
+    path(
+        "analyses/<uuid:analysis_id>/quantification/<uuid:calib_id>/",
+        quantification_detail,
+        name="quantification-detail",
+    ),
+]
+
 urlpatterns = [
     # API v1 endpoints
     path("v1/", include(router.urls)),
+    # Protein quantification (function-based; under v1/)
+    path("v1/", include(quantification_urlpatterns)),
     # OpenAPI Schema
     path("schema/", GelAnalyzerSchemaView.as_view(), name="schema"),
     # Swagger UI

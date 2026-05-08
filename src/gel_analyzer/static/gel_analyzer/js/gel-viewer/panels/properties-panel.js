@@ -33,6 +33,16 @@
             this.onDeleteBand = options.onDeleteBand;
             this.onUpdateLane = options.onUpdateLane;
             this.onUpdateBand = options.onUpdateBand;
+            // Local-only sync helper (state + SVG + emit BAND_UPDATED) for
+            // callers that already persisted via the v1 PATCH endpoint —
+            // lets _saveBandProperties trigger the auto-promote-lane flow
+            // without re-issuing an API call.
+            this.onSyncBandLocal = options.onSyncBandLocal;
+            // Shared AutoSave instance owned by the host gel-viewer; used
+            // for v1 PATCH writes (calibration value, properties save) so
+            // failures surface the same toast + AUTOSAVE_FAILED event as
+            // every other band write in the app.
+            this.autoSave = options.autoSave || null;
             this.onSelectBand = options.onSelectBand;
 
             // DOM elements
@@ -75,6 +85,47 @@
 
             this.eventBus.on(Events.BAND_SAVE_FAILED, (data) => {
                 this._onBandSaveFailed(data);
+            });
+
+            // Re-render when the displayed band changes underneath us
+            // (e.g. right-click "Set as Calibration" emits BAND_UPDATED
+            // after the v1 PATCH; without this the panel still shows the
+            // old band_type/quant_point until the user reselects).
+            this.eventBus.on(Events.BAND_UPDATED, (band) => {
+                if (!band) return;
+                const updatedId = band.id || band.band_id;
+                if (this.currentType !== 'band' || this.currentId !== updatedId) return;
+                // Don't rebuild the DOM if the user is actively editing a
+                // field in this panel — the form values are the source of
+                // truth while focus is on them, and a rebuild would wipe
+                // any half-typed value (e.g. "5" they were typing into
+                // Loaded amount before tabbing).
+                const active = document.activeElement;
+                if (active && this.contentContainer && this.contentContainer.contains(active)) {
+                    return;
+                }
+                this.show('band', updatedId);
+            });
+
+            // AutoSave wiring — green flash on success for any field the
+            // user just edited (label / MW / notes / band_type / load_amount),
+            // inline Retry button on failure. The shared AutoSave helper
+            // handles the global error toast itself.
+            this.eventBus.on(Events.AUTOSAVE_OK, ({ context, source }) => {
+                if (!context || context.kind !== 'band') return;
+                if (this.currentType !== 'band' || this.currentId !== context.id) return;
+                // Clear any prior error state — a successful save means the
+                // last failure is moot.
+                this._setSaveErrorState(null);
+                if (source && this.contentContainer && this.contentContainer.contains(source)) {
+                    this._flashSavedInput(source);
+                }
+            });
+
+            this.eventBus.on(Events.AUTOSAVE_FAILED, ({ context, message }) => {
+                if (!context || context.kind !== 'band') return;
+                if (this.currentType !== 'band' || this.currentId !== context.id) return;
+                this._setSaveErrorState(message || 'Save failed');
             });
         }
 
@@ -163,6 +214,7 @@
             if (!this.contentContainer) return;
 
             const isLadder = lane.lane_type === 'LADDER';
+            const isCalibOrCtrl = ['CALIBRATION', 'CONTROL'].includes(lane.lane_type);
             const typeBadgeClass = `gv-prop-type-badge gv-prop-type-${(lane.lane_type || 'sample').toLowerCase()}`;
             this.contentContainer.innerHTML = `
                 <div class="gv-prop-form">
@@ -185,6 +237,7 @@
                                     <option value="LADDER" ${lane.lane_type === 'LADDER' ? 'selected' : ''}>MW Ladder</option>
                                     <option value="EMPTY" ${lane.lane_type === 'EMPTY' ? 'selected' : ''}>Empty</option>
                                     <option value="CONTROL" ${lane.lane_type === 'CONTROL' ? 'selected' : ''}>Control</option>
+                                    <option value="CALIBRATION" ${lane.lane_type === 'CALIBRATION' ? 'selected' : ''}>Calibration</option>
                                 </select>
                             </div>
                             <div class="gv-prop-field gv-prop-col-2" id="prop-template-section" style="display: ${isLadder ? '' : 'none'};">
@@ -215,13 +268,15 @@
                                     <option value="false" ${lane.is_reduced === false ? 'selected' : ''}>Non-reduced</option>
                                 </select>
                             </div>
-                            <div class="gv-prop-field">
+                            <div class="gv-prop-field" id="prop-protein-load-section"
+                                 style="display: ${isCalibOrCtrl ? 'none' : ''};">
                                 <label for="prop-protein-load">Load (µg)</label>
                                 <input type="number" id="prop-protein-load" data-field="protein_load_ug"
                                        class="form-control form-control-sm"
                                        value="${lane.protein_load_ug || ''}" step="0.1" min="0" placeholder="—">
                             </div>
-                            <div class="gv-prop-field gv-prop-col-2">
+                            <div class="gv-prop-field gv-prop-col-2" id="prop-load-type-section"
+                                 style="display: ${isCalibOrCtrl ? 'none' : ''};">
                                 <label for="prop-load-type">Load type</label>
                                 <select id="prop-load-type" data-field="protein_load_type" class="form-select form-select-sm">
                                     <option value="" ${!lane.protein_load_type ? 'selected' : ''}>—</option>
@@ -230,6 +285,13 @@
                                     <option value="HOST_CELL" ${lane.protein_load_type === 'HOST_CELL' ? 'selected' : ''}>Host Cell Protein</option>
                                     <option value="OTHER" ${lane.protein_load_type === 'OTHER' ? 'selected' : ''}>Other</option>
                                 </select>
+                            </div>
+                            <div class="gv-prop-field gv-prop-col-2" id="prop-loading-volume-section"
+                                 style="display: ${isCalibOrCtrl ? '' : 'none'};">
+                                <label for="prop-loading-volume">Loading volume (µL)</label>
+                                <input type="number" id="prop-loading-volume" data-field="loading_volume_ul"
+                                       class="form-control form-control-sm"
+                                       value="${lane.loading_volume_ul ?? ''}" step="0.1" min="0" placeholder="—">
                             </div>
                             <div class="gv-prop-field gv-prop-col-2">
                                 <label for="prop-notes">Notes</label>
@@ -305,7 +367,9 @@
 
             bandList.innerHTML = bands.map((band, index) => {
                 const typeLabel = this._getBandTypeLabel(band.band_type);
-                const mwLabel = band.estimated_mw_kda ? `${band.estimated_mw_kda} kDa` : '';
+                const mwLabel = band.estimated_mw_kda
+                    ? `${Number(band.estimated_mw_kda).toFixed(1)} kDa`
+                    : '';
                 const label = band.label || `Band ${index + 1}`;
 
                 return `
@@ -357,6 +421,7 @@
             const labels = {
                 'POI': 'POI',
                 'MW_REFERENCE': 'MW Ref',
+                'CALIBRATION': 'Calib',
                 'OTHER': 'Other'
             };
             return labels[bandType] || 'Other';
@@ -371,9 +436,36 @@
             const colors = {
                 'POI': 'purple',
                 'MW_REFERENCE': 'warning',
+                'CALIBRATION': 'info',
                 'OTHER': 'secondary'
             };
             return colors[bandType] || 'secondary';
+        }
+
+        /**
+         * Fetch and cache the unit of the active quantification calibration
+         * for this analysis. When an active calibration exists, every new
+         * CALIBRATION point must use the same unit so we lock the select.
+         * @returns {Promise<string|null>} 'UG' | 'UG_ML' | null when no active
+         */
+        async _getActiveCalibUnit() {
+            if (this._activeCalibUnitCache !== undefined) {
+                return this._activeCalibUnitCache;
+            }
+            if (!this.apiClient || !this.apiClient.analysisId) {
+                this._activeCalibUnitCache = null;
+                return null;
+            }
+            try {
+                const resp = await this.apiClient.getActiveQuantification(
+                    this.apiClient.analysisId
+                );
+                this._activeCalibUnitCache = resp?.active?.unit || null;
+            } catch (err) {
+                console.warn('Could not load active quantification:', err);
+                this._activeCalibUnitCache = null;
+            }
+            return this._activeCalibUnitCache;
         }
 
         // =====================================================================
@@ -483,6 +575,50 @@
         }
 
         /**
+         * Confirm a lane-type downgrade if the lane has dependent CALIBRATION
+         * points, and immediately PATCH the server with ?force=true to purge
+         * them. The subsequent normal update flow will see a consistent state.
+         *
+         * @returns {Promise<boolean>} true if the change should proceed
+         */
+        async _maybeConfirmLaneTypeChange(currentType, newType, laneId) {
+            const isDowngrade = ['CALIBRATION', 'CONTROL'].includes(currentType)
+                && !['CALIBRATION', 'CONTROL'].includes(newType);
+            if (!isDowngrade) return true;
+
+            const bands = this.stateManager.getBandsForLane(laneId) || [];
+            const hasCalibPoints = bands.some(b => b.band_type === 'CALIBRATION');
+            if (!hasCalibPoints) return true;
+
+            const ok = window.confirm(
+                'This lane has calibration points. Their loaded amounts and '
+                + 'units will be deleted, and the bands reset to OTHER. Continue?'
+            );
+            if (!ok) return false;
+
+            // Immediate ?force=true PATCH so the server purges the dependent
+            // ProteinQuantCalibrationPoint rows + flips the bands back to OTHER.
+            // Without this, the subsequent batched bulk save would 409 (or, on
+            // the legacy endpoint, leave inconsistent state).
+            try {
+                await this.apiClient.updateLane(laneId, { lane_type: newType }, { force: true });
+                // Reflect band-type change locally — the server has reset all
+                // dependent CALIBRATION bands to OTHER. We mirror that in state
+                // so the UI stays consistent without a full reload.
+                bands.forEach(b => {
+                    if (b.band_type === 'CALIBRATION') {
+                        b.band_type = 'OTHER';
+                        b.quant_point = null;
+                    }
+                });
+            } catch (err) {
+                window.alert(`Could not change lane type: ${err.message || err}`);
+                return false;
+            }
+            return true;
+        }
+
+        /**
          * Handle lane type change - show/hide template section and auto-assign default.
          * @param {string|number} laneId - Lane ID
          * @param {string} newType - New lane type value
@@ -494,10 +630,28 @@
             // Update the type badge in the header
             const typeBadge = document.getElementById('prop-lane-type-badge');
             if (typeBadge) {
-                const labels = { SAMPLE: 'Sample', LADDER: 'MW Ladder', EMPTY: 'Empty', CONTROL: 'Control', DOT: 'Dot' };
+                const labels = {
+                    SAMPLE: 'Sample',
+                    LADDER: 'MW Ladder',
+                    EMPTY: 'Empty',
+                    CONTROL: 'Control',
+                    CALIBRATION: 'Calibration',
+                    DOT: 'Dot',
+                };
                 typeBadge.textContent = labels[newType] || 'Sample';
                 typeBadge.className = `gv-prop-type-badge gv-prop-type-${(newType || 'sample').toLowerCase()}`;
             }
+
+            // Toggle protein-load vs loading-volume sections based on the new type.
+            // CALIBRATION/CONTROL lanes use loading_volume_ul; everything else
+            // keeps the legacy protein_load_ug + protein_load_type pair.
+            const isCalibOrCtrl = ['CALIBRATION', 'CONTROL'].includes(newType);
+            const loadSection = document.getElementById('prop-protein-load-section');
+            const loadTypeSection = document.getElementById('prop-load-type-section');
+            const volumeSection = document.getElementById('prop-loading-volume-section');
+            if (loadSection) loadSection.style.display = isCalibOrCtrl ? 'none' : '';
+            if (loadTypeSection) loadTypeSection.style.display = isCalibOrCtrl ? 'none' : '';
+            if (volumeSection) volumeSection.style.display = isCalibOrCtrl ? '' : 'none';
 
             if (newType === 'LADDER') {
                 // Show template section (clear inline display so the .gv-prop-field flex layout applies)
@@ -542,8 +696,21 @@
             // Lane type change - special handler for template section
             const laneTypeSelect = document.getElementById('prop-lane-type');
             if (laneTypeSelect) {
+                // Capture the current value at render time so we can detect
+                // downgrades (CALIBRATION/CONTROL -> other) and revert if the
+                // user cancels the destructive confirmation prompt.
+                let currentType = laneTypeSelect.value;
                 laneTypeSelect.addEventListener('change', async (e) => {
                     const newType = e.target.value;
+                    const proceed = await this._maybeConfirmLaneTypeChange(
+                        currentType, newType, id
+                    );
+                    if (!proceed) {
+                        // Roll the <select> back to its prior value.
+                        e.target.value = currentType;
+                        return;
+                    }
+                    currentType = newType;
                     // Handle the standard lane change
                     this._handleLaneChange(id, e.target);
                     // Handle template section visibility and auto-assign
@@ -609,7 +776,7 @@
             // Parse value based on field type
             if (field === 'is_reduced') {
                 value = value === '' ? null : value === 'true';
-            } else if (field === 'protein_load_ug') {
+            } else if (field === 'protein_load_ug' || field === 'loading_volume_ul') {
                 value = value === '' ? null : parseFloat(value);
             } else if (field === 'ladder_template_id') {
                 // Template ID: empty string means null
@@ -673,6 +840,7 @@
 
             // MW label depends on band type - known for references, estimated for others
             const isMwReference = band.band_type === 'MW_REFERENCE';
+            const isCalibration = band.band_type === 'CALIBRATION';
             const mwLabel = isMwReference ? 'MW (kDa)' : 'Estimated MW (kDa)';
             const mwPlaceholder = isMwReference ? 'e.g., 25, 50, 75...' : 'e.g., 150.0';
 
@@ -683,6 +851,14 @@
                 ? '<span id="prop-band-saving" class="gv-saving-indicator"><i class="bi bi-arrow-repeat gv-spin"></i> Saving...</span>'
                 : '<span id="prop-band-saving" class="gv-saving-indicator" style="display: none;"></span>';
 
+            const qp = band.quant_point || {};
+            const qpAmount = qp.load_amount ?? '';
+            const qpUnit = qp.load_unit || 'UG';
+            const hasDensito = band.corrected_area != null && band.corrected_area > 0;
+            const densitoStatus = hasDensito
+                ? '<span class="text-success"><i class="bi bi-check-circle"></i> Densitometry available</span>'
+                : '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Run densitometry to use this point</span>';
+
             this.contentContainer.innerHTML = `
                 <div class="gv-quick-form">
                     <h6 class="mb-3">Band</h6>
@@ -692,6 +868,7 @@
                             <option value="OTHER" ${band.band_type === 'OTHER' ? 'selected' : ''}>Other</option>
                             <option value="POI" ${band.band_type === 'POI' ? 'selected' : ''}>Protein of Interest</option>
                             <option value="MW_REFERENCE" ${band.band_type === 'MW_REFERENCE' ? 'selected' : ''}>MW Reference</option>
+                            <option value="CALIBRATION" ${isCalibration ? 'selected' : ''}>Calibration Point</option>
                         </select>
                     </div>
                     <div class="mb-2">
@@ -702,14 +879,43 @@
                     <div class="mb-2">
                         <label class="form-label" id="prop-mw-label">${mwLabel}</label>
                         <input type="number" class="form-control form-control-sm" id="prop-mw" data-field="estimated_mw_kda"
-                               value="${band.estimated_mw_kda || ''}" step="0.1" placeholder="${mwPlaceholder}">
+                               value="${band.estimated_mw_kda != null ? Number(band.estimated_mw_kda).toFixed(1) : ''}" step="0.1" placeholder="${mwPlaceholder}">
                     </div>
+                    <section class="gv-prop-section mb-2" id="prop-band-calib-section"
+                             style="display: ${isCalibration ? '' : 'none'};">
+                        <h6 class="gv-prop-section-title">Calibration</h6>
+                        <div class="mb-2">
+                            <label class="form-label" for="prop-band-load-amount">Loaded amount</label>
+                            <input type="number" class="form-control form-control-sm"
+                                   id="prop-band-load-amount" data-field="quant_load_amount"
+                                   min="0" step="0.01" value="${qpAmount}" placeholder="—">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="prop-band-load-unit">Unit</label>
+                            <select class="form-select form-select-sm"
+                                    id="prop-band-load-unit" data-field="quant_load_unit">
+                                <option value="UG" ${qpUnit === 'UG' ? 'selected' : ''}>µg</option>
+                                <option value="UG_ML" ${qpUnit === 'UG_ML' ? 'selected' : ''}>µg/mL</option>
+                            </select>
+                            <small class="text-muted" id="prop-band-load-unit-hint" style="display: none;">
+                                Unit fixed by active calibration
+                            </small>
+                        </div>
+                        <div class="mb-1">
+                            <small id="prop-band-densito-status">${densitoStatus}</small>
+                        </div>
+                    </section>
                     <div class="mb-2">
                         <label class="form-label">Notes</label>
                         <textarea class="form-control form-control-sm" id="prop-band-notes" data-field="notes" rows="2">${band.notes || ''}</textarea>
                     </div>
+                    <div id="prop-band-save-error" class="text-danger small mb-1" style="display: none;"></div>
                     <div class="gv-quick-form-actions">
-                        <button class="btn btn-sm btn-primary" id="prop-save-band-btn">
+                        <!-- Save button is hidden by default — every field auto-saves on
+                             blur / change / Enter. It only surfaces (as "Retry save") when
+                             a server-side save fails, so the user can re-attempt without
+                             retyping. _setSaveErrorState toggles the visibility. -->
+                        <button class="btn btn-sm btn-primary" id="prop-save-band-btn" style="display: none;">
                             <i class="bi bi-save me-1"></i> Save
                         </button>
                         <button class="btn btn-sm btn-outline-danger" id="prop-delete-band-btn">
@@ -720,6 +926,19 @@
             `;
 
             this._setupBandListeners(band.id);
+
+            // After the form is in the DOM, lock the unit if there's an active
+            // quantification calibration on this analysis (units must agree).
+            this._getActiveCalibUnit().then(unit => {
+                if (!unit) return;
+                const select = document.getElementById('prop-band-load-unit');
+                const hint = document.getElementById('prop-band-load-unit-hint');
+                if (select) {
+                    select.value = unit;
+                    select.disabled = true;
+                }
+                if (hint) hint.style.display = '';
+            });
         }
 
         /**
@@ -743,12 +962,17 @@
             const bandTypeSelect = document.getElementById('prop-band-type');
             const mwLabel = document.getElementById('prop-mw-label');
             const mwInput = document.getElementById('prop-mw');
+            const calibSection = document.getElementById('prop-band-calib-section');
             if (bandTypeSelect && mwLabel && mwInput) {
                 bandTypeSelect.addEventListener('change', (e) => {
                     // Update MW label
                     const isMwReference = e.target.value === 'MW_REFERENCE';
                     mwLabel.textContent = isMwReference ? 'MW (kDa)' : 'Estimated MW (kDa)';
                     mwInput.placeholder = isMwReference ? 'e.g., 25, 50, 75...' : 'e.g., 150.0';
+                    // Toggle the Calibration section
+                    if (calibSection) {
+                        calibSection.style.display = e.target.value === 'CALIBRATION' ? '' : 'none';
+                    }
                     // Track the change immediately
                     this._handleBandChange(id, e.target);
                 });
@@ -775,6 +999,134 @@
                     this._handleBandChange(id, e.target);
                 });
             });
+
+            // Calibration sub-form: load_amount + load_unit auto-save on
+            // blur / Enter. Goes through the v1 PATCH so the nested
+            // quant_point is validated, flashes the input green on
+            // success so the user gets immediate feedback that the value
+            // landed without having to click Save.
+            const loadAmountInput = document.getElementById('prop-band-load-amount');
+            const loadUnitSelect = document.getElementById('prop-band-load-unit');
+            if (loadAmountInput) {
+                loadAmountInput.addEventListener('blur', () => {
+                    this._autoSaveCalibrationValue(id, loadAmountInput);
+                });
+                loadAmountInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        loadAmountInput.blur();
+                    }
+                });
+            }
+            if (loadUnitSelect) {
+                loadUnitSelect.addEventListener('change', () => {
+                    this._autoSaveCalibrationValue(id, loadUnitSelect);
+                });
+            }
+        }
+
+        /**
+         * Auto-save the calibration loaded amount + unit on blur / Enter
+         * change. Sends band_type + quant_point through the v1 PATCH so
+         * the BandSerializer validates atomically. Silent on validation
+         * issues (empty / non-numeric / negative) — those are surfaced by
+         * leaving the field as-is rather than a popup. Flashes the input
+         * green for ~1.2s on a successful save; surfaces the Save/Retry
+         * button on a server error so the user can act on it.
+         */
+        _autoSaveCalibrationValue(bandId, sourceInput) {
+            const bandTypeSelect = document.getElementById('prop-band-type');
+            if (!bandTypeSelect || bandTypeSelect.value !== 'CALIBRATION') return;
+            const amountStr = document.getElementById('prop-band-load-amount')?.value;
+            const unit = document.getElementById('prop-band-load-unit')?.value || 'UG';
+            if (amountStr === '' || amountStr == null) return;
+            const amount = parseFloat(amountStr);
+            if (!isFinite(amount) || amount < 0) return;
+
+            const payload = {
+                band_type: 'CALIBRATION',
+                quant_point: { load_amount: amount, load_unit: unit },
+            };
+
+            if (!this.apiClient || typeof this.apiClient.patchBand !== 'function') return;
+            if (this.autoSave) {
+                this.autoSave.run({
+                    operation: 'Calibration value',
+                    promise: this.apiClient.patchBand(bandId, payload),
+                    context: { kind: 'band', id: bandId },
+                    source: sourceInput,
+                    onSuccess: () => {
+                        if (this.onSyncBandLocal) {
+                            this.onSyncBandLocal(bandId, payload);
+                        }
+                        // _flashSavedInput + _setSaveErrorState(null) are
+                        // handled by the AUTOSAVE_OK listener (universal
+                        // for every band field), so no per-call work here.
+                    },
+                });
+                return;
+            }
+            // Defensive fallback if AutoSave wasn't injected — keeps the
+            // pre-refactor behaviour so we don't lose calibration saves.
+            this.apiClient.patchBand(bandId, payload).then(() => {
+                if (this.onSyncBandLocal) this.onSyncBandLocal(bandId, payload);
+                this._flashSavedInput(sourceInput);
+                this._setSaveErrorState(null);
+            }).catch(err => {
+                console.error('Auto-save calibration value failed:', err);
+                this._setSaveErrorState(err && err.message ? err.message : String(err));
+            });
+        }
+
+        /**
+         * Briefly highlight an input in green to signal "saved". Removed
+         * automatically; idempotent (re-applying on a still-flashing
+         * input restarts the timer).
+         */
+        _flashSavedInput(input) {
+            if (!input) return;
+            input.classList.remove('gv-input-saved-flash');
+            // Force a reflow so the class re-add re-triggers the transition.
+            // eslint-disable-next-line no-unused-expressions
+            input.offsetWidth;
+            input.classList.add('gv-input-saved-flash');
+            clearTimeout(input._savedFlashTimer);
+            input._savedFlashTimer = setTimeout(() => {
+                input.classList.remove('gv-input-saved-flash');
+            }, 1200);
+        }
+
+        /**
+         * Toggle the visibility of the Save/Retry button + a small status
+         * line. With auto-save covering every field, the explicit Save
+         * button is only useful as a manual retry when an auto-save has
+         * failed. Pass null to clear; pass a message to show the button
+         * with that error message.
+         */
+        _setSaveErrorState(errorMessage) {
+            const saveBtn = document.getElementById('prop-save-band-btn');
+            const errorLine = document.getElementById('prop-band-save-error');
+            if (saveBtn) {
+                if (errorMessage) {
+                    saveBtn.style.display = '';
+                    saveBtn.classList.add('btn-warning');
+                    saveBtn.classList.remove('btn-primary');
+                    saveBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Retry save';
+                } else {
+                    saveBtn.style.display = 'none';
+                    saveBtn.classList.add('btn-primary');
+                    saveBtn.classList.remove('btn-warning');
+                }
+            }
+            if (errorLine) {
+                if (errorMessage) {
+                    errorLine.style.display = '';
+                    errorLine.textContent = `Save failed: ${errorMessage}`;
+                } else {
+                    errorLine.style.display = 'none';
+                    errorLine.textContent = '';
+                }
+            }
         }
 
         /**
@@ -786,14 +1138,25 @@
             const field = input.dataset.field;
             let value = input.value;
 
+            // The Calibration sub-fields are saved via _saveBandProperties (so
+            // amount + unit are persisted atomically as a quant_point payload).
+            // Don't push individual changes through onUpdateBand which would
+            // fire a partial update that the v1 serializer can't validate.
+            if (field === 'quant_load_amount' || field === 'quant_load_unit') {
+                return;
+            }
+
             // Parse value based on field type
             if (field === 'estimated_mw_kda') {
                 value = value === '' ? null : parseFloat(value);
             }
 
-            // Update via callback
+            // Update via callback. Pass the source input so that, after
+            // AutoSave succeeds, the AUTOSAVE_OK listener below can flash
+            // exactly the field the user just edited (rather than the
+            // last-edited input we'd otherwise have to track manually).
             if (this.onUpdateBand) {
-                this.onUpdateBand(id, { [field]: value });
+                this.onUpdateBand(id, { [field]: value }, { source: input });
             }
 
             // Emit event for potential sync
@@ -804,19 +1167,78 @@
          * Save band properties from form.
          * @param {string|number} id - Band ID
          */
-        _saveBandProperties(id) {
+        async _saveBandProperties(id) {
             const bandType = document.getElementById('prop-band-type')?.value;
             const label = document.getElementById('prop-label')?.value;
             const mw = document.getElementById('prop-mw')?.value;
             const notes = document.getElementById('prop-band-notes')?.value;
 
+            const payload = {
+                band_type: bandType,
+                label: label,
+                estimated_mw_kda: mw ? parseFloat(mw) : null,
+                notes: notes,
+            };
+
+            if (bandType === 'CALIBRATION') {
+                const amountStr = document.getElementById('prop-band-load-amount')?.value;
+                const unit = document.getElementById('prop-band-load-unit')?.value || 'UG';
+                const amount = amountStr === '' || amountStr == null
+                    ? null
+                    : parseFloat(amountStr);
+                if (amount === null || !isFinite(amount) || amount < 0) {
+                    window.alert('Loaded amount is required and must be a positive number for CALIBRATION bands.');
+                    return;
+                }
+                payload.quant_point = {
+                    load_amount: amount,
+                    load_unit: unit,
+                };
+            }
+
+            // Route CALIBRATION saves through the v1 PATCH endpoint (so
+            // the nested quant_point gets validated by
+            // _validate_band_quant_point on the server) AND through the
+            // shared AutoSave helper, so a server failure surfaces the
+            // same toast + Retry button as every other band write.
+            if (bandType === 'CALIBRATION' && this.apiClient && this.apiClient.patchBand) {
+                const onSaveSuccess = () => {
+                    if (this.onSyncBandLocal) {
+                        this.onSyncBandLocal(id, payload);
+                    } else {
+                        const band = this.stateManager.getBand(id);
+                        if (band) {
+                            Object.assign(band, payload);
+                            band.quant_point = payload.quant_point;
+                        }
+                    }
+                    this.eventBus.emit(Events.BAND_PROPERTY_CHANGED, {
+                        id, field: 'band_type', value: bandType,
+                    });
+                    // _setSaveErrorState(null) handled by the AUTOSAVE_OK
+                    // listener up above.
+                };
+                if (this.autoSave) {
+                    this.autoSave.run({
+                        operation: 'Calibration value',
+                        promise: this.apiClient.patchBand(id, payload),
+                        context: { kind: 'band', id },
+                        onSuccess: onSaveSuccess,
+                    });
+                } else {
+                    // Defensive fallback if AutoSave wasn't injected.
+                    this.apiClient.patchBand(id, payload).then(() => {
+                        this._setSaveErrorState(null);
+                        onSaveSuccess();
+                    }).catch(err => {
+                        window.alert(`Could not save band: ${err.message || err}`);
+                    });
+                }
+                return;
+            }
+
             if (this.onUpdateBand) {
-                this.onUpdateBand(id, {
-                    band_type: bandType,
-                    label: label,
-                    estimated_mw_kda: mw ? parseFloat(mw) : null,
-                    notes: notes,
-                });
+                this.onUpdateBand(id, payload);
             }
         }
 
@@ -832,6 +1254,7 @@
                 'is_reduced': 'prop-is-reduced',
                 'protein_load_ug': 'prop-protein-load',
                 'protein_load_type': 'prop-load-type',
+                'loading_volume_ul': 'prop-loading-volume',
                 'sample_name': 'prop-sample-name',
                 'notes': 'prop-notes',
                 'band_type': 'prop-band-type',

@@ -162,6 +162,7 @@ def api_lane_detail(request, pk):
             "is_reduced",
             "protein_load_ug",
             "protein_load_type",
+            "loading_volume_ul",
             "sample_name",
             "notes",
         ]
@@ -449,6 +450,15 @@ def api_band_detail(request, pk):
             band.bbox_height = max(ys) - band.bbox_y
 
         band.save()
+
+        # Mirror the v1 BandSerializer behaviour: a band marked as
+        # CALIBRATION pulls its lane along (SAMPLE/LADDER/EMPTY → CALIBRATION).
+        # Otherwise the legacy PUT path (used by the context-menu "Set
+        # type → Calibration" submenu via apiClient.updateBand) would
+        # leave the lane mismatched even though the v1 PATCH path fixes
+        # it up.
+        from gel_analyzer.api.serializers import _auto_promote_lane_for_band
+        _auto_promote_lane_for_band(band)
 
         logger.info(f"Updated band {band.pk}", user=request.user.username, band_id=str(band.pk))
 
@@ -740,6 +750,7 @@ def api_bulk_update_lanes(request, pk):
         "is_reduced",
         "protein_load_ug",
         "protein_load_type",
+        "loading_volume_ul",
         "sample_name",
         "notes",
     ]
@@ -2118,12 +2129,16 @@ def api_analysis_calibrate(request, pk):
 
     if not lane_id:
         return json_error("lane_id is required")
-    if not template_id:
-        return json_error("template_id is required")
 
-    # Get lane and template
+    # Get lane. Template is OPTIONAL — when the user has already assigned MW
+    # values to ladder bands via the Band Editor, the fit consumes those
+    # values directly and never touches the template. Requiring a template
+    # purely for the "auto-attribute MW from a known brand" case made the
+    # workflow needlessly heavy when MWs were already in the DB.
     lane = get_object_or_404(Lane.objects.filter(analysis=analysis), pk=lane_id)
-    template = get_object_or_404(LadderTemplate, pk=template_id)
+    template = None
+    if template_id:
+        template = get_object_or_404(LadderTemplate, pk=template_id)
 
     try:
         # Configure calibration
@@ -2178,37 +2193,59 @@ def api_analysis_calibrate(request, pk):
         # Same logic as api_analysis_calibrate_multi: only report MARKERS
         # GENUINELY MISSING FROM THE GEL (no ladder band assigned to that MW).
         # User-excluded markers are shown in the marker table; flagging them
-        # as "not detected" here would be redundant + misleading.
-        excluded_set = {str(b) for b in excluded_band_ids}
-        ladder_assignments = []
-        for b in lane.bands.filter(estimated_mw_kda__isnull=False).exclude(estimated_mw_kda=0):
-            ladder_assignments.append((str(b.id), round(float(b.estimated_mw_kda), 2)))
-
-        template_bands = list(template.bands.order_by("band_order"))
+        # as "not detected" here would be redundant + misleading. Skipped
+        # entirely when no template was provided — without a template there
+        # is no canonical marker list to compare against.
         unmatched = []
-        for tb in template_bands:
-            target_mw = round(float(tb.mw_kda), 2)
-            has_active = any(mw == target_mw and band_id not in excluded_set for (band_id, mw) in ladder_assignments)
-            if has_active:
-                continue
-            has_any = any(mw == target_mw for (_, mw) in ladder_assignments)
-            if not has_any:
-                unmatched.append({"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)})
+        if template is not None:
+            excluded_set = {str(b) for b in excluded_band_ids}
+            ladder_assignments = []
+            for b in lane.bands.filter(estimated_mw_kda__isnull=False).exclude(estimated_mw_kda=0):
+                ladder_assignments.append((str(b.id), round(float(b.estimated_mw_kda), 2)))
+
+            template_bands = list(template.bands.order_by("band_order"))
+            for tb in template_bands:
+                target_mw = round(float(tb.mw_kda), 2)
+                has_active = any(mw == target_mw and band_id not in excluded_set for (band_id, mw) in ladder_assignments)
+                if has_active:
+                    continue
+                has_any = any(mw == target_mw for (_, mw) in ladder_assignments)
+                if not has_any:
+                    unmatched.append({"band_order": tb.band_order, "mw_kda": float(tb.mw_kda)})
+
+        # Expose r_squared + calibrations[] at the top level, mirroring the
+        # multi-ladder response shape. The frontend's _updateR2Display reads
+        # `result.average_r_squared` first and falls through to
+        # `result.r_squared`; previously the single-ladder response had R²
+        # only inside `calibration` and `result`, which made the indicator
+        # display 0.0000 for valid fits — confusing the user every time.
+        result_dict = result.to_dict()
+        # Mirror multi-ladder per-calibration entry shape so the marker
+        # table + chart code paths can share logic.
+        cal_dict = {
+            "id": str(calibration.pk),
+            "lane_id": str(lane.id),
+            "lane_number": lane.lane_number,
+            "method": calibration.method,
+            "method_display": calibration.get_method_display(),
+            "coefficients": calibration.coefficients,
+            "r_squared": calibration.r_squared,
+            "matched_band_count": calibration.matched_band_count,
+            "band_matches": calibration.band_matches,
+            "lane_top": lane.y,
+            "lane_bottom": lane.y + lane.height,
+        }
 
         return JsonResponse(
             {
                 "success": True,
-                "calibration": {
-                    "id": str(calibration.pk),
-                    "method": calibration.method,
-                    "method_display": calibration.get_method_display(),
-                    "coefficients": calibration.coefficients,
-                    "r_squared": calibration.r_squared,
-                    "matched_band_count": calibration.matched_band_count,
-                    "band_matches": calibration.band_matches,
-                },
-                "result": result.to_dict(),
+                "r_squared": calibration.r_squared,
+                "average_r_squared": calibration.r_squared,
+                "calibration": cal_dict,
+                "calibrations": [cal_dict],
+                "result": result_dict,
                 "unmatched_template_bands": unmatched,
+                "warnings": result.warnings,
             }
         )
 
@@ -2365,10 +2402,12 @@ def api_analysis_calibrate_multi(request, pk):
     if not isinstance(excluded_band_ids, list):
         return json_error("excluded_band_ids must be a list of band UUIDs")
 
-    if not template_id:
-        return json_error("template_id is required")
-
-    template = get_object_or_404(LadderTemplate, pk=template_id)
+    # Template is OPTIONAL — see api_analysis_calibrate for the full reasoning.
+    # When ladder bands already carry MW values from the Band Editor, the fit
+    # uses those directly and never touches the template.
+    template = None
+    if template_id:
+        template = get_object_or_404(LadderTemplate, pk=template_id)
 
     try:
         service = MultiLadderCalibrationService(analysis)
@@ -2395,7 +2434,7 @@ def api_analysis_calibrate_multi(request, pk):
         # detected" is misleading. The exclusion is reflected in the marker
         # table itself.
         unmatched = []
-        if result.calibrations:
+        if result.calibrations and template is not None:
             template_bands = list(template.bands.order_by("band_order"))
             excluded_set = {str(b) for b in excluded_band_ids}
 
@@ -2835,7 +2874,12 @@ def api_lane_comparison_data(request, pk):
             Lane.objects.select_related(
                 "analysis__gel_image",
                 "densitometry_summary",
-            ).prefetch_related("bands__densitometry", "analysis__ladder_calibrations__template"),
+            ).prefetch_related(
+                "bands__densitometry",
+                "bands__quant_point",
+                "analysis__ladder_calibrations__template",
+                "analysis__quant_calibrations",
+            ),
             pk=pk,
         )
 
@@ -2946,6 +2990,20 @@ def api_lane_comparison_data(request, pk):
                     "fit_r_squared": float(d.fit_r_squared) if d.fit_r_squared else None,
                     "peak_amplitude": float(d.peak_amplitude) if d.peak_amplitude else None,
                     "fwhm": float(d.fwhm) if d.fwhm else None,
+                    "estimated_amount": float(d.estimated_amount) if d.estimated_amount is not None else None,
+                    "estimated_amount_unit": d.estimated_amount_unit or None,
+                }
+
+            # Quant point (only present on CALIBRATION-typed bands with a declared
+            # known reference). Used by the comparison table for the CONTROL
+            # recovery math (predicted vs known) per Phase 7's fix.
+            qp = getattr(band, "quant_point", None)
+            if qp is not None:
+                band_info["quant_point"] = {
+                    "load_amount": float(qp.load_amount) if qp.load_amount is not None else None,
+                    "load_unit": qp.load_unit,
+                    "is_excluded_from_fit": qp.is_excluded_from_fit,
+                    "role": qp.role,
                 }
 
             bands_data.append(band_info)
@@ -2963,6 +3021,38 @@ def api_lane_comparison_data(request, pk):
         # Critical vs soft issues
         critical_issues = [i for i in comparability_issues if i in ("no_lane", "no_gel_image")]
 
+        # Surface the active protein-quantification calibration (if any) on
+        # the analysis payload so the comparison UI knows whether to show
+        # the Quantification column group + which unit / method to label.
+        active_quant = None
+        if lane.analysis:
+            active_quant = next(
+                (qc for qc in lane.analysis.quant_calibrations.all() if qc.is_active),
+                None,
+            )
+
+        # Lane-level densitometry summary (poi_percentage, totals, band_count)
+        # — needed for the lane-level comparison row display.
+        lane_summary = None
+        if hasattr(lane, "densitometry_summary") and lane.densitometry_summary:
+            s = lane.densitometry_summary
+            lane_summary = {
+                "total_integrated_area": float(s.total_integrated_area)
+                if s.total_integrated_area is not None
+                else None,
+                "poi_integrated_area": float(s.poi_integrated_area) if s.poi_integrated_area is not None else None,
+                "poi_percentage": float(s.poi_percentage) if s.poi_percentage is not None else None,
+                "band_count": s.band_count,
+                "poi_band_count": s.poi_band_count,
+            }
+
+        # Number of MW markers on the analysis ladder (Quality column).
+        mw_marker_count = 0
+        if lane.analysis:
+            cal = lane.analysis.ladder_calibrations.first()
+            if cal and cal.ladder_lane_id:
+                mw_marker_count = cal.ladder_lane.mw_markers.count() if hasattr(cal, "ladder_lane") else 0
+
         return JsonResponse(
             {
                 "id": f"{source}_{source_id}",
@@ -2972,7 +3062,12 @@ def api_lane_comparison_data(request, pk):
                 "lane": {
                     "id": lane.pk,
                     "lane_number": lane.lane_number,
+                    "lane_type": lane.lane_type,
+                    "lane_type_display": lane.get_lane_type_display(),
                     "sample_name": lane.sample_name or None,
+                    "is_reduced": lane.is_reduced,
+                    "protein_load_ug": float(lane.protein_load_ug) if lane.protein_load_ug is not None else None,
+                    "loading_volume_ul": float(lane.loading_volume_ul) if lane.loading_volume_ul is not None else None,
                     "bbox": {
                         "x": lane.x,
                         "y": lane.y,
@@ -2989,10 +3084,22 @@ def api_lane_comparison_data(request, pk):
                 "profile": profile_data,
                 "mw_profile": mw_profile_data,
                 "calibration": calibration_data,
+                "densitometry": lane_summary,
                 "analysis": {
                     "id": str(lane.analysis.pk) if lane.analysis else None,
                     "name": lane.analysis.name if lane.analysis else None,
                     "gel_type": lane.analysis.gel_image.gel_type if lane.analysis and lane.analysis.gel_image else None,
+                    "mw_marker_count": mw_marker_count,
+                    "active_quant_calibration": (
+                        {
+                            "id": str(active_quant.id),
+                            "method": active_quant.method,
+                            "unit": active_quant.unit,
+                            "r_squared": float(active_quant.r_squared) if active_quant.r_squared is not None else None,
+                        }
+                        if active_quant
+                        else None
+                    ),
                 }
                 if lane.analysis
                 else None,

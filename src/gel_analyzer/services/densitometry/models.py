@@ -371,7 +371,7 @@ class PeakIntegrationResult:
             "band_id": self.band_id,
             "band_type": self.band_type,
             "position_y": self.position_y,
-            "estimated_mw_kda": round(self.estimated_mw_kda, 2) if self.estimated_mw_kda else None,
+            "estimated_mw_kda": round(self.estimated_mw_kda, 1) if self.estimated_mw_kda else None,
             "peak_center": round(self.peak_center, 2),
             "amplitude": round(self.amplitude, 2),
             "sigma": round(self.sigma, 2),

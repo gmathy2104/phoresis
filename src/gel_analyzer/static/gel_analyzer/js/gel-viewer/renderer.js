@@ -58,7 +58,11 @@
                     .addClass('gv-lane');
             }
 
-            // Apply lane type class
+            // Apply lane type class.
+            // Supported types map to CSS rules in gel_viewer_standalone.css:
+            //   .gv-lane.sample / .ladder / .control / .calibration / .empty
+            // Any future lane_type just needs a matching CSS rule — this
+            // generic lowercase mapping does not need touching.
             if (data.lane_type) {
                 shape.addClass(data.lane_type.toLowerCase());
             }

@@ -477,8 +477,12 @@
                     <span>Ladder/Marker</span>
                 </button>
                 <button class="gv-context-menu-item" data-action="set-type" data-value="CONTROL">
-                    <i class="bi bi-circle-fill" style="color: #22c55e;"></i>
+                    <i class="bi bi-circle-fill" style="color: #06b6d4;"></i>
                     <span>Control</span>
+                </button>
+                <button class="gv-context-menu-item" data-action="set-type" data-value="CALIBRATION">
+                    <i class="bi bi-droplet-half" style="color: #8b5cf6;"></i>
+                    <span>Calibration</span>
                 </button>
                 <button class="gv-context-menu-item" data-action="set-type" data-value="EMPTY">
                     <i class="bi bi-circle" style="color: #6b7280;"></i>
@@ -513,6 +517,10 @@
                     <i class="bi bi-circle-fill" style="color: #f97316;"></i>
                     <span>MW Reference</span>
                 </button>
+                <button class="gv-context-menu-item" data-action="set-band-type" data-value="CALIBRATION">
+                    <i class="bi bi-droplet-half" style="color: #8b5cf6;"></i>
+                    <span>Calibration</span>
+                </button>
                 <button class="gv-context-menu-item" data-action="set-band-type" data-value="OTHER">
                     <i class="bi bi-circle-fill" style="color: #22c55e;"></i>
                     <span>Other</span>
@@ -522,6 +530,10 @@
             <button class="gv-context-menu-item" data-action="set-mw">
                 <i class="bi bi-rulers"></i>
                 <span>Set Molecular Weight</span>
+            </button>
+            <button class="gv-context-menu-item" data-action="set-calibration-value" id="ctx-set-calib-value" style="display: none;">
+                <i class="bi bi-eyedropper"></i>
+                <span id="ctx-set-calib-value-label">Set calibration value...</span>
             </button>
             <div class="gv-context-menu-divider"></div>
             <button class="gv-context-menu-item gv-context-menu-danger" data-action="delete">
@@ -652,6 +664,10 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
 <!-- GelViewer Modular Architecture -->
+<!-- Shared cross-app helpers (must load before gel-viewer modules) -->
+<script src="{% static 'gel_analyzer/js/shared/api-error.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/auto-save.js' %}"></script>
+
 <!-- Core Infrastructure -->
 <script src="{% static 'gel_analyzer/js/gel-viewer/event-bus.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/gel-viewer/api-client.js' %}"></script>

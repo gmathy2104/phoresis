@@ -314,11 +314,11 @@ class InterpolatedMWResult:
     def to_dict(self) -> dict:
         """Serialize to dictionary for API responses."""
         return {
-            "estimated_mw_kda": round(self.estimated_mw_kda, 2) if self.estimated_mw_kda else None,
+            "estimated_mw_kda": round(self.estimated_mw_kda, 1) if self.estimated_mw_kda else None,
             "method": self.method,
             "interpolation_weights": [w.to_dict() for w in self.interpolation_weights],
-            "left_ladder_mw": round(self.left_ladder_mw, 2) if self.left_ladder_mw else None,
-            "right_ladder_mw": round(self.right_ladder_mw, 2) if self.right_ladder_mw else None,
+            "left_ladder_mw": round(self.left_ladder_mw, 1) if self.left_ladder_mw else None,
+            "right_ladder_mw": round(self.right_ladder_mw, 1) if self.right_ladder_mw else None,
             "confidence": round(self.confidence, 4),
         }
 
@@ -343,7 +343,7 @@ class MultiLadderCalibrationResult:
 
     success: bool
     template_id: str | None = None
-    template_name: str = ""
+    template_name: str | None = None
     calibrations: list[CalibrationResult] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     ladder_count: int = 0

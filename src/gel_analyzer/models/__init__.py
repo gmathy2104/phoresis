@@ -34,6 +34,7 @@ from .ladder_templates import (
     LadderTemplate,
     MultiLadderCalibrationConfig,
 )
+from .quantification import ProteinQuantCalibration, ProteinQuantCalibrationPoint
 from .saved_comparison import SavedComparison, SavedComparisonLane
 
 __all__ = [
@@ -59,4 +60,7 @@ __all__ = [
     # Saved Comparison models
     "SavedComparison",
     "SavedComparisonLane",
+    # Protein quantification models
+    "ProteinQuantCalibrationPoint",
+    "ProteinQuantCalibration",
 ]

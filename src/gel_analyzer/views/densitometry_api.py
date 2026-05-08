@@ -99,6 +99,13 @@ def api_get_densitometry(request, pk: UUID):
                         "band_id": str(r.band_id),
                         "band_type": r.band.band_type,
                         "position_y": r.band.position_y,
+                        # bbox_y / bbox_height drive the chromatogram's
+                        # integration-zone shading. Without them the JS in
+                        # chromatogram-utils.calculateBandBounds falls back to
+                        # ±3σ around the peak center, which doesn't match a
+                        # user-edited bbox.
+                        "bbox_y": r.band.bbox_y,
+                        "bbox_height": r.band.bbox_height,
                         "estimated_mw_kda": r.band.estimated_mw_kda,
                         "peak_center_y": r.peak_center_y,
                         "peak_amplitude": r.peak_amplitude,
@@ -110,6 +117,18 @@ def api_get_densitometry(request, pk: UUID):
                         "snr": r.snr,
                         "relative_percent_lane": r.relative_percent_lane,
                         "relative_percent_gel": r.relative_percent_gel,
+                        # Quantification outputs (written by
+                        # ProteinQuantService.apply_to_analysis after the
+                        # user clicks "Save & apply" in the calibration
+                        # modal). Without these the results-table re-fetch
+                        # after QUANT_CALIBRATION_CHANGED brings down the
+                        # rest of the densitometry but leaves the
+                        # estimated-amount column at "—" — exactly the bug
+                        # the user reported. The DRF v1 mirror at
+                        # api/views.py:densitometry_results already
+                        # surfaces these; this FBV was the gap.
+                        "estimated_amount": r.estimated_amount,
+                        "estimated_amount_unit": r.estimated_amount_unit,
                     }
                     for r in lane_bands
                 ],

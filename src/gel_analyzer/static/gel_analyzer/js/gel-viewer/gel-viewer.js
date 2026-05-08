@@ -70,6 +70,17 @@
 
             // Core instances
             this.eventBus = new EventBus();
+            // Shared AutoSave helper — every fire-and-forget API call in
+            // the app goes through this.autoSave.run(...) so error toasts,
+            // success/failure events, and inline retry feedback stay
+            // consistent across panels. Defined at boot so module
+            // constructors below can capture it.
+            this.autoSave = (window.PhoresisShared && window.PhoresisShared.AutoSave)
+                ? window.PhoresisShared.AutoSave.create({
+                    eventBus: this.eventBus,
+                    showToast: (msg) => this._showMessage(msg),
+                })
+                : null;
             this.svg = null;
 
             // SVG groups
@@ -287,10 +298,12 @@
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 apiClient: this.apiClient,
+                autoSave: this.autoSave,
+                onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
-                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
                 onSelectBand: (bandId) => this._selectAnnotation('band', bandId)
             });
 
@@ -306,7 +319,7 @@
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 onSelectBand: (bandId) => this._selectAnnotation('band', bandId),
-                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
                 onDeleteBand: (id) => this._deleteBand(id)
             });
 
@@ -319,6 +332,7 @@
             this.contextMenu = new ContextMenu({
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
+                apiClient: this.apiClient,
                 svg: this.svg,
                 handlesGroup: this.handlesGroup,
                 isEditable: this.isEditable,
@@ -326,9 +340,20 @@
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
-                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
+                // Local-only sync for callers that already persisted via
+                // their own endpoint (e.g. _promptCalibrationValue uses
+                // the v1 PATCH so the nested quant_point reaches the
+                // BandSerializer). They still need the SVG class swap +
+                // BAND_UPDATED emit so the rest of the UI catches up.
+                onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
                 onStartResize: (id) => this._startLaneResize(id),
-                getSelectedAnnotation: () => ({ type: this.selectedType, id: this.selectedId })
+                // Return null when nothing is selected so ContextMenu's `!selection`
+                // guard short-circuits cleanly. Returning a {type:null,id:null}
+                // object makes the truthy guard pass and downstream lookups
+                // (e.g. stateManager.getBand(null)) silently no-op.
+                getSelectedAnnotation: () =>
+                    this.selectedType ? { type: this.selectedType, id: this.selectedId } : null
             });
 
 // Electropherogram Panel (Plotly.js intensity profile) — init before DetectionPanel
@@ -565,6 +590,15 @@
                 this._reloadAnnotations();
             });
 
+            // Auto-promote the parent lane to CALIBRATION when any band
+            // inside it becomes a CALIBRATION point. Users were having to
+            // do the two-step (lane → CALIBRATION, then band → CALIBRATION)
+            // manually; the band-type alone is enough signal that the lane
+            // is meant to hold calibration data.
+            this.eventBus.on(Events.BAND_UPDATED, (band) => {
+                this._autoPromoteCalibrationLane(band);
+            });
+
             // Calibration applied - update MW lines if visible
             this.eventBus.on(Events.CALIBRATION_APPLIED, async (data) => {
                 console.log('Calibration applied event received', data);
@@ -581,7 +615,12 @@
                     // Update toolbar state
                     this._updateToolbarState();
                 } catch (error) {
+                    // Was silent before — surface the actual server error
+                    // so a calibration refresh that fails (e.g. 500 from
+                    // the server, network drop) doesn't just leave the
+                    // user wondering why MW lines are stale.
                     console.error('Failed to update calibration data:', error);
+                    this._showMessage(`❌ Calibration refresh failed: ${(error && error.message) || error}`);
                 }
             });
 
@@ -836,7 +875,7 @@
 
             } catch (error) {
                 console.error('Failed to load annotations:', error);
-                this._showMessage('Failed to load annotations');
+                this._showMessage(`❌ Failed to load annotations: ${(error && error.message) || error}`);
             } finally {
                 this._hideLoading();
             }
@@ -987,7 +1026,8 @@
                 const element = this.svg.findOne(`#lane-${id}`);
                 if (element) {
                     element.removeClass('sample').removeClass('ladder')
-                           .removeClass('control').removeClass('empty');
+                           .removeClass('control').removeClass('calibration')
+                           .removeClass('empty');
                     element.addClass(data.lane_type.toLowerCase());
                 }
             }
@@ -1117,62 +1157,61 @@
             // Switch back to select tool after creating
             this.toolManager.setTool('select');
 
-            // Async server call (fire-and-forget, like delete)
-            // Resolve lane ID (could be temp ID if lane was just created)
+            // Async server call (fire-and-forget, like delete).
+            // Routes through this.autoSave for the toast/AUTOSAVE_FAILED
+            // event on errors. The band-specific BAND_SAVE_COMPLETE /
+            // BAND_SAVE_FAILED events stay alongside — they carry the
+            // tempId → real-id swap that AutoSave's generic events
+            // can't represent.
             const realLaneId = lane?._isNew ? lane.id : laneId;
             if (!String(realLaneId).startsWith('temp_')) {
-                this.apiClient.createBand(realLaneId, {
+                const createPromise = this.apiClient.createBand(realLaneId, {
                     polygon: data.polygon,
                     position_y: data.position_y,
                     band_type: band.band_type,
                     estimated_mw_kda: band.estimated_mw_kda,
                     mw_estimation_method: band.mw_estimation_method,
-                }).then(result => {
-                    // Replace temp ID with real server ID
+                });
+                const onCreateSuccess = (result) => {
                     const oldId = tempId;
                     band.id = result.id;
                     band._isNew = false;
-                    band._isSaving = false;  // Clear saving state
-
-                    // Update state manager
+                    band._isSaving = false;
                     this.stateManager.replaceBandId(oldId, result.id);
-
-                    // Update SVG element ID
                     const element = this.svg.findOne(`#band-${oldId}`);
                     if (element) element.attr('id', `band-${result.id}`);
-
-                    // Remove from pending creates (no longer needs batch save)
                     this.stateManager.pendingChanges.bands.created.delete(oldId);
-
-                    // Check if still dirty (other pending changes)
                     if (!this.stateManager.hasPendingChanges()) {
                         this.stateManager.markClean();
                     }
-
-                    // Update selection if this band was selected
                     if (this.selectedId === oldId) {
                         this.selectedId = result.id;
                     }
-
-                    // Update annotations list to reflect new ID
                     this.renderer.updateAnnotationsList();
-
-                    // Emit event so UI can re-enable type selector
                     this.eventBus.emit(Events.BAND_SAVE_COMPLETE, {
                         id: result.id,
                         tempId: oldId,
                     });
-                }).catch(error => {
-                    console.error('Failed to create band on server:', error);
-                    // Clear saving state even on error - allow user to retry
+                };
+                const onCreateError = (error) => {
                     band._isSaving = false;
-                    // Emit event so UI can re-enable type selector
                     this.eventBus.emit(Events.BAND_SAVE_FAILED, {
                         id: tempId,
-                        error: error.message || 'Save failed',
+                        error: (error && error.message) || 'Save failed',
                     });
-                    // Band stays local with temp ID, will be created on Save
-                });
+                    // Band stays local with temp ID, will be created on Save.
+                };
+                if (this.autoSave) {
+                    this.autoSave.run({
+                        operation: 'Band create',
+                        promise: createPromise,
+                        context: { kind: 'band', id: tempId },
+                        onSuccess: onCreateSuccess,
+                        onError: onCreateError,
+                    });
+                } else {
+                    createPromise.then(onCreateSuccess).catch(onCreateError);
+                }
             } else {
                 // Lane is new (temp ID), band will be saved in batch save
                 // Clear saving state immediately - no race condition here
@@ -1284,41 +1323,118 @@
             return Math.round((leftMW * (1 - t) + rightMW * t) * 100) / 100;
         }
 
-        _updateBand(id, data) {
+        /**
+         * Apply a band patch locally — mutate state, refresh the SVG class
+         * if band_type changed, and emit BAND_UPDATED so panels (properties,
+         * band table, calibration, ...) can refresh. Does NOT call the
+         * server. Reusable from any caller that has already persisted via
+         * its own endpoint (e.g. context menu's PATCH for calibration
+         * quant_point).
+         */
+        _syncBandLocally(id, data) {
             const band = this.stateManager.getBand(id);
-            if (!band) return;
+            if (!band) return null;
 
             Object.assign(band, data);
 
-            // Update SVG class if band_type changed
             if (data.band_type) {
                 const element = this.svg.findOne(`#band-${id}`);
                 if (element) {
-                    // Remove all type classes
-                    element.removeClass('other').removeClass('mw_reference').removeClass('poi');
-                    // Add new type class
+                    // Strip every band-type class we know about, otherwise
+                    // CALIBRATION → OTHER (or any other transition) leaves
+                    // the previous color stuck on the element.
+                    element
+                        .removeClass('other')
+                        .removeClass('mw_reference')
+                        .removeClass('poi')
+                        .removeClass('calibration')
+                        .removeClass('control');
                     element.addClass(data.band_type.toLowerCase());
                 }
             }
 
+            this.eventBus.emit(Events.BAND_UPDATED, band);
+            return band;
+        }
+
+        /**
+         * Mirror the server's auto-promote of the parent lane to
+         * CALIBRATION when one of its bands becomes a CALIBRATION point.
+         * The server side persists the lane change atomically with the
+         * band update (BandSerializer.update + the legacy PUT view both
+         * call _auto_promote_lane_for_band), so this method only handles
+         * the *local* visual sync — state + SVG class — to give the user
+         * instant feedback. No extra HTTP round-trip needed.
+         *
+         * Idempotent: no-op if the band isn't CALIBRATION or if the lane
+         * is already CALIBRATION.
+         */
+        _autoPromoteCalibrationLane(band) {
+            if (!band || band.band_type !== 'CALIBRATION') return;
+            const laneId = band.lane_id;
+            if (!laneId) return;
+            const lane = this.stateManager.getLane(laneId);
+            if (!lane || lane.lane_type === 'CALIBRATION') return;
+
+            lane.lane_type = 'CALIBRATION';
+            if (typeof StateManager !== 'undefined' && StateManager.getLaneTypeDisplay) {
+                lane.lane_type_display = StateManager.getLaneTypeDisplay('CALIBRATION');
+            }
+            const element = this.svg.findOne(`#lane-${laneId}`);
+            if (element) {
+                element
+                    .removeClass('sample')
+                    .removeClass('ladder')
+                    .removeClass('control')
+                    .removeClass('calibration')
+                    .removeClass('empty');
+                element.addClass('calibration');
+            }
+            this._showMessage(`Lane ${lane.lane_number} → Calibration (auto)`);
+            this.eventBus.emit(Events.LANE_UPDATED, lane);
+        }
+
+        _updateBand(id, data, opts = {}) {
+            const band = this._syncBandLocally(id, data);
+            if (!band) return;
+
             this.stateManager.trackBandUpdate(id, data);
 
-            // Async server call for persisted bands (fire-and-forget, like delete)
+            // Async server call for persisted bands (fire-and-forget, like delete).
+            // Routes through this.autoSave so the user sees a real toast on
+            // failure (instead of a silent console.error) and panels can
+            // listen to AUTOSAVE_OK to flash the source input green.
             const isTempBand = String(id).startsWith('temp_');
             if (!isTempBand) {
-                this.apiClient.updateBand(id, data).then(() => {
-                    // Remove from pending updates since already saved
-                    this.stateManager.pendingChanges.bands.updated.delete(id);
-                    // Check if still dirty (other pending changes)
-                    if (!this.stateManager.hasPendingChanges()) {
-                        this.stateManager.markClean();
-                    }
-                }).catch(error => {
-                    console.error('Failed to update band on server:', error);
-                    // Band stays in pending updates, will sync on Save
-                    this.stateManager.markDirty();
-                });
-                this._showMessage('Band updated');
+                if (this.autoSave) {
+                    this.autoSave.run({
+                        operation: 'Band update',
+                        promise: this.apiClient.updateBand(id, data),
+                        context: { kind: 'band', id },
+                        source: opts.source || null,
+                        onSuccess: () => {
+                            this.stateManager.pendingChanges.bands.updated.delete(id);
+                            if (!this.stateManager.hasPendingChanges()) {
+                                this.stateManager.markClean();
+                            }
+                        },
+                        onError: () => {
+                            // Band stays in pending updates so the next batch Save can retry.
+                            this.stateManager.markDirty();
+                        },
+                    });
+                } else {
+                    // Defensive fallback (shouldn't happen — AutoSave is wired at boot).
+                    this.apiClient.updateBand(id, data).then(() => {
+                        this.stateManager.pendingChanges.bands.updated.delete(id);
+                        if (!this.stateManager.hasPendingChanges()) {
+                            this.stateManager.markClean();
+                        }
+                    }).catch(error => {
+                        console.error('Failed to update band on server:', error);
+                        this.stateManager.markDirty();
+                    });
+                }
             } else {
                 this.stateManager.markDirty();
                 this._showMessage('Band updated (unsaved)');
@@ -1349,13 +1465,23 @@
 
             this._showMessage('Band deleted');
 
-            // Delete on server in background (non-blocking)
+            // Delete on server in background (non-blocking).
+            // The band is already gone from the UI, so a server failure
+            // can't be visually rolled back without restore logic — but
+            // the user still needs to *see* that the delete didn't land,
+            // hence the AutoSave toast.
             if (!isTempBand) {
-                this.apiClient.deleteBand(id).catch(error => {
-                    console.error('Failed to delete band on server:', error);
-                    // Band already removed from UI - just log the error
-                    // Could implement restore logic here if needed
-                });
+                if (this.autoSave) {
+                    this.autoSave.run({
+                        operation: 'Band delete',
+                        promise: this.apiClient.deleteBand(id),
+                        context: { kind: 'band', id, deleted: true },
+                    });
+                } else {
+                    this.apiClient.deleteBand(id).catch(error => {
+                        console.error('Failed to delete band on server:', error);
+                    });
+                }
             } else {
                 // For temp bands, track for cleanup
                 this.stateManager.trackBandDeletion(id);
@@ -1563,7 +1689,7 @@
                 } catch (error) {
                     console.error('Failed to clear existing lanes:', error);
                     this._hideLoading();
-                    this._showMessage('Failed to clear existing lanes');
+                    this._showMessage(`❌ Failed to clear existing lanes: ${(error && error.message) || error}`);
                     return;
                 }
             }
@@ -1924,7 +2050,7 @@
 
             } catch (error) {
                 console.error('Failed to reload annotations:', error);
-                this._showMessage('Failed to reload data');
+                this._showMessage(`❌ Failed to reload data: ${(error && error.message) || error}`);
             }
         }
 

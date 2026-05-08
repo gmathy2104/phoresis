@@ -14,6 +14,8 @@ from gel_analyzer.models import (
     LadderBandDefinition,
     LadderTemplate,
     Lane,
+    ProteinQuantCalibration,
+    ProteinQuantCalibrationPoint,
     SavedComparison,
 )
 
@@ -118,10 +120,102 @@ class GelImageUploadSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 
+class QuantPointSerializer(serializers.ModelSerializer):
+    """Nested serializer for a band's quantification calibration point."""
+
+    class Meta:
+        model = ProteinQuantCalibrationPoint
+        fields = ("load_amount", "load_unit", "is_excluded_from_fit", "role")
+        read_only_fields = ("role",)
+
+
+def _validate_band_quant_point(attrs: dict, instance) -> dict:
+    """Shared validation for BandSerializer and BandWriteSerializer.
+
+    Both serializers must enforce the same three rules around CALIBRATION-typed
+    bands and their quant_point: required, parent lane type, unit consistency.
+    Drift between two near-identical copies has historically bitten this file
+    (AGENTS.md §2-style "shipped 3x already"), so the rules live in one helper.
+    """
+    band_type = attrs.get("band_type", getattr(instance, "band_type", None))
+    qp = attrs.get("quant_point")
+    if band_type == Band.BandType.CALIBRATION and qp is None:
+        existing_qp = None
+        if instance is not None:
+            existing_qp = ProteinQuantCalibrationPoint.objects.filter(band=instance).first()
+        if existing_qp is None:
+            raise serializers.ValidationError(
+                "band_type=CALIBRATION requires a quant_point with load_amount and load_unit"
+            )
+    # Lane-type compatibility used to be a hard validation error here
+    # ("must live in a CALIBRATION or CONTROL lane"), but that forced
+    # users into a manual two-step (promote lane → then mark band).
+    # The user's intent is unambiguous when they mark a band as
+    # CALIBRATION, so we let the *update path* auto-promote a SAMPLE /
+    # LADDER / EMPTY lane to CALIBRATION (see _auto_promote_lane_for_band
+    # below). CONTROL lanes are left alone — a CONTROL band stays a
+    # control point, which is a deliberate analytical choice.
+    if qp is not None and band_type == Band.BandType.CALIBRATION:
+        lane = attrs.get("lane") or (instance.lane if instance else None)
+        if lane is not None:
+            active = ProteinQuantCalibration.objects.filter(analysis=lane.analysis, is_active=True).first()
+            if active and qp.get("load_unit") and qp["load_unit"] != active.unit:
+                raise serializers.ValidationError(
+                    f"Unit {qp['load_unit']} differs from the active calibration's unit {active.unit}"
+                )
+    return attrs
+
+
+def _auto_promote_lane_for_band(band) -> None:
+    """If a band became CALIBRATION but its lane isn't CALIBRATION/CONTROL,
+    promote the lane to CALIBRATION. The user's intent is implicit in the
+    band-type change; failing the request would just force them to do a
+    two-step they shouldn't have to."""
+    if band.band_type != Band.BandType.CALIBRATION:
+        return
+    if band.lane.lane_type in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL):
+        return
+    band.lane.lane_type = Lane.LaneType.CALIBRATION
+    band.lane.save(update_fields=["lane_type"])
+
+
+def _update_band_quant_point(band, qp_data: dict | None) -> None:
+    """Shared post-save handling: create/update/delete the ProteinQuantCalibrationPoint
+    that mirrors a band's CALIBRATION state. See _validate_band_quant_point for why
+    this is a shared helper rather than method bodies."""
+    if band.band_type == Band.BandType.CALIBRATION and qp_data is not None:
+        role = (
+            ProteinQuantCalibrationPoint.ROLE_CONTROL
+            if band.lane.lane_type == Lane.LaneType.CONTROL
+            else ProteinQuantCalibrationPoint.ROLE_CALIBRATION
+        )
+        ProteinQuantCalibrationPoint.objects.update_or_create(
+            band=band,
+            defaults={
+                "load_amount": qp_data["load_amount"],
+                "load_unit": qp_data["load_unit"],
+                "is_excluded_from_fit": qp_data.get("is_excluded_from_fit", False),
+                "role": role,
+            },
+        )
+    elif band.band_type != Band.BandType.CALIBRATION:
+        ProteinQuantCalibrationPoint.objects.filter(band=band).delete()
+
+
 class BandSerializer(serializers.ModelSerializer):
     """Serializer for Band — includes polygon, bbox, and intensities."""
 
     bbox = serializers.SerializerMethodField()
+    corrected_area = serializers.FloatField(
+        source="densitometry.corrected_area", read_only=True, allow_null=True, required=False
+    )
+    estimated_amount = serializers.FloatField(
+        source="densitometry.estimated_amount", read_only=True, allow_null=True, required=False
+    )
+    estimated_amount_unit = serializers.CharField(
+        source="densitometry.estimated_amount_unit", read_only=True, allow_null=True, required=False
+    )
+    quant_point = QuantPointSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Band
@@ -141,6 +235,10 @@ class BandSerializer(serializers.ModelSerializer):
             "label",
             "notes",
             "created_at",
+            "corrected_area",
+            "estimated_amount",
+            "estimated_amount_unit",
+            "quant_point",
         ]
 
     @extend_schema_field(OpenApiTypes.OBJECT)
@@ -154,9 +252,27 @@ class BandSerializer(serializers.ModelSerializer):
             }
         return None
 
+    def validate(self, attrs):
+        return _validate_band_quant_point(attrs, self.instance)
+
+    def update(self, instance, validated_data):
+        qp_data = validated_data.pop("quant_point", None)
+        band = super().update(instance, validated_data)
+        _auto_promote_lane_for_band(band)
+        _update_band_quant_point(band, qp_data)
+        return band
+
 
 class BandWriteSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating bands."""
+    """Serializer for creating/updating bands.
+
+    Validation + nested quant_point update logic is shared with BandSerializer
+    via _validate_band_quant_point / _update_band_quant_point — a single source
+    of truth for the CALIBRATION rules so the two near-identical serializers
+    cannot drift.
+    """
+
+    quant_point = QuantPointSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Band
@@ -175,7 +291,18 @@ class BandWriteSerializer(serializers.ModelSerializer):
             "area_pixels",
             "label",
             "notes",
+            "quant_point",
         ]
+
+    def validate(self, attrs):
+        return _validate_band_quant_point(attrs, self.instance)
+
+    def update(self, instance, validated_data):
+        qp_data = validated_data.pop("quant_point", None)
+        band = super().update(instance, validated_data)
+        _auto_promote_lane_for_band(band)
+        _update_band_quant_point(band, qp_data)
+        return band
 
 
 # =============================================================================
@@ -205,6 +332,7 @@ class LaneSerializer(serializers.ModelSerializer):
             "is_reduced",
             "protein_load_ug",
             "protein_load_type",
+            "loading_volume_ul",
             "sample_name",
             "ladder_template",
             "ladder_template_name",
@@ -233,6 +361,7 @@ class LaneWriteSerializer(serializers.ModelSerializer):
             "is_reduced",
             "protein_load_ug",
             "protein_load_type",
+            "loading_volume_ul",
             "sample_name",
             "ladder_template",
             "notes",

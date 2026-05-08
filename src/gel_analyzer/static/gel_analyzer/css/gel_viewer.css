@@ -482,6 +482,18 @@
     stroke: var(--gv-ladder-stroke);
 }
 
+/* Lane CALIBRATION + CONTROL mirror their band-type counterparts so a
+   lane that holds calibration points reads as the same family as those
+   points. */
+.gv-lane.calibration {
+    fill: rgba(248, 113, 113, 0.12);
+    stroke: rgba(248, 113, 113, 0.7);
+}
+.gv-lane.control {
+    fill: rgba(6, 182, 212, 0.12);
+    stroke: rgba(6, 182, 212, 0.7);
+}
+
 /* Band polygons */
 .gv-band {
     fill: var(--gv-band-fill);
@@ -514,6 +526,14 @@
     fill: rgba(168, 85, 247, 0.35);
     stroke: rgba(168, 85, 247, 0.8);
 }
+.gv-band.calibration {
+    fill: rgba(248, 113, 113, 0.35);
+    stroke: rgba(248, 113, 113, 0.8);
+}
+.gv-band.control {
+    fill: rgba(6, 182, 212, 0.35);
+    stroke: rgba(6, 182, 212, 0.8);
+}
 
 /* Band type hover states */
 .gv-band.other:hover {
@@ -524,6 +544,12 @@
 }
 .gv-band.poi:hover {
     fill: rgba(168, 85, 247, 0.5);
+}
+.gv-band.calibration:hover {
+    fill: rgba(248, 113, 113, 0.5);
+}
+.gv-band.control:hover {
+    fill: rgba(6, 182, 212, 0.5);
 }
 
 /* Band type selected states */
@@ -537,6 +563,14 @@
 }
 .gv-band.poi.selected {
     stroke: rgba(168, 85, 247, 0.9);
+    stroke-width: 2;
+}
+.gv-band.calibration.selected {
+    stroke: rgba(248, 113, 113, 0.95);
+    stroke-width: 2;
+}
+.gv-band.control.selected {
+    stroke: rgba(6, 182, 212, 0.95);
     stroke-width: 2;
 }
 

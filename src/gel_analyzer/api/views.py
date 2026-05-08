@@ -8,8 +8,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status as drf_status
 from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from gel_analyzer.api.filters import (
@@ -234,6 +235,13 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
                         band_results.append(
                             {
                                 "band_id": str(band.id),
+                                # bbox_y / bbox_height drive the chromatogram's
+                                # integration-zone shading (chromatogram-utils.js
+                                # calculateBandBounds). Without them the JS falls
+                                # back to a ±3σ window centered on the peak —
+                                # visually wrong after a manual bbox edit.
+                                "bbox_y": band.bbox_y,
+                                "bbox_height": band.bbox_height,
                                 "peak_center_y": dr.peak_center_y,
                                 "peak_amplitude": dr.peak_amplitude,
                                 "fwhm": dr.fwhm,
@@ -241,6 +249,10 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
                                 "relative_percent_lane": dr.relative_percent_lane,
                                 "fit_r_squared": dr.fit_r_squared,
                                 "snr": dr.snr,
+                                # Spec §8.1 — quantification fields surfaced for the
+                                # UI's results-table and quantification curve tab.
+                                "estimated_amount": dr.estimated_amount,
+                                "estimated_amount_unit": dr.estimated_amount_unit,
                             }
                         )
                     except DensitometryResult.DoesNotExist:
@@ -365,6 +377,50 @@ class LaneViewSet(viewsets.ModelViewSet):
         if self.action in ("create", "partial_update", "destroy"):
             return [WriteRateThrottle()]
         return super().get_throttles()
+
+    def partial_update(self, request, *args, **kwargs):
+        """PATCH /api/v1/lanes/<id>/ — with quantification-aware downgrade guard.
+
+        If the lane is being moved out of CALIBRATION/CONTROL and dependent
+        ProteinQuantCalibrationPoint rows exist, return 409 unless ?force=true
+        is passed; with force, purge the points and demote the bands to OTHER
+        before performing the regular update.
+        """
+        from django.db import transaction
+
+        from gel_analyzer.models import Band as _Band
+        from gel_analyzer.models import ProteinQuantCalibrationPoint
+
+        instance = self.get_object()
+        new_type = request.data.get("lane_type")
+        force = request.query_params.get("force", "").lower() == "true"
+
+        is_downgrade = (
+            new_type
+            and instance.lane_type in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL)
+            and new_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL)
+        )
+        if is_downgrade:
+            dependent_ids = list(
+                ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).values_list(
+                    "band_id", flat=True
+                )
+            )
+            if dependent_ids and not force:
+                return Response(
+                    {
+                        "detail": "Lane has calibration points. Pass ?force=true to purge them.",
+                        "dependent_band_ids": [str(b) for b in dependent_ids],
+                    },
+                    status=drf_status.HTTP_409_CONFLICT,
+                )
+            if dependent_ids and force:
+                with transaction.atomic():
+                    ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).delete()
+                    _Band.objects.filter(
+                        lane=instance, band_type=_Band.BandType.CALIBRATION
+                    ).update(band_type=_Band.BandType.OTHER)
+        return super().partial_update(request, *args, **kwargs)
 
     @extend_schema(
         summary="Get Lane Intensity Profile",
@@ -616,3 +672,186 @@ class SavedComparisonViewSet(viewsets.ModelViewSet):
                 "lanes": lane_data,
             }
         )
+
+
+# =============================================================================
+# Protein Quantification Endpoints
+# =============================================================================
+
+
+def _serialize_calib(c):
+    """Serialize a ProteinQuantCalibration row for the quantification endpoints."""
+    return {
+        "id": str(c.id),
+        "method": c.method,
+        "unit": c.unit,
+        "coefficients": c.coefficients,
+        "r_squared": c.r_squared,
+        "equation": c.equation,
+        "excluded_band_ids": c.excluded_band_ids,
+        "is_active": c.is_active,
+        "superseded_at": c.superseded_at.isoformat() if c.superseded_at else None,
+        "created_by": c.created_by.username if c.created_by else None,
+        "created_at": c.created_at.isoformat(),
+        "notes": c.notes,
+    }
+
+
+def _build_full_result(analysis, params):
+    """Run a full preview: fit + project samples + project controls."""
+    from gel_analyzer.services.quantification.service import (
+        ProteinQuantCalibrationService,
+    )
+
+    svc = ProteinQuantCalibrationService(params)
+    cal_points = svc.collect_calibration_points(analysis)
+    result = svc.fit(cal_points, excluded_band_ids=params.excluded_band_ids)
+    if not result.success:
+        return result, svc
+    # Add control projections
+    ctrls = svc.collect_control_points(analysis)
+    for c in ctrls:
+        if c.corrected_area is not None:
+            c.predicted_amount = svc.project(c.corrected_area, result)
+    result.control_points = ctrls
+    # Sample projections
+    samples = svc.collect_sample_bands(analysis)
+    for s in samples:
+        if s.corrected_area is not None:
+            s.predicted_amount = svc.project(s.corrected_area, result)
+    result.sample_projections = samples
+    return result, svc
+
+
+@extend_schema(
+    summary="Get / Save Protein Quantification Calibration",
+    tags=["Quantification"],
+)
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def quantification_root(request, analysis_id):
+    """GET → active calibration (or null); POST → save & apply a new fit."""
+    from gel_analyzer.models import ProteinQuantCalibration
+    from gel_analyzer.services.quantification.models import QuantParams
+
+    try:
+        analysis = GelAnalysis.objects.get(pk=analysis_id)
+    except GelAnalysis.DoesNotExist:
+        return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
+        return Response({"active": _serialize_calib(active) if active else None})
+
+    # POST = save & apply
+    params = QuantParams(
+        method=request.data.get("method", "LINEAR"),
+        unit=request.data.get("unit", "UG"),
+        excluded_band_ids=request.data.get("excluded_band_ids", []),
+    )
+    result, svc = _build_full_result(analysis, params)
+    if not result.success:
+        return Response(
+            {"detail": result.error_message, **result.to_dict()},
+            status=drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    # save_active uses transaction.atomic() internally, but apply_to_analysis is
+    # the second leg of "Save & apply" (spec §7.1, §8.3) and must commit together
+    # — otherwise a crash between the two leaves the analysis with an active
+    # calibration but no estimated_amount values written.
+    from django.db import transaction
+
+    with transaction.atomic():
+        calib = svc.save_active(
+            analysis, result, user=request.user, notes=request.data.get("notes", "")
+        )
+        svc.apply_to_analysis(calib)
+    return Response(_serialize_calib(calib), status=drf_status.HTTP_201_CREATED)
+
+
+@extend_schema(summary="Preview Protein Quantification Fit", tags=["Quantification"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def quantification_preview(request, analysis_id):
+    """Dry-run a fit without persisting; returns result.to_dict() with status
+    200 on success or 422 on failure (e.g. missing densitometry, < 4 points
+    for FOUR_PL)."""
+    from gel_analyzer.services.quantification.models import QuantParams
+
+    try:
+        analysis = GelAnalysis.objects.get(pk=analysis_id)
+    except GelAnalysis.DoesNotExist:
+        return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+    params = QuantParams(
+        method=request.data.get("method", "LINEAR"),
+        unit=request.data.get("unit", "UG"),
+        excluded_band_ids=request.data.get("excluded_band_ids", []),
+    )
+    result, _ = _build_full_result(analysis, params)
+    return Response(
+        result.to_dict(),
+        status=drf_status.HTTP_200_OK
+        if result.success
+        else drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+
+
+@extend_schema(
+    summary="Patch / Deactivate Protein Quantification Calibration",
+    tags=["Quantification"],
+)
+@api_view(["PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def quantification_detail(request, analysis_id, calib_id):
+    """PATCH → update excluded_band_ids/notes; DELETE → deactivate."""
+    from django.utils import timezone
+
+    from gel_analyzer.models import ProteinQuantCalibration
+
+    try:
+        calib = ProteinQuantCalibration.objects.get(pk=calib_id, analysis_id=analysis_id)
+    except ProteinQuantCalibration.DoesNotExist:
+        return Response(
+            {"detail": "Calibration not found."}, status=drf_status.HTTP_404_NOT_FOUND
+        )
+
+    if request.method == "PATCH":
+        # update_fields prevents racing with recompute_if_active, which writes
+        # coefficients/r_squared/equation/last_recomputed_at. A bare save()
+        # would clobber those columns with the row state fetched above.
+        fields_to_save: list[str] = []
+        if "excluded_band_ids" in request.data:
+            calib.excluded_band_ids = request.data["excluded_band_ids"]
+            fields_to_save.append("excluded_band_ids")
+        if "notes" in request.data:
+            calib.notes = request.data["notes"]
+            fields_to_save.append("notes")
+        if fields_to_save:
+            calib.save(update_fields=fields_to_save)
+        return Response(_serialize_calib(calib))
+
+    # DELETE = deactivate
+    calib.is_active = False
+    calib.superseded_at = timezone.now()
+    calib.save(update_fields=["is_active", "superseded_at"])
+    return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(summary="Quantification Calibration History", tags=["Quantification"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def quantification_history(request, analysis_id):
+    """Return all calibrations (active + superseded) for the analysis."""
+    from gel_analyzer.models import ProteinQuantCalibration
+
+    # Mirror the 404 guard used by the sibling views — otherwise a fabricated
+    # analysis_id silently returns {"history": []} with HTTP 200 and clients
+    # cannot distinguish "no history" from "wrong analysis".
+    if not GelAnalysis.objects.filter(pk=analysis_id).exists():
+        return Response({"detail": "Analysis not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+    history = ProteinQuantCalibration.objects.filter(analysis_id=analysis_id).order_by(
+        "-created_at"
+    )
+    return Response({"history": [_serialize_calib(c) for c in history]})

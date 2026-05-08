@@ -277,6 +277,13 @@
         // Cross-Lane Consensus panel
         CROSS_LANE_PANEL_SHOWN: 'cross-lane:panel:shown',
         CROSS_LANE_PANEL_HIDDEN: 'cross-lane:panel:hidden',
+
+        // Auto-save lifecycle (broader scope than BAND_SAVE_*; emitted by
+        // the shared AutoSave helper for any background API write so
+        // panels can react uniformly — green flash on the source input,
+        // inline Retry on failure, etc.)
+        AUTOSAVE_OK: 'autosave:ok',
+        AUTOSAVE_FAILED: 'autosave:failed',
     };
 
     // Export to namespace

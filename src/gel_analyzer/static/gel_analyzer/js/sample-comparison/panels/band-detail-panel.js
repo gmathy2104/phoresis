@@ -272,27 +272,47 @@
                 `;
             }
 
+            // If no band on this lane has an estimated MW, every band would
+            // collapse to topPercent=50% and produce the "stray bar in the
+            // middle" the user (rightly) called out. Render an explicit
+            // notice instead so the cause is obvious — the user needs to
+            // run MW calibration on the source analysis before bands can
+            // be aligned across samples.
+            const hasAnyMw = bands.some(b => b.estimated_mw_kda != null);
+            if (!hasAnyMw || mwRange.maxMW <= mwRange.minMW) {
+                return `
+                    <div class="dm-lane-column ${isSelected ? 'selected' : ''}" data-sample-id="${sampleId}" style="border-top: 3px solid ${color};">
+                        <div class="dm-lane-header" data-sample-id="${sampleId}">${label || 'Sample'}</div>
+                        <div class="dm-lane-body">
+                            <div class="dm-lane-no-mw">
+                                <i class="bi bi-rulers" aria-hidden="true"></i>
+                                <span class="dm-lane-no-mw-title">No MW calibration</span>
+                                <span class="dm-lane-no-mw-hint">${bands.length} band${bands.length === 1 ? '' : 's'} detected — calibrate the ladder lane in the source analysis to align them here.</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
             let bandsHtml = '';
+            let bandsWithoutMw = 0;
+            const logMin = Math.log10(mwRange.minMW);
+            const logMax = Math.log10(mwRange.maxMW);
 
             bands.forEach(band => {
-                // Position by MW if available
-                let topPercent;
-                if (band.estimated_mw_kda && mwRange.maxMW > mwRange.minMW) {
-                    // Log scale positioning: high MW at top (0%), low MW at bottom (100%)
-                    const logMin = Math.log10(mwRange.minMW);
-                    const logMax = Math.log10(mwRange.maxMW);
-                    const logMW = Math.log10(band.estimated_mw_kda);
-                    topPercent = ((logMax - logMW) / (logMax - logMin)) * 100;
-                } else {
-                    // Fall back to Y position
-                    topPercent = 50;
+                if (band.estimated_mw_kda == null) {
+                    // Skip bands that lack an MW — counted below so the user
+                    // knows they're not silently dropped.
+                    bandsWithoutMw += 1;
+                    return;
                 }
-
-                // Clamp to valid range
+                // Log-scale positioning: high MW at top (0%), low MW at bottom (100%).
+                const logMW = Math.log10(band.estimated_mw_kda);
+                let topPercent = ((logMax - logMW) / (logMax - logMin)) * 100;
                 topPercent = Math.max(2, Math.min(98, topPercent));
 
                 const bandColor = this._getBandColor(band.band_type);
-                const isSelected = band.id === this.currentBandId;
+                const isBandSelected = band.id === this.currentBandId;
 
                 let opacity = 0.7;
                 if (band.densitometry?.relative_percent_lane) {
@@ -300,22 +320,28 @@
                 }
 
                 bandsHtml += `
-                    <div class="dm-digital-band ${isSelected ? 'selected' : ''}"
+                    <div class="dm-digital-band ${isBandSelected ? 'selected' : ''}"
                          style="top: ${topPercent}%;
                                 background-color: ${bandColor};
-                                opacity: ${isSelected ? 1 : opacity};"
+                                opacity: ${isBandSelected ? 1 : opacity};"
                          data-band-id="${band.id}"
                          title="${band.band_type}${band.estimated_mw_kda ? ` (~${band.estimated_mw_kda.toFixed(0)} kDa)` : ''}${band.densitometry?.relative_percent_lane ? ` | ${band.densitometry.relative_percent_lane.toFixed(1)}%` : ''}">
-                        ${isSelected ? '<span class="dm-band-marker"></span>' : ''}
+                        ${isBandSelected ? '<span class="dm-band-marker"></span>' : ''}
                     </div>
                 `;
             });
+
+            // Footer notice when some bands had no MW.
+            const partialNotice = bandsWithoutMw > 0
+                ? `<div class="dm-lane-no-mw-partial">${bandsWithoutMw} band${bandsWithoutMw === 1 ? '' : 's'} hidden (no MW)</div>`
+                : '';
 
             return `
                 <div class="dm-lane-column ${isSelected ? 'selected' : ''}" data-sample-id="${sampleId}" style="border-top: 3px solid ${color};">
                     <div class="dm-lane-header" data-sample-id="${sampleId}">${label || 'Sample'}</div>
                     <div class="dm-lane-body">
                         ${bandsHtml}
+                        ${partialNotice}
                     </div>
                 </div>
             `;

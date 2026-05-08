@@ -31,12 +31,22 @@
             this.isEditable = options.isEditable !== false;
             this.showMessage = options.showMessage || console.log;
 
+            // Capture state + API hooks so the context menu can:
+            // - look up the band that's currently selected (for the
+            //   calibration-only "Set calibration value..." button visibility)
+            // - know the active quantification calibration's unit (so the
+            //   prompt label adapts to the locked unit)
+            this._stateManager = options.stateManager || null;
+            this._apiClient = options.apiClient || null;
+            this._activeCalibUnitCache = undefined;
+
             // Support handlers passed as object or as individual callbacks
             this.handlers = options.handlers || {};
             if (options.onDeleteLane) this.handlers.onDeleteLane = options.onDeleteLane;
             if (options.onDeleteBand) this.handlers.onDeleteBand = options.onDeleteBand;
             if (options.onUpdateLane) this.handlers.onUpdateLane = options.onUpdateLane;
             if (options.onUpdateBand) this.handlers.onUpdateBand = options.onUpdateBand;
+            if (options.onSyncBandLocal) this.handlers.onSyncBandLocal = options.onSyncBandLocal;
             if (options.onStartResize) this.handlers.onStartResize = options.onStartResize;
 
             // DOM elements
@@ -145,7 +155,132 @@
             this.menu.style.top = menuY + 'px';
             this.menu.classList.add('visible');
 
+            // Toggle "Set calibration value..." visibility — only useful when
+            // the selected band is already a CALIBRATION point.
+            this._updateCalibrationButton(type);
+
             this.eventBus.emit(Events.CONTEXT_MENU_SHOWN, { x: menuX, y: menuY, type });
+        }
+
+        /**
+         * Toggle the visibility/label of the "Set calibration value..." item.
+         * Visible only when a CALIBRATION band is selected; the label adapts
+         * to the active calibration's unit (UG -> "Set load (ug)..." vs
+         * UG_ML -> "Set concentration (ug/mL)...").
+         */
+        _updateCalibrationButton(type) {
+            const item = this.menu.querySelector('#ctx-set-calib-value');
+            if (!item) return;
+
+            const sel = this.getSelection();
+            const band = sel?.type === 'band' && this._stateManager
+                ? this._stateManager.getBand(sel.id)
+                : null;
+            const isCalibBand = band?.band_type === 'CALIBRATION';
+            item.style.display = isCalibBand ? '' : 'none';
+
+            // Adapt label to the locked unit, if any.
+            if (isCalibBand) {
+                this._getActiveCalibUnit().then(unit => {
+                    const label = item.querySelector('#ctx-set-calib-value-label');
+                    if (!label) return;
+                    if (unit === 'UG_ML') {
+                        label.textContent = 'Set concentration (ug/mL)...';
+                    } else if (unit === 'UG') {
+                        label.textContent = 'Set load (ug)...';
+                    } else {
+                        label.textContent = 'Set calibration value...';
+                    }
+                });
+            }
+        }
+
+        /**
+         * Prompt the user for the calibration loaded amount + unit and PATCH
+         * the band. When an active calibration exists the unit is fixed; we
+         * skip the second prompt and reuse the locked unit.
+         */
+        async _promptCalibrationValue(bandId) {
+            const amountStr = window.prompt('Enter loaded amount:');
+            if (amountStr === null || amountStr === '') return;
+            const amount = parseFloat(amountStr);
+            if (!isFinite(amount) || amount < 0) {
+                this.showMessage('Invalid amount');
+                return;
+            }
+
+            const lockedUnit = await this._getActiveCalibUnit();
+            let unit;
+            if (lockedUnit) {
+                unit = lockedUnit;
+            } else {
+                unit = window.prompt('Unit (UG or UG_ML):', 'UG');
+                if (unit === null) return;
+                if (!['UG', 'UG_ML'].includes(unit)) {
+                    this.showMessage('Invalid unit');
+                    return;
+                }
+            }
+
+            const payload = {
+                band_type: 'CALIBRATION',
+                quant_point: { load_amount: amount, load_unit: unit },
+            };
+
+            // Prefer the v1 PATCH endpoint so the nested quant_point reaches
+            // the BandSerializer; if no apiClient is available, fall back to
+            // the existing onUpdateBand callback so at least local state
+            // stays in sync.
+            if (this._apiClient && typeof this._apiClient.patchBand === 'function') {
+                try {
+                    await this._apiClient.patchBand(bandId, payload);
+                    // After the server save, run the same local sync as a
+                    // normal type change: SVG class swap (so the band turns
+                    // calibration-purple) + BAND_UPDATED emit (so the
+                    // properties panel and band table refresh). Without
+                    // this the band stays visually OTHER and the panel
+                    // shows stale band_type until the page is reloaded.
+                    if (this.handlers.onSyncBandLocal) {
+                        this.handlers.onSyncBandLocal(bandId, payload);
+                    } else if (this._stateManager) {
+                        // Fallback for callers that didn't wire onSyncBandLocal.
+                        const band = this._stateManager.getBand(bandId);
+                        if (band) {
+                            band.band_type = 'CALIBRATION';
+                            band.quant_point = payload.quant_point;
+                        }
+                    }
+                    this.showMessage('Calibration value saved');
+                } catch (err) {
+                    this.showMessage(`Save failed: ${err.message || err}`);
+                }
+                return;
+            }
+
+            if (this.handlers.onUpdateBand) {
+                this.handlers.onUpdateBand(bandId, payload);
+            }
+        }
+
+        /** Cached fetch of the active quant calibration's unit. */
+        async _getActiveCalibUnit() {
+            if (this._activeCalibUnitCache !== undefined) {
+                return this._activeCalibUnitCache;
+            }
+            if (!this._apiClient || !this._apiClient.analysisId) {
+                this._activeCalibUnitCache = null;
+                return null;
+            }
+            try {
+                const resp = await this._apiClient.getActiveQuantification(
+                    this._apiClient.analysisId
+                );
+                this._activeCalibUnitCache = resp?.active?.unit || null;
+            } catch (err) {
+                console.warn('Could not load active quantification:', err);
+                this._activeCalibUnitCache = null;
+            }
+            return this._activeCalibUnitCache;
         }
 
         /**
@@ -223,6 +358,18 @@
                         } else if (this.handlers.onUpdateBand) {
                             this.handlers.onUpdateBand(id, { band_type: value });
                         }
+                    }
+                    break;
+
+                case 'set-calibration-value':
+                    if (type === 'band') {
+                        // _promptCalibrationValue is async and not awaitable here
+                        // (the surrounding _handleAction is sync). Chain a catch
+                        // so PATCH rejections surface to the user instead of
+                        // becoming silent uncaught-promise warnings.
+                        this._promptCalibrationValue(id).catch(err => {
+                            this.showMessage(`Calibration save failed: ${err && err.message ? err.message : err}`);
+                        });
                     }
                     break;
 

@@ -62,6 +62,16 @@ class DensitometryResult(models.Model):
     # Metadata
     computed_at = models.DateTimeField(auto_now=True)
 
+    # Quantification (computed from active ProteinQuantCalibration; null until calibrated)
+    estimated_amount = models.FloatField(
+        null=True, blank=True,
+        help_text="Predicted protein amount via active quantification calibration",
+    )
+    estimated_amount_unit = models.CharField(
+        max_length=10, blank=True,
+        help_text="Unit snapshot at fit time (UG or UG_ML)",
+    )
+
     class Meta:
         verbose_name = "Densitometry Result"
         verbose_name_plural = "06. Densitometry Results"

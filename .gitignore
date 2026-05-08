@@ -67,8 +67,9 @@ test-results/
 playwright-report/
 playwright/.cache/
 
-# Claude Code worktrees
+# Claude Code worktrees + local IDE settings
 .claude/worktrees/
+.claude/settings.local.json
 
 # Docker
 .docker-cache/

@@ -8,6 +8,21 @@
 (function(global) {
     'use strict';
 
+    // Shared helper: extracts a useful error message from a non-OK fetch
+    // response. Falls back to status + statusText so a 500 HTML page still
+    // shows up as "500 Internal Server Error" in the UI instead of the
+    // useless `{}` we used to throw.
+    const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError)
+        || (async function fallbackExtract(response, fallback) {
+            // Defensive fallback for the unlikely case the shared module
+            // didn't load — keep behaviour close to the new helper.
+            try {
+                const body = await response.json();
+                if (body && body.detail) return body.detail;
+            } catch (_) { /* ignore */ }
+            return fallback || `${response.status} ${response.statusText || ''}`.trim();
+        });
+
     /**
      * APIClient Class
      * Manages all server-side CRUD operations.
@@ -99,8 +114,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to create lane');
+                    throw new Error(await extractApiError(response, 'Failed to create lane'));
                 }
 
                 const result = await response.json();
@@ -116,11 +130,23 @@
          * Update a lane on the server.
          * @param {number|string} id - Lane ID
          * @param {Object} data - Updated lane data
+         * @param {Object} [options]
+         * @param {boolean} [options.force] - Pass ?force=true to purge dependent
+         *   CALIBRATION points when downgrading the lane type. The v1 endpoint
+         *   returns 409 without it.
          */
-        async updateLane(id, data) {
+        async updateLane(id, data, options = {}) {
             try {
-                const response = await fetch(`/api/lanes/${id}/`, {
-                    method: 'PUT',
+                // Use the v1 PATCH endpoint when ?force is required (lane-type
+                // downgrade purge); the legacy PUT endpoint at /api/lanes/<id>/
+                // does not understand ?force=true.
+                const useV1 = !!options.force;
+                const url = useV1
+                    ? `/api/v1/lanes/${id}/${options.force ? '?force=true' : ''}`
+                    : `/api/lanes/${id}/`;
+                const method = useV1 ? 'PATCH' : 'PUT';
+                const response = await fetch(url, {
+                    method,
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': this.csrfToken,
@@ -129,7 +155,17 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to update lane');
+                    if (response.status === 409) {
+                        // Custom path: 409 carries structured detail used
+                        // by the lane-downgrade-confirm flow, so we keep
+                        // the raw response body on the Error.
+                        const err = await response.json().catch(() => ({}));
+                        const e = new Error(err.detail || 'Lane has dependent calibration points');
+                        e.status = 409;
+                        e.detail = err;
+                        throw e;
+                    }
+                    throw new Error(await extractApiError(response, 'Failed to update lane'));
                 }
 
             } catch (error) {
@@ -150,7 +186,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to delete lane');
+                    throw new Error(await extractApiError(response, 'Failed to delete lane'));
                 }
 
             } catch (error) {
@@ -177,8 +213,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to create lanes');
+                    throw new Error(await extractApiError(response, 'Failed to create lanes'));
                 }
 
                 return await response.json();
@@ -206,8 +241,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to update lanes');
+                    throw new Error(await extractApiError(response, 'Failed to update lanes'));
                 }
 
                 return await response.json();
@@ -235,8 +269,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to delete lanes');
+                    throw new Error(await extractApiError(response, 'Failed to delete lanes'));
                 }
 
                 return await response.json();
@@ -283,8 +316,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to delete bands');
+                    throw new Error(await extractApiError(response, 'Failed to delete bands'));
                 }
 
                 return await response.json();
@@ -324,8 +356,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to create band');
+                    throw new Error(await extractApiError(response, 'Failed to create band'));
                 }
 
                 const result = await response.json();
@@ -354,11 +385,38 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to update band');
+                    throw new Error(await extractApiError(response, 'Failed to update band'));
                 }
 
             } catch (error) {
                 console.error('Server error updating band:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * PATCH a band via the DRF v1 endpoint, which understands the nested
+         * quant_point payload and the CALIBRATION validation rules.
+         * @param {string} id - Band UUID
+         * @param {Object} data - Partial band fields, optionally including
+         *   {quant_point: {load_amount, load_unit, is_excluded_from_fit?}}
+         */
+        async patchBand(id, data) {
+            try {
+                const response = await fetch(`/api/v1/bands/${id}/`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken,
+                    },
+                    body: JSON.stringify(data),
+                });
+                if (!response.ok) {
+                    throw new Error(await extractApiError(response, 'Failed to PATCH band'));
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Server error patching band:', error);
                 throw error;
             }
         }
@@ -375,7 +433,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to delete band');
+                    throw new Error(await extractApiError(response, 'Failed to delete band'));
                 }
 
             } catch (error) {
@@ -951,18 +1009,21 @@
          */
         async calibrateSingle(laneId, templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
+                const body = {
+                    lane_id: laneId,
+                    method: method,
+                    excluded_band_ids: excludedBandIds,
+                };
+                // Template is optional — omit when null so the backend
+                // doesn't try to look it up.
+                if (templateId) body.template_id = templateId;
                 const response = await fetch(`/api/analyses/${this.analysisId}/calibrate/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': this.csrfToken,
                     },
-                    body: JSON.stringify({
-                        lane_id: laneId,
-                        template_id: templateId,
-                        method: method,
-                        excluded_band_ids: excludedBandIds,
-                    }),
+                    body: JSON.stringify(body),
                 });
 
                 if (!response.ok) {
@@ -986,17 +1047,18 @@
          */
         async calibrateMulti(templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
+                const body = {
+                    method: method,
+                    excluded_band_ids: excludedBandIds,
+                };
+                if (templateId) body.template_id = templateId;
                 const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-multi/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': this.csrfToken,
                     },
-                    body: JSON.stringify({
-                        template_id: templateId,
-                        method: method,
-                        excluded_band_ids: excludedBandIds,
-                    }),
+                    body: JSON.stringify(body),
                 });
 
                 if (!response.ok) {
@@ -1027,8 +1089,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to apply calibration');
+                    throw new Error(await extractApiError(response, 'Failed to apply calibration'));
                 }
 
                 return await response.json();
@@ -1099,7 +1160,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to get multi-calibration');
+                    throw new Error(await extractApiError(response, 'Failed to get multi-calibration'));
                 }
 
                 return await response.json();
@@ -1375,6 +1436,92 @@
             }
             return response.json();
         }
+
+        // =====================================================================
+        // Protein Quantification API (Phase 5+)
+        // =====================================================================
+
+        /**
+         * Get the active protein-quantification calibration for the analysis.
+         * @returns {Promise<Object>} { active: <calib>|null }
+         */
+        async getActiveQuantification(analysisId) {
+            const id = analysisId || this.analysisId;
+            try {
+                const response = await fetch(`/api/v1/analyses/${id}/quantification/`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to load active quantification');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Error getting active quantification:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Preview a quantification fit (dry run, no DB writes).
+         * @param {string} analysisId - Analysis UUID
+         * @param {Object} body - { method, unit, excluded_band_ids? }
+         * @returns {Promise<Object>} QuantResult.to_dict()
+         */
+        async previewQuantification(analysisId, body) {
+            const id = analysisId || this.analysisId;
+            try {
+                const response = await fetch(
+                    `/api/v1/analyses/${id}/quantification/preview/`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': this.csrfToken,
+                        },
+                        body: JSON.stringify(body || {}),
+                    },
+                );
+                // 200 = success, 422 = fit failed but body still has details
+                const data = await response.json().catch(() => ({}));
+                return { ok: response.ok, status: response.status, data };
+            } catch (error) {
+                console.error('Error previewing quantification:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Save & apply a quantification fit.
+         * @param {string} analysisId - Analysis UUID
+         * @param {Object} body - { method, unit, excluded_band_ids?, notes? }
+         * @returns {Promise<Object>} Saved calibration
+         */
+        async saveQuantification(analysisId, body) {
+            const id = analysisId || this.analysisId;
+            try {
+                const response = await fetch(
+                    `/api/v1/analyses/${id}/quantification/`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': this.csrfToken,
+                        },
+                        body: JSON.stringify(body || {}),
+                    },
+                );
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Failed to save quantification');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Error saving quantification:', error);
+                throw error;
+            }
+        }
+
+        // =====================================================================
 
         /**
          * Undo a previous cross-lane consensus run.

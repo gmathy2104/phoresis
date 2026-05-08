@@ -13,7 +13,7 @@ End-to-end pipeline for SDS-PAGE / Dot Blot / Western Blot images:
 - Lane comparison (electropherograms + 4-panel cross-lane view).
 - Report generation (Word, Excel, PowerPoint).
 
-## Models (14)
+## Models (16)
 
 | Model | Purpose | Notes |
 |---|---|---|
@@ -31,6 +31,18 @@ End-to-end pipeline for SDS-PAGE / Dot Blot / Western Blot images:
 | `DensitometryJob` | async densitometry tracking | RUNNING/FAILED state machine |
 | `SavedComparison` | persisted lane comparison | view_settings JSONField |
 | `SavedComparisonLane` | M2M through with order | preserves comparison panel order |
+
+## Quantification (added 2026-05-07)
+
+`ProteinQuantCalibration` (one active per analysis) + `ProteinQuantCalibrationPoint`
+mirror the `LadderCalibration` / `MWMarker` pattern. CALIBRATION lanes carry one
+CALIBRATION-typed band whose `quant_point` declares the loaded amount. CONTROL
+lanes use the same band/point pair but the `role` field is set to CONTROL — they
+are projected onto the curve for QC, never fitted.
+
+`Lane.protein_load_ug` and `Lane.protein_load_type` are kept as-is for sample
+loading-condition traceability; they no longer feed the calibration. Use
+`Band.quant_point.load_amount` for calibration math.
 
 ## Services
 

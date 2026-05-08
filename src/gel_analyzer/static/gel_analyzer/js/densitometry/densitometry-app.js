@@ -124,6 +124,18 @@
             // Create event bus
             this.eventBus = new EventBus();
 
+            // Shared AutoSave helper — same factory as gel-viewer uses,
+            // bound to this app's eventBus + showMessage so any
+            // fire-and-forget API call we route through autoSave.run()
+            // surfaces a uniform toast on failure (with the actual server
+            // error from densitometry-api-client's extractApiError).
+            this.autoSave = (window.PhoresisShared && window.PhoresisShared.AutoSave)
+                ? window.PhoresisShared.AutoSave.create({
+                    eventBus: this.eventBus,
+                    showToast: (msg) => this.showMessage(msg, 'error'),
+                })
+                : null;
+
             // Create state manager
             this.state = new State({
                 eventBus: this.eventBus,
@@ -204,6 +216,10 @@
                     container: document.getElementById('chromatogram-panel'),
                     eventBus: this.eventBus,
                     state: this.state,
+                    // Phase 7.1: needed by the Quantification curve tab to call
+                    // /quantification/ + /quantification/preview/.
+                    apiClient: this.api,
+                    analysisId: this.analysisId,
                 });
             }
 
@@ -222,6 +238,10 @@
                     container: document.getElementById('results-table-panel'),
                     eventBus: this.eventBus,
                     state: this.state,
+                    // Phase 7.2: lane-level table reads the active quantification
+                    // calibration to gate the Quantification column group + units.
+                    apiClient: this.api,
+                    analysisId: this.analysisId,
                 });
             }
         }
@@ -321,6 +341,60 @@
 
             // Analysis Options modal controls
             this._setupOptionsModal();
+
+            // Quantification calibration modal — opened from the toolbar.
+            // Re-renders all panels when a new calibration is saved so that
+            // the freshly-applied estimated_amount values appear in tables /
+            // chromatograms without a full page reload.
+            this._setupQuantificationModal();
+        }
+
+        /**
+         * Wire the Quantification calibration modal to the toolbar button.
+         */
+        _setupQuantificationModal() {
+            const QuantModalCtor = global.Densitometry.QuantificationModal
+                                || global.QuantificationModal;
+            if (!QuantModalCtor) {
+                console.warn('[DensitometryApp] QuantificationModal class not loaded');
+                return;
+            }
+            const trigger = document.getElementById('open-quantification-modal');
+            if (!trigger) {
+                // Modal markup absent — nothing to wire.
+                return;
+            }
+            this.quantModal = new QuantModalCtor({
+                apiClient: this.api,
+                analysisId: this.analysisId,
+                eventBus: this.eventBus,
+            });
+            trigger.addEventListener('click', () => this.quantModal.open());
+
+            // Re-load densitometry results after a new calibration is applied
+            // — apply_to_analysis() bulk-updates DensitometryResult.estimated_amount
+            // server-side, but the client cache still holds the old null/stale
+            // values until we re-fetch.
+            this.eventBus.on(
+                Events.QUANT_CALIBRATION_CHANGED || 'QUANT_CALIBRATION_CHANGED',
+                () => {
+                    if (this.autoSave) {
+                        this.autoSave.run({
+                            operation: 'Refresh densitometry after calibration',
+                            promise: this._loadExistingResults(),
+                            context: { kind: 'densitometry-refresh', analysisId: this.analysisId },
+                        });
+                    } else {
+                        this._loadExistingResults().catch(err => {
+                            console.error('[DensitometryApp] post-quant refresh failed:', err);
+                            this.showMessage(
+                                `❌ Refresh failed: ${(err && err.message) || err}`,
+                                'error',
+                            );
+                        });
+                    }
+                }
+            );
         }
 
         /**
@@ -435,6 +509,12 @@
                 }
             } catch (error) {
                 console.error('[DensitometryApp] Failed to load profile:', error);
+                // Was silent before — surface the actual server error so
+                // users notice when chromatograms are stale.
+                this.showMessage(
+                    `❌ Lane profile load failed: ${(error && error.message) || error}`,
+                    'error',
+                );
             }
         }
 

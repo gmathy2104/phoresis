@@ -1,45 +1,95 @@
 /**
- * Results Table Panel - Densitometry Measurements Table
+ * Results Table Panel — Densitometry Measurements (per-band, important-only)
  *
- * Displays a table of all band measurements with sorting and filtering.
- * Features:
- * - Absolute and relative intensities
- * - Purity calculations
- * - Click to select bands
- * - Sortable columns
+ * Phase 7.3: one row per "important" band rather than one row per lane.
+ * "Important" = any band whose band_type is not OTHER, i.e. MW_REFERENCE
+ * (ladder markers), CALIBRATION (calibration / control points), and POI
+ * (samples). This means a SAMPLE lane with three POI bands now produces
+ * three measurement rows, one per POI — the lane-per-row shape used to
+ * collapse them into a single line which hid the per-band math the user
+ * cares about.
+ *
+ * Columns are grouped via <th colspan> into 4 sections:
+ *   - Identity      Lane# | Type | Sample | Band
+ *   - Densitometry  Total area | Band area | % lane
+ *   - Quantification Estimated amount | Recovery % (CONTROL only)
+ *   - Quality       Fit R² | Flag
+ *
+ * Clicking a row calls state.selectBand(bandId) — same behaviour as
+ * clicking a band on the gel: the parent lane is auto-selected, band
+ * detail / gel overview / chromatogram / quantification curve all sync.
+ *
+ * Subscribes to QUANT_CALIBRATION_CHANGED so the table re-renders after
+ * the user saves a new calibration (server-side apply_to_analysis()
+ * back-fills estimated_amount during save).
  */
 
-(function(global) {
+(function (global) {
     'use strict';
 
     const Events = global.Densitometry.Events;
 
-    /**
-     * ResultsTablePanel Class
-     */
+    const PRESET_KEY = 'phoresis.densito.tablePreset';
+    const VALID_PRESETS = ['minimal', 'standard', 'full'];
+
+    // Display labels for lane types — keep in sync with backend Lane.LaneType.
+    const LANE_TYPE_DISPLAY = {
+        SAMPLE: 'Sample',
+        LADDER: 'Ladder',
+        EMPTY: 'Empty',
+        CONTROL: 'Control',
+        CALIBRATION: 'Calibration',
+        DOT: 'Dot',
+    };
+
+    const BAND_TYPE_DISPLAY = {
+        POI: 'POI',
+        CALIBRATION: 'Calibration',
+        MW_REFERENCE: 'Marker',
+        OTHER: 'Other',
+    };
+
+    // Bands eligible for the table — explicitly excludes OTHER (impurities /
+    // unclassified peaks the user told us they don't care about here).
+    function _isImportantBand(b) {
+        return b && b.band_type && b.band_type !== 'OTHER';
+    }
+
     class ResultsTablePanel {
         /**
          * @param {Object} options
          * @param {HTMLElement} options.container
          * @param {EventBus} options.eventBus
          * @param {State} options.state
+         * @param {Object}  [options.apiClient]   - optional, for active-calib lookup
+         * @param {string}  [options.analysisId]  - optional
          */
         constructor(options) {
             this.container = options.container;
             this.eventBus = options.eventBus;
             this.state = options.state;
+            this.api = options.apiClient || null;
+            this.analysisId = options.analysisId || null;
 
-            // Sort state
+            // Sort state — by lane number then band order within lane.
             this.sortColumn = 'lane_number';
             this.sortDirection = 'asc';
 
             // Filter state
-            this.filterLaneId = null;  // null = all lanes
-            this.filterBandType = null;  // null = all types
+            this.filterLaneType = null;  // quick filter: e.g. 'CONTROL'
 
-            // View state
-            this.compactMode = false;
-            this.syncWithLane = true;  // Enabled by default - table follows lane selection
+            // Active quantification calibration (or null)
+            this.activeCalib = null;
+
+            // Column preset
+            let preset = 'standard';
+            try {
+                if (typeof safeLocalGet === 'function') {
+                    const saved = safeLocalGet(PRESET_KEY, 'standard');
+                    if (VALID_PRESETS.includes(saved)) preset = saved;
+                }
+            } catch (_) { /* ignore */ }
+            this.preset = preset;
 
             // Resize handling
             this.resizeObserver = null;
@@ -48,183 +98,130 @@
             this._init();
         }
 
-        /**
-         * Initialize the panel.
-         */
         _init() {
             if (!this.container) {
                 console.warn('[ResultsTablePanel] No container element');
                 return;
             }
-
-            // Find the content element (inside the panel, not the panel itself)
             this.contentElement = this.container.querySelector('.dm-panel-content');
             if (!this.contentElement) {
                 console.warn('[ResultsTablePanel] No .dm-panel-content element found');
-                this.contentElement = this.container;  // Fallback
+                this.contentElement = this.container;
             }
 
             this._createLayout();
             this._setupEvents();
             this._setupResizeObserver();
+            this._loadActiveCalibration();
         }
 
-        /**
-         * Create the panel layout.
-         */
+        // -----------------------------------------------------------------
+        // Layout
+        // -----------------------------------------------------------------
+
         _createLayout() {
             this.contentElement.innerHTML = `
                 <div class="dm-results-container">
-                    <!-- Quick Filter Chips -->
                     <div class="dm-quick-filters">
                         <button class="dm-chip active" data-filter="">All</button>
-                        <button class="dm-chip dm-chip-poi" data-filter="POI">
-                            <span class="dm-chip-icon">★</span> POI
-                        </button>
-                        <button class="dm-chip dm-chip-other" data-filter="OTHER">Other</button>
-                        <button class="dm-chip dm-chip-mw" data-filter="MW_REFERENCE">
-                            <span class="dm-chip-icon">M</span> MW Ref
-                        </button>
+                        <button class="dm-chip" data-filter="SAMPLE">Samples</button>
+                        <button class="dm-chip" data-filter="CONTROL">Controls</button>
+                        <button class="dm-chip" data-filter="CALIBRATION">Calibration</button>
+                        <button class="dm-chip" data-filter="LADDER">Ladders</button>
                     </div>
 
-                    <!-- Toolbar -->
-                    <div class="dm-results-toolbar">
-                        <div class="dm-filter-controls">
-                            <select id="filter-lane" class="dm-select dm-select-sm">
-                                <option value="">All Lanes</option>
-                            </select>
-                            <label class="dm-sync-toggle" data-tooltip="Auto-filter to selected lane">
-                                <input type="checkbox" id="sync-lane-filter" checked>
-                                <i class="bi bi-link-45deg"></i>
-                                <span>Sync</span>
-                            </label>
-                        </div>
-                        <div class="dm-view-controls">
-                            <button id="compact-toggle" class="dm-btn dm-btn-sm" data-tooltip="Toggle compact view">
-                                <i class="bi bi-layout-text-sidebar-reverse"></i>
-                            </button>
-                        </div>
+                    <div class="dm-table-presets">
+                        <label for="dm-table-preset">Columns:</label>
+                        <select id="dm-table-preset" class="dm-select dm-select-sm">
+                            <option value="minimal">Minimal</option>
+                            <option value="standard">Standard</option>
+                            <option value="full">Full</option>
+                        </select>
                     </div>
 
-                    <!-- Table -->
                     <div class="dm-results-table-wrapper">
-                        <table class="dm-results-table" id="results-table">
-                            <thead>
-                                <tr>
-                                    <th data-column="lane_number" class="sortable col-lane">Lane</th>
-                                    <th data-column="band_type" class="sortable col-type">Type</th>
-                                    <th data-column="detection_source" class="sortable col-source">Source</th>
-                                    <th data-column="position_y" class="sortable col-position">Pos</th>
-                                    <th data-column="estimated_mw_kda" class="sortable col-mw">MW</th>
-                                    <th data-column="corrected_area" class="sortable col-area">Area</th>
-                                    <th data-column="relative_percent_lane" class="sortable col-percent">%</th>
-                                    <th data-column="fit_r_squared" class="sortable col-rsquared">R²</th>
-                                </tr>
-                            </thead>
-                            <tbody id="results-tbody">
-                                <!-- Rows will be inserted here -->
-                            </tbody>
+                        <table class="dm-table dm-table--lane-level dm-preset-${this.preset}" id="results-table">
+                            <thead id="results-thead"></thead>
+                            <tbody id="results-tbody"></tbody>
                         </table>
                     </div>
 
-                    <!-- Summary Footer -->
-                    <div class="dm-results-footer" id="table-summary">
-                        <!-- Summary stats will be inserted here -->
-                    </div>
+                    <div class="dm-results-footer" id="table-summary"></div>
                 </div>
             `;
 
-            this._setupFilterHandlers();
             this._setupQuickFilters();
-            this._setupViewControls();
-            this._setupSortHandlers();
+            this._setupPresetSelector();
+            this._renderHeader();
         }
 
-        /**
-         * Setup filter dropdown handlers.
-         */
-        _setupFilterHandlers() {
-            const laneSelect = this.contentElement.querySelector('#filter-lane');
-            laneSelect.addEventListener('change', (e) => {
-                this.filterLaneId = e.target.value || null;
-                this._renderTable();
-            });
-
-            // Sync toggle
-            const syncToggle = this.contentElement.querySelector('#sync-lane-filter');
-            syncToggle.addEventListener('change', (e) => {
-                this.syncWithLane = e.target.checked;
-                if (this.syncWithLane && this.state.selectedLaneId) {
-                    this.filterLaneId = this.state.selectedLaneId;
-                    laneSelect.value = this.state.selectedLaneId;
-                    this._renderTable();
-                }
-            });
-        }
-
-        /**
-         * Setup quick filter chip handlers.
-         */
         _setupQuickFilters() {
             const chips = this.contentElement.querySelectorAll('.dm-chip');
             chips.forEach(chip => {
                 chip.addEventListener('click', () => {
-                    // Update active state
                     chips.forEach(c => c.classList.remove('active'));
                     chip.classList.add('active');
-
-                    // Apply filter
-                    this.filterBandType = chip.dataset.filter || null;
+                    this.filterLaneType = chip.dataset.filter || null;
                     this._renderTable();
                 });
             });
         }
 
-        /**
-         * Setup view control handlers.
-         */
-        _setupViewControls() {
-            const compactToggle = this.contentElement.querySelector('#compact-toggle');
-            compactToggle.addEventListener('click', () => {
-                this._toggleCompactMode();
+        _setupPresetSelector() {
+            const sel = this.contentElement.querySelector('#dm-table-preset');
+            if (!sel) return;
+            sel.value = this.preset;
+            sel.addEventListener('change', (e) => {
+                const v = e.target.value;
+                if (!VALID_PRESETS.includes(v)) return;
+                this.preset = v;
+                try {
+                    if (typeof safeLocalSet === 'function') safeLocalSet(PRESET_KEY, v);
+                } catch (_) { /* ignore */ }
+                this._applyPreset();
             });
         }
 
-        /**
-         * Setup sort handlers.
-         */
-        _setupSortHandlers() {
-            this.contentElement.querySelectorAll('th.sortable').forEach(th => {
-                th.addEventListener('click', () => {
-                    this._onSort(th.dataset.column);
-                });
-            });
+        _applyPreset() {
+            const tbl = this.contentElement.querySelector('#results-table');
+            if (!tbl) return;
+            VALID_PRESETS.forEach(p => tbl.classList.remove(`dm-preset-${p}`));
+            tbl.classList.add(`dm-preset-${this.preset}`);
         }
 
-        /**
-         * Toggle compact view mode.
-         */
-        _toggleCompactMode() {
-            this.compactMode = !this.compactMode;
-
-            const table = this.contentElement.querySelector('.dm-results-table');
-            const toggle = this.contentElement.querySelector('#compact-toggle');
-
-            if (table) {
-                table.classList.toggle('compact', this.compactMode);
-            }
-            if (toggle) {
-                toggle.classList.toggle('active', this.compactMode);
-                toggle.setAttribute('data-tooltip', this.compactMode ? 'Show all columns' : 'Compact view');
-            }
+        _renderHeader() {
+            const thead = this.contentElement.querySelector('#results-thead');
+            if (!thead) return;
+            // 11 data columns total. Top row groups; bottom row labels.
+            thead.innerHTML = `
+                <tr>
+                    <th colspan="4" class="dm-section-identity">Identity</th>
+                    <th colspan="3" class="dm-section-densito">Densitometry</th>
+                    <th colspan="2" class="dm-section-quant">Quantification</th>
+                    <th colspan="2" class="dm-section-quality">Quality</th>
+                </tr>
+                <tr>
+                    <th class="col-lane">Lane#</th>
+                    <th class="col-type">Type</th>
+                    <th class="col-sample col-preset-standard">Sample</th>
+                    <th class="col-band">Band</th>
+                    <th class="col-total-area">Total area</th>
+                    <th class="col-band-area">Band area</th>
+                    <th class="col-pct-lane col-preset-standard">% lane</th>
+                    <th class="col-est-amount">Est. amount</th>
+                    <th class="col-recovery col-preset-standard">Recovery %</th>
+                    <th class="col-r2 col-preset-standard">Fit R²</th>
+                    <th class="col-flag col-preset-full">Flag</th>
+                </tr>
+            `;
         }
 
-        /**
-         * Setup event listeners.
-         */
+        // -----------------------------------------------------------------
+        // Events
+        // -----------------------------------------------------------------
+
         _setupEvents() {
             this.eventBus.on(Events.DATA_LOADED, () => {
-                this._populateLaneFilter();
                 this._renderTable();
             });
 
@@ -232,379 +229,301 @@
                 this._renderTable();
             });
 
-            this.eventBus.on(Events.BAND_SELECTED, (data) => {
-                this._highlightRow(data.bandId);
-            });
-
             this.eventBus.on(Events.LANE_SELECTED, (data) => {
-                // Sync with lane selection if enabled
-                if (this.syncWithLane && data.laneId) {
-                    this.filterLaneId = data.laneId;
-                    const laneSelect = this.contentElement.querySelector('#filter-lane');
-                    if (laneSelect) {
-                        laneSelect.value = data.laneId;
-                    }
-                    this._renderTable();
-                }
+                if (data && data.laneId) this._highlightLane(data.laneId);
+            });
+
+            this.eventBus.on(Events.BAND_SELECTED, (data) => {
+                if (data && data.bandId) this._highlightBand(data.bandId);
+            });
+
+            // Phase 7.2: refresh on calibration change.
+            const quantEvent = (Events && Events.QUANT_CALIBRATION_CHANGED) || 'QUANT_CALIBRATION_CHANGED';
+            this.eventBus.on(quantEvent, () => {
+                this._loadActiveCalibration().then(() => this._renderTable());
             });
         }
 
-        /**
-         * Populate the lane filter dropdown.
-         */
-        _populateLaneFilter() {
-            const select = this.contentElement.querySelector('#filter-lane');
-            const lanes = this.state.getAllLanes();
+        // -----------------------------------------------------------------
+        // Active calibration lookup
+        // -----------------------------------------------------------------
 
-            // Keep the "All Lanes" option
-            select.innerHTML = '<option value="">All Lanes</option>';
-
-            lanes.forEach(lane => {
-                const option = document.createElement('option');
-                option.value = lane.id;
-                option.textContent = `Lane ${lane.lane_number}`;
-                select.appendChild(option);
-            });
-        }
-
-        /**
-         * Handle column sort.
-         */
-        _onSort(column) {
-            if (this.sortColumn === column) {
-                this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-            } else {
-                this.sortColumn = column;
-                this.sortDirection = 'asc';
+        async _loadActiveCalibration() {
+            if (!this.api || !this.analysisId) return;
+            try {
+                const meta = await this.api.getActiveQuantification(this.analysisId);
+                this.activeCalib = (meta && (meta.active || (meta.data && meta.data.active))) || null;
+            } catch (err) {
+                console.warn('[ResultsTablePanel] active-calib lookup failed:', err);
+                this.activeCalib = null;
             }
-
-            // Update sort indicators
-            this.contentElement.querySelectorAll('th.sortable').forEach(th => {
-                th.classList.remove('sort-asc', 'sort-desc');
-                if (th.dataset.column === column) {
-                    th.classList.add(`sort-${this.sortDirection}`);
-                }
-            });
-
             this._renderTable();
-
-            this.eventBus.emit(Events.TABLE_SORT_CHANGED, {
-                column: this.sortColumn,
-                direction: this.sortDirection,
-            });
         }
 
-        /**
-         * Render the results table.
-         */
+        // -----------------------------------------------------------------
+        // Per-lane totals — used as the % lane denominator. Total area is
+        // the sum of all bands in the lane (including OTHER) so the user
+        // sees an honest contribution figure.
+        // -----------------------------------------------------------------
+
+        _laneTotalArea(lane) {
+            const bands = this.state.getBandsForLane(lane.id) || [];
+            return bands.reduce((s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0);
+        }
+
+        // -----------------------------------------------------------------
+        // Render
+        // -----------------------------------------------------------------
+
         _renderTable() {
             const tbody = this.contentElement.querySelector('#results-tbody');
             if (!tbody) return;
 
-            // Get and filter bands
-            let bands = this.state.getAllBands();
+            let lanes = this.state.getAllLanes();
+            if (this.filterLaneType) {
+                lanes = lanes.filter(l => l.lane_type === this.filterLaneType);
+            }
+            lanes = this._sortLanes(lanes);
 
-            if (this.filterLaneId) {
-                bands = bands.filter(b => b.lane_id === this.filterLaneId);
+            // Build (lane, important-band, lane-total) tuples.
+            const tuples = [];
+            lanes.forEach(lane => {
+                const bands = this.state.getBandsForLane(lane.id) || [];
+                const important = bands
+                    .filter(_isImportantBand)
+                    .sort((a, b) => (a.band_number || 0) - (b.band_number || 0));
+                if (!important.length) return;
+                const totalArea = bands.reduce(
+                    (s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0
+                );
+                important.forEach(band => tuples.push({ lane, band, totalArea }));
+            });
+
+            if (tuples.length === 0) {
+                tbody.innerHTML = `<tr class="dm-empty-row"><td colspan="11">No important bands to display</td></tr>`;
+                this._updateSummary([], 0);
+                return;
             }
 
-            if (this.filterBandType) {
-                bands = bands.filter(b => b.band_type === this.filterBandType);
-            }
+            tbody.innerHTML = tuples.map(t => this._renderBandRow(t)).join('');
 
-            // Sort bands
-            bands = this._sortBands(bands);
-
-            // Render rows
-            if (bands.length === 0) {
-                tbody.innerHTML = `
-                    <tr class="dm-empty-row">
-                        <td colspan="8">No bands to display</td>
-                    </tr>
-                `;
-            } else {
-                tbody.innerHTML = bands.map(band => this._renderRow(band)).join('');
-
-                // Add click handlers
-                tbody.querySelectorAll('tr[data-band-id]').forEach(row => {
-                    row.addEventListener('click', () => {
-                        const bandId = row.dataset.bandId;
-                        this.state.selectBand(bandId);
-                    });
+            // Wire row click → select band (cascades to lane / panels / curve).
+            tbody.querySelectorAll('tr.dm-band-row').forEach(row => {
+                row.addEventListener('click', (e) => {
+                    if (e.target.closest('a, button')) return;
+                    const bandId = row.dataset.bandId;
+                    if (bandId) this.state.selectBand(bandId);
                 });
-            }
+            });
 
-            // Update summary
-            this._updateSummary(bands);
+            this._updateSummary(lanes, tuples.length);
         }
 
-        /**
-         * Sort bands array.
-         */
-        _sortBands(bands) {
-            const col = this.sortColumn;
+        _sortLanes(lanes) {
             const dir = this.sortDirection === 'asc' ? 1 : -1;
-
-            return [...bands].sort((a, b) => {
-                let aVal, bVal;
-
-                switch (col) {
-                    case 'lane_number':
-                        aVal = a.lane_number;
-                        bVal = b.lane_number;
-                        break;
-                    case 'band_type':
-                        aVal = a.band_type;
-                        bVal = b.band_type;
-                        break;
-                    case 'detection_source':
-                        aVal = a.detection_source || '';
-                        bVal = b.detection_source || '';
-                        break;
-                    case 'position_y':
-                        aVal = a.position_y;
-                        bVal = b.position_y;
-                        break;
-                    case 'estimated_mw_kda':
-                        aVal = a.estimated_mw_kda || 0;
-                        bVal = b.estimated_mw_kda || 0;
-                        break;
-                    case 'corrected_area':
-                        aVal = a.densitometry?.corrected_area || 0;
-                        bVal = b.densitometry?.corrected_area || 0;
-                        break;
-                    case 'relative_percent_lane':
-                        aVal = a.densitometry?.relative_percent_lane || 0;
-                        bVal = b.densitometry?.relative_percent_lane || 0;
-                        break;
-                    case 'fit_r_squared':
-                        aVal = a.densitometry?.fit_r_squared || 0;
-                        bVal = b.densitometry?.fit_r_squared || 0;
-                        break;
-                    default:
-                        aVal = 0;
-                        bVal = 0;
-                }
-
-                if (aVal < bVal) return -dir;
-                if (aVal > bVal) return dir;
+            return [...lanes].sort((a, b) => {
+                if (a.lane_number < b.lane_number) return -dir;
+                if (a.lane_number > b.lane_number) return dir;
                 return 0;
             });
         }
 
-        /**
-         * Render a single table row.
-         */
-        _renderRow(band) {
+        _renderBandRow({ lane, band, totalArea }) {
+            const laneType = lane.lane_type || 'SAMPLE';
+            const typeLower = laneType.toLowerCase();
+            const typeLabel = LANE_TYPE_DISPLAY[laneType] || laneType;
+            const tintClass = (laneType === 'CALIBRATION')
+                ? 'gv-table-row--calibration'
+                : (laneType === 'CONTROL') ? 'gv-table-row--control' : '';
+
+            const bandType = band.band_type || 'OTHER';
+            const bandTypeLabel = BAND_TYPE_DISPLAY[bandType] || bandType;
+            const bandTypeLower = bandType.toLowerCase();
+
             const d = band.densitometry || {};
-            const isSelected = band.id === this.state.selectedBandId;
+            const bandArea = d.corrected_area || 0;
+            const pctLane = totalArea > 0 ? (bandArea / totalArea) * 100 : null;
+            const fitR2 = d.fit_r_squared;
 
-            // Type badge with icon
-            const typeConfig = {
-                'POI': { class: 'dm-type-poi', icon: '★', label: 'POI' },
-                'OTHER': { class: 'dm-type-other', icon: '', label: 'Other' },
-                'MW_REFERENCE': { class: 'dm-type-mw', icon: 'M', label: 'MW' }
-            };
-            const type = typeConfig[band.band_type] || typeConfig['OTHER'];
+            const calibActive = !!this.activeCalib;
+            const unit = (this.activeCalib && this.activeCalib.unit === 'UG_ML') ? 'µg/mL' : 'µg';
 
-            // Detection source badge
-            const sourceConfig = {
-                'MANUAL': { class: 'dm-source-manual', label: 'Manual' },
-                'YOLO': { class: 'dm-source-yolo', label: 'YOLO' },
-                'SAM': { class: 'dm-source-sam', label: 'SAM' },
-                'CV2': { class: 'dm-source-auto', label: 'Auto (d1/d2)' },
-                'PROFILE': { class: 'dm-source-profile', label: 'Profile' }
-            };
-            const source = sourceConfig[band.detection_source] || { class: 'dm-source-unknown', label: band.detection_source || '?' };
+            // Estimated amount — only meaningful when an active calibration
+            // exists (samples + controls), or when the row IS a control
+            // calibration band (its known reference is used by recovery).
+            let estDisplay = '—';
+            if (calibActive && d.estimated_amount != null) {
+                estDisplay = `${d.estimated_amount.toFixed(2)} ${unit}`;
+            }
 
-            // Format area with K/M suffix
-            const areaFormatted = this._formatArea(d.corrected_area);
+            // Recovery % — only on CONTROL lanes' calibration band where a
+            // known reference (quant_point.load_amount) is set AND a
+            // predicted estimated_amount exists.
+            let recoveryDisplay = '—';
+            let flagHtml = '';
+            if (laneType === 'CONTROL' && bandType === 'CALIBRATION') {
+                const known = band.quant_point && band.quant_point.load_amount;
+                if (known && d.estimated_amount != null) {
+                    const pct = (d.estimated_amount / known) * 100;
+                    recoveryDisplay = `${pct.toFixed(0)}%`;
+                    if (pct < 80 || pct > 120) {
+                        flagHtml = '<span class="dm-flag dm-flag-warn" title="Out-of-spec recovery (target 80-120%)">&#9888;</span>';
+                    }
+                }
+            }
 
-            // Percent with visual bar
-            const percent = d.relative_percent_lane;
-            const percentHtml = percent != null
-                ? `<div class="dm-percent-cell">
-                     <div class="dm-percent-bar" style="width: ${Math.min(percent, 100)}%"></div>
-                     <span class="dm-percent-value">${percent.toFixed(1)}%</span>
-                   </div>`
-                : '-';
-
-            // R² with quality indicator
-            const r2 = d.fit_r_squared;
-            const r2Html = r2 != null
-                ? `<span class="dm-r2-value ${r2 >= 0.95 ? 'dm-r2-good' : r2 >= 0.9 ? 'dm-r2-ok' : 'dm-r2-poor'}">${r2.toFixed(3)}</span>`
-                : '-';
+            // Band reference cell — band_number with a small type badge.
+            // For ladder markers, surface the MW so the user immediately
+            // sees which marker this row is.
+            const bandRefMain = `B${band.band_number || '?'}`;
+            const mwSuffix = (bandType === 'MW_REFERENCE' && band.estimated_mw_kda != null)
+                ? ` <span class="dm-band-mw">${Math.round(band.estimated_mw_kda)} kDa</span>`
+                : '';
+            const bandRefHtml = `
+                ${bandRefMain}
+                <span class="gv-prop-type-badge gv-prop-type-${bandTypeLower}">${bandTypeLabel}</span>
+                ${mwSuffix}
+            `;
 
             return `
-                <tr data-band-id="${band.id}" class="${isSelected ? 'selected' : ''}">
-                    <td class="col-lane">${band.lane_number}</td>
+                <tr class="dm-band-row ${tintClass}" data-band-id="${band.id}" data-lane-id="${lane.id}" data-lane-type="${laneType}" data-band-type="${bandType}">
+                    <td class="col-lane">${lane.lane_number}</td>
                     <td class="col-type">
-                        <span class="dm-type-badge ${type.class}">
-                            ${type.icon ? `<span class="dm-badge-icon">${type.icon}</span>` : ''}${type.label}
-                        </span>
+                        <span class="gv-prop-type-badge gv-prop-type-${typeLower}">${typeLabel}</span>
                     </td>
-                    <td class="col-source">
-                        <span class="dm-source-badge ${source.class}">${source.label}</span>
-                    </td>
-                    <td class="col-position">${band.position_y}</td>
-                    <td class="col-mw">${band.estimated_mw_kda ? Math.round(band.estimated_mw_kda) : '-'}</td>
-                    <td class="col-area">${areaFormatted}</td>
-                    <td class="col-percent">${percentHtml}</td>
-                    <td class="col-rsquared">${r2Html}</td>
+                    <td class="col-sample col-preset-standard">${this._escape(lane.sample_name || '')}</td>
+                    <td class="col-band">${bandRefHtml}</td>
+                    <td class="col-total-area">${this._fmtNum(totalArea, 0)}</td>
+                    <td class="col-band-area">${this._fmtNum(bandArea, 0)}</td>
+                    <td class="col-pct-lane col-preset-standard">${pctLane != null ? pctLane.toFixed(1) + '%' : '—'}</td>
+                    <td class="col-est-amount">${estDisplay}</td>
+                    <td class="col-recovery col-preset-standard">${recoveryDisplay}</td>
+                    <td class="col-r2 col-preset-standard">${fitR2 != null ? fitR2.toFixed(3) : '—'}</td>
+                    <td class="col-flag col-preset-full">${flagHtml}</td>
                 </tr>
             `;
         }
 
-        /**
-         * Format area with K/M suffix.
-         */
-        _formatArea(value) {
-            if (!value) return '-';
-            if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
-            if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
-            return Math.round(value).toString();
-        }
-
-        /**
-         * Update summary statistics.
-         */
-        _updateSummary(bands) {
+        _updateSummary(lanes, importantBandCount) {
             const container = this.contentElement.querySelector('#table-summary');
             if (!container) return;
-
-            const totalBands = bands.length;
-            const poiBands = bands.filter(b => b.band_type === 'POI').length;
-            const otherBands = bands.filter(b => b.band_type === 'OTHER').length;
-
-            // Calculate total area
-            const totalArea = bands.reduce((sum, b) => {
-                return sum + (b.densitometry?.corrected_area || 0);
-            }, 0);
-
-            // Calculate POI area
-            const poiArea = bands
-                .filter(b => b.band_type === 'POI')
-                .reduce((sum, b) => sum + (b.densitometry?.corrected_area || 0), 0);
-
-            // Calculate purity (POI / (POI + OTHER))
-            const otherArea = bands
-                .filter(b => b.band_type === 'OTHER')
-                .reduce((sum, b) => sum + (b.densitometry?.corrected_area || 0), 0);
-
-            const purity = poiArea + otherArea > 0
-                ? (poiArea / (poiArea + otherArea) * 100)
-                : null;
+            const calibActive = !!this.activeCalib;
 
             container.innerHTML = `
                 <div class="dm-summary-stats">
                     <span class="dm-stat">
-                        <span class="dm-stat-value">${totalBands}</span>
-                        <span class="dm-stat-label">Bands</span>
+                        <span class="dm-stat-value">${lanes.length}</span>
+                        <span class="dm-stat-label">Lanes</span>
                     </span>
-                    <span class="dm-stat dm-stat-poi">
-                        <span class="dm-stat-value">${poiBands}</span>
-                        <span class="dm-stat-label">POI</span>
+                    <span class="dm-stat">
+                        <span class="dm-stat-value">${importantBandCount}</span>
+                        <span class="dm-stat-label">Important bands</span>
                     </span>
-                    <span class="dm-stat dm-stat-other">
-                        <span class="dm-stat-value">${otherBands}</span>
-                        <span class="dm-stat-label">Other</span>
-                    </span>
-                    ${totalArea > 0 ? `
+                    ${calibActive ? `
                         <span class="dm-stat">
-                            <span class="dm-stat-value">${this._formatArea(totalArea)}</span>
-                            <span class="dm-stat-label">Total Area</span>
-                        </span>
-                    ` : ''}
-                    ${purity !== null ? `
-                        <span class="dm-stat dm-stat-purity ${purity >= 90 ? 'dm-purity-high' : purity >= 70 ? 'dm-purity-medium' : 'dm-purity-low'}">
-                            <span class="dm-stat-value">${purity.toFixed(1)}%</span>
-                            <span class="dm-stat-label">Purity</span>
+                            <span class="dm-stat-value">${this.activeCalib.method || ''}</span>
+                            <span class="dm-stat-label">Active calib</span>
                         </span>
                     ` : ''}
                 </div>
             `;
         }
 
-        /**
-         * Highlight a row by band ID.
-         */
-        _highlightRow(bandId) {
-            // Remove previous selection
-            this.contentElement.querySelectorAll('tr.selected').forEach(row => {
-                row.classList.remove('selected');
-            });
+        // -----------------------------------------------------------------
+        // Highlight helpers
+        // -----------------------------------------------------------------
 
-            // Add selection to new row
-            if (bandId) {
-                const row = this.contentElement.querySelector(`tr[data-band-id="${bandId}"]`);
-                if (row) {
-                    row.classList.add('selected');
-                    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
+        _highlightLane(laneId) {
+            // Lane selection no longer maps 1:1 to a row, but we can dim
+            // rows whose lane doesn't match — leave alone for now; the
+            // band-level highlight covers the common case (state.selectBand
+            // sets selectedLaneId via selectLane internally).
+        }
+
+        _highlightBand(bandId) {
+            this.contentElement.querySelectorAll('tr.dm-band-row.selected').forEach(r => r.classList.remove('selected'));
+            const row = this.contentElement.querySelector(`tr.dm-band-row[data-band-id="${bandId}"]`);
+            if (row) {
+                row.classList.add('selected');
+                row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         }
 
-        /**
-         * Export current table data to array.
-         */
+        // -----------------------------------------------------------------
+        // Utils
+        // -----------------------------------------------------------------
+
+        _fmtNum(v, digits) {
+            if (v == null || !isFinite(v)) return '—';
+            const d = digits != null ? digits : 1;
+            if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+            if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+            return v.toFixed(d);
+        }
+
+        _escape(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        // -----------------------------------------------------------------
+        // Export — one CSV row per important band, mirroring the table.
+        // -----------------------------------------------------------------
+
         exportData() {
-            let bands = this.state.getAllBands();
-
-            if (this.filterLaneId) {
-                bands = bands.filter(b => b.lane_id === this.filterLaneId);
-            }
-
-            if (this.filterBandType) {
-                bands = bands.filter(b => b.band_type === this.filterBandType);
-            }
-
-            return this._sortBands(bands).map(band => ({
-                lane_number: band.lane_number,
-                band_type: band.band_type,
-                detection_source: band.detection_source,
-                position_y: band.position_y,
-                estimated_mw_kda: band.estimated_mw_kda,
-                corrected_area: band.densitometry?.corrected_area,
-                relative_percent_lane: band.densitometry?.relative_percent_lane,
-                fit_r_squared: band.densitometry?.fit_r_squared,
-            }));
-        }
-
-        /**
-         * Setup ResizeObserver with debouncing.
-         */
-        _setupResizeObserver() {
-            if (this.resizeObserver) {
-                this.resizeObserver.disconnect();
-            }
-
-            this.resizeObserver = new ResizeObserver(() => {
-                if (this.resizeTimeout) {
-                    cancelAnimationFrame(this.resizeTimeout);
-                }
-                this.resizeTimeout = requestAnimationFrame(() => {
-                    this._handleResize();
+            const lanes = this._sortLanes(this.state.getAllLanes());
+            const out = [];
+            lanes.forEach(lane => {
+                const bands = this.state.getBandsForLane(lane.id) || [];
+                const totalArea = bands.reduce(
+                    (s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0
+                );
+                const important = bands
+                    .filter(_isImportantBand)
+                    .sort((a, b) => (a.band_number || 0) - (b.band_number || 0));
+                important.forEach(band => {
+                    const d = band.densitometry || {};
+                    out.push({
+                        lane_number: lane.lane_number,
+                        lane_type: lane.lane_type,
+                        sample_name: lane.sample_name || '',
+                        band_id: band.id,
+                        band_number: band.band_number,
+                        band_type: band.band_type,
+                        estimated_mw_kda: band.estimated_mw_kda,
+                        total_area: totalArea,
+                        band_area: d.corrected_area,
+                        pct_lane: totalArea > 0 ? (d.corrected_area || 0) / totalArea * 100 : null,
+                        fit_r_squared: d.fit_r_squared,
+                        estimated_amount: d.estimated_amount,
+                    });
                 });
             });
+            return out;
+        }
 
+        // -----------------------------------------------------------------
+        // Resize observer
+        // -----------------------------------------------------------------
+
+        _setupResizeObserver() {
+            if (this.resizeObserver) this.resizeObserver.disconnect();
+            this.resizeObserver = new ResizeObserver(() => {
+                if (this.resizeTimeout) cancelAnimationFrame(this.resizeTimeout);
+                this.resizeTimeout = requestAnimationFrame(() => this._handleResize());
+            });
             this.resizeObserver.observe(this.contentElement);
         }
 
-        /**
-         * Handle resize - ensure table layout is valid.
-         */
         _handleResize() {
             const rect = this.contentElement.getBoundingClientRect();
-            // Skip if container has no dimensions (panel hidden/collapsed)
             if (rect.width === 0 || rect.height === 0) return;
-
-            // Table layout is handled by CSS flexbox/grid
-            // No need to re-render unless data changes
+            // CSS handles layout — nothing to recompute.
         }
 
-        /**
-         * Cleanup resources.
-         */
         destroy() {
             if (this.resizeObserver) {
                 this.resizeObserver.disconnect();
@@ -617,7 +536,6 @@
         }
     }
 
-    // Export
     global.Densitometry = global.Densitometry || {};
     global.Densitometry.ResultsTablePanel = ResultsTablePanel;
 

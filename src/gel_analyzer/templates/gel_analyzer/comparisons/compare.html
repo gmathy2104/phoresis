@@ -18,8 +18,9 @@
     <header class="dm-header">
         <div class="dm-header-left">
             {% url 'gel_analyzer:comparison_list' as comparison_list_url %}
-            <a href="{{ back_url|default:comparison_list_url }}" class="dm-back-link">
+            <a href="{{ back_url|default:comparison_list_url }}" class="dm-back-link" data-tooltip="Back to Comparisons" data-tooltip-pos="bottom">
                 {% icon "arrow-left" size=16 %}
+                <span>Back</span>
             </a>
             <div class="dm-title-group">
                 <h1 class="dm-title">Sample Comparison</h1>
@@ -111,6 +112,10 @@
                             <button class="dm-view-btn" data-view="poi-purity" title="POI Purity across samples">
                                 <i class="bi bi-bar-chart-fill"></i> POI Purity
                             </button>
+                            <button class="dm-view-btn" data-view="content" id="content-view-btn"
+                                    title="Estimated content (requires calibration)" style="display: none;">
+                                <i class="bi bi-currency-exchange"></i> Content
+                            </button>
                         </div>
                         <!-- Electropherogram-specific controls -->
                         <div id="electropherogram-controls" class="dm-ephero-controls">
@@ -134,6 +139,7 @@
                 <div class="dm-panel-content">
                     <div id="chromatogram-container" class="dm-graphical-view-pane"></div>
                     <div id="poi-purity-container" class="dm-graphical-view-pane" style="display: none;"></div>
+                    <div id="content-chart-container" class="dm-graphical-view-pane" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -483,8 +489,10 @@
 <script src="{% static 'gel_analyzer/js/core/event-bus.js' %}"></script>
 
 <!-- Shared Utilities (must load before module scripts) -->
-<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}?v=20260129a"></script>
-<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}?v=20260129a"></script>
+<script src="{% static 'gel_analyzer/js/shared/api-error.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/auto-save.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}"></script>
 
 <!-- Sample Comparison Core Modules -->
 <script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-state.js' %}"></script>
@@ -497,9 +505,10 @@
 
 <!-- Sample Comparison Panels (load before app) -->
 <script src="{% static 'gel_analyzer/js/sample-comparison/panels/sample-cards-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/gel-overview-panel.js' %}?v=20260130a"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/gel-overview-panel.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/sample-comparison/panels/chromatogram-panel.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/sample-comparison/panels/poi-purity-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/content-chart-panel.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/sample-comparison/panels/band-detail-panel.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/sample-comparison/panels/results-table-panel.js' %}"></script>
 
@@ -969,31 +978,52 @@ document.addEventListener('DOMContentLoaded', function() {
     if (viewToggle) {
         const chromatogramPane = document.getElementById('chromatogram-container');
         const poiPurityPane = document.getElementById('poi-purity-container');
+        const contentPane = document.getElementById('content-chart-container');
         const epheroControls = document.getElementById('electropherogram-controls');
+
+        const setView = (view) => {
+            viewToggle.querySelectorAll('.dm-view-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.view === view);
+            });
+
+            chromatogramPane.style.display = view === 'electropherogram' ? '' : 'none';
+            poiPurityPane.style.display = view === 'poi-purity' ? '' : 'none';
+            contentPane.style.display = view === 'content' ? '' : 'none';
+            epheroControls.classList.toggle('hidden', view !== 'electropherogram');
+
+            // Force the matching panel to redraw against the now-visible
+            // container. ResizeObserver alone doesn't fire reliably when a
+            // sibling toggles display:none → display:'' on the same
+            // animation frame.
+            setTimeout(() => {
+                window.dispatchEvent(new Event('resize'));
+                if (view === 'content' && app && app.panels && app.panels.contentChart) {
+                    app.panels.contentChart.render();
+                }
+            }, 50);
+        };
 
         viewToggle.querySelectorAll('.dm-view-btn').forEach(btn => {
             btn.addEventListener('click', function() {
-                const view = this.dataset.view;
-
-                // Toggle active class
-                viewToggle.querySelectorAll('.dm-view-btn').forEach(b => {
-                    b.classList.toggle('active', b.dataset.view === view);
-                });
-
-                if (view === 'electropherogram') {
-                    chromatogramPane.style.display = '';
-                    poiPurityPane.style.display = 'none';
-                    epheroControls.classList.remove('hidden');
-                } else {
-                    chromatogramPane.style.display = 'none';
-                    poiPurityPane.style.display = '';
-                    epheroControls.classList.add('hidden');
-                }
-
-                // Trigger resize for D3 redraw
-                setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+                setView(this.dataset.view);
             });
         });
+
+        // Show/hide the Content view button based on whether any sample
+        // has quantified POI bands. The panel emits availability whenever
+        // samples change; the button stays hidden until there's something
+        // worth showing.
+        const contentBtn = document.getElementById('content-view-btn');
+        if (contentBtn && app && app.eventBus) {
+            app.eventBus.on('content-chart:availability', (data) => {
+                const isAvailable = !!(data && data.available);
+                contentBtn.style.display = isAvailable ? '' : 'none';
+                // If we hid the active Content view, fall back to electro.
+                if (!isAvailable && contentBtn.classList.contains('active')) {
+                    setView('electropherogram');
+                }
+            });
+        }
     }
 
     // ============================================
