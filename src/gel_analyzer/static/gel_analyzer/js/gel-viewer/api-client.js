@@ -114,8 +114,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to create lane');
+                    throw new Error(await extractApiError(response, 'Failed to create lane'));
                 }
 
                 const result = await response.json();
@@ -157,13 +156,16 @@
 
                 if (!response.ok) {
                     if (response.status === 409) {
+                        // Custom path: 409 carries structured detail used
+                        // by the lane-downgrade-confirm flow, so we keep
+                        // the raw response body on the Error.
                         const err = await response.json().catch(() => ({}));
                         const e = new Error(err.detail || 'Lane has dependent calibration points');
                         e.status = 409;
                         e.detail = err;
                         throw e;
                     }
-                    throw new Error('Failed to update lane');
+                    throw new Error(await extractApiError(response, 'Failed to update lane'));
                 }
 
             } catch (error) {
@@ -184,7 +186,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to delete lane');
+                    throw new Error(await extractApiError(response, 'Failed to delete lane'));
                 }
 
             } catch (error) {
@@ -211,8 +213,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to create lanes');
+                    throw new Error(await extractApiError(response, 'Failed to create lanes'));
                 }
 
                 return await response.json();
@@ -240,8 +241,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to update lanes');
+                    throw new Error(await extractApiError(response, 'Failed to update lanes'));
                 }
 
                 return await response.json();
@@ -269,8 +269,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to delete lanes');
+                    throw new Error(await extractApiError(response, 'Failed to delete lanes'));
                 }
 
                 return await response.json();
@@ -317,8 +316,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to delete bands');
+                    throw new Error(await extractApiError(response, 'Failed to delete bands'));
                 }
 
                 return await response.json();
@@ -1087,8 +1085,7 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to apply calibration');
+                    throw new Error(await extractApiError(response, 'Failed to apply calibration'));
                 }
 
                 return await response.json();
@@ -1159,7 +1156,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to get multi-calibration');
+                    throw new Error(await extractApiError(response, 'Failed to get multi-calibration'));
                 }
 
                 return await response.json();
