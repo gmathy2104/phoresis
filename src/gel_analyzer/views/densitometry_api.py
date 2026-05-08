@@ -99,6 +99,13 @@ def api_get_densitometry(request, pk: UUID):
                         "band_id": str(r.band_id),
                         "band_type": r.band.band_type,
                         "position_y": r.band.position_y,
+                        # bbox_y / bbox_height drive the chromatogram's
+                        # integration-zone shading. Without them the JS in
+                        # chromatogram-utils.calculateBandBounds falls back to
+                        # ±3σ around the peak center, which doesn't match a
+                        # user-edited bbox.
+                        "bbox_y": r.band.bbox_y,
+                        "bbox_height": r.band.bbox_height,
                         "estimated_mw_kda": r.band.estimated_mw_kda,
                         "peak_center_y": r.peak_center_y,
                         "peak_amplitude": r.peak_amplitude,

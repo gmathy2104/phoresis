@@ -235,6 +235,13 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
                         band_results.append(
                             {
                                 "band_id": str(band.id),
+                                # bbox_y / bbox_height drive the chromatogram's
+                                # integration-zone shading (chromatogram-utils.js
+                                # calculateBandBounds). Without them the JS falls
+                                # back to a ±3σ window centered on the peak —
+                                # visually wrong after a manual bbox edit.
+                                "bbox_y": band.bbox_y,
+                                "bbox_height": band.bbox_height,
                                 "peak_center_y": dr.peak_center_y,
                                 "peak_amplitude": dr.peak_amplitude,
                                 "fwhm": dr.fwhm,
