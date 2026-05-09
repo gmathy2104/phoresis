@@ -1,6 +1,6 @@
 [project]
 name = "phoresis"
-version = "1.1.0"
+version = "1.1.1"
 description = "Phoresis — standalone gel electrophoresis analysis platform"
 readme = "README.md"
 license = { text = "Proprietary" }
