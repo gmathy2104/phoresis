@@ -36,7 +36,6 @@ class TestLane:
         assert Lane.LaneType.EMPTY == "EMPTY"
         assert Lane.LaneType.CONTROL == "CONTROL"
         assert Lane.LaneType.DOT == "DOT"
-        assert Lane.LaneType.CALIBRATION == "CALIBRATION"
 
     def test_detection_source_choices(self):
         """Test detection source choices are valid."""
@@ -56,20 +55,28 @@ class TestLane:
         bbox = sample_lane.bbox
         assert bbox == {"x": 50, "y": 10, "width": 40, "height": 480}
 
-    # (Removed: pre-existing failure — Lane model no longer enforces lane_number uniqueness; managed by renumber_lanes().)
+    def test_renumber_lanes_makes_duplicate_numbers_unique_by_x(self, gel_analysis, sample_lane):
+        """Lane numbers are unique per analysis through renumber_lanes(), not the DB.
 
-    def test_loading_volume_ul_optional(self, sample_lane):
-        """loading_volume_ul is optional and stores µL."""
-        assert sample_lane.loading_volume_ul is None
-        sample_lane.loading_volume_ul = 12.5
-        sample_lane.save()
+        There is deliberately no (analysis, lane_number) constraint (Lane.Meta):
+        renumbering saves one lane at a time, so a constraint would trip halfway
+        through any swap of two numbers.
+        """
+        left = Lane.objects.create(
+            analysis=gel_analysis,
+            lane_number=1,  # Same as sample_lane: accepted at write time
+            lane_type=Lane.LaneType.SAMPLE,
+            x=20,  # Left of sample_lane (x=50): keeps 1, sample_lane moves to 2
+            y=10,
+            width=40,
+            height=480,
+        )
+
+        gel_analysis.renumber_lanes()
+
+        left.refresh_from_db()
         sample_lane.refresh_from_db()
-        assert sample_lane.loading_volume_ul == 12.5
-
-    def test_loading_volume_ul_rejects_negative(self, sample_lane):
-        sample_lane.loading_volume_ul = -1.0
-        with pytest.raises(ValidationError):
-            sample_lane.full_clean()
+        assert (left.lane_number, sample_lane.lane_number) == (1, 2)
 
     def test_confidence_validation(self, gel_analysis):
         """Test confidence value validation."""
@@ -118,13 +125,6 @@ class TestBand:
         assert Band.DetectionSource.MANUAL == "MANUAL"
         assert Band.DetectionSource.YOLO == "YOLO"
         assert Band.DetectionSource.SAM == "SAM"
-
-    def test_band_type_choices(self):
-        """Test band type choices are valid."""
-        assert Band.BandType.MW_REFERENCE == "MW_REFERENCE"
-        assert Band.BandType.POI == "POI"
-        assert Band.BandType.OTHER == "OTHER"
-        assert Band.BandType.CALIBRATION == "CALIBRATION"
 
     def test_yolo_detected_band(self, yolo_band):
         """Test YOLO-detected band properties."""
@@ -259,11 +259,7 @@ class TestMWMarker:
 
     def test_mw_kda_validation(self, ladder_lane):
         """Test mw_kda must be positive."""
-        marker = MWMarker(
-            lane=ladder_lane,
-            mw_kda=-10.0,  # Invalid
-            position_y=100,
-        )
+        marker = MWMarker(lane=ladder_lane, mw_kda=-10.0, position_y=100)  # Invalid
         with pytest.raises(ValidationError):
             marker.full_clean()
 
@@ -285,3 +281,58 @@ class TestCascadeDelete:
         ladder_lane.delete()
 
         assert not MWMarker.objects.filter(pk=marker_id).exists()
+
+
+# CALIBRATION choices — pre-flight blocker for PR #2 quantification port
+
+
+@pytest.mark.unit
+def test_lane_type_has_calibration_choice():
+    """ProteinQuantCalibrationPoint.band has limit_choices_to={'band_type': 'CALIBRATION'}.
+    Without this Lane choice, calibration lanes can't be marked. Pre-flight blocker."""
+    choices = dict(Lane.LaneType.choices)
+    assert "CALIBRATION" in choices, f"Lane.LaneType missing CALIBRATION choice. Current: {list(choices.keys())}"
+    assert choices["CALIBRATION"] == "Calibration Standard"
+
+
+@pytest.mark.unit
+def test_band_type_has_calibration_choice():
+    """Without this Band choice, ProteinQuantCalibrationPoint.band's
+    limit_choices_to references a non-existent choice and the entire
+    quantification feature (PR #2) is non-functional."""
+    choices = dict(Band.BandType.choices)
+    assert "CALIBRATION" in choices, f"Band.BandType missing CALIBRATION choice. Current: {list(choices.keys())}"
+    assert choices["CALIBRATION"] == "Calibration Point"
+
+
+@pytest.mark.unit
+def test_lane_type_preserves_dot_choice():
+    """ds-hub-side DOT (for Dot Blots) must survive — Phoresis also has it."""
+    choices = dict(Lane.LaneType.choices)
+    assert "DOT" in choices
+
+
+# ---------------------------------------------------------------------------
+# Lane.loading_volume_ul — field added for quantification port (PR #2 dep)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_lane_has_loading_volume_ul_field():
+    field_names = {f.name for f in Lane._meta.get_fields()}
+    assert "loading_volume_ul" in field_names
+
+
+@pytest.mark.unit
+def test_lane_loading_volume_ul_accepts_null():
+    field = Lane._meta.get_field("loading_volume_ul")
+    assert field.null is True
+    assert field.blank is True
+
+
+@pytest.mark.unit
+def test_lane_loading_volume_ul_rejects_negative():
+    field = Lane._meta.get_field("loading_volume_ul")
+    # MinValueValidator(0) — negative must raise
+    with pytest.raises(ValidationError):
+        field.run_validators(-1.0)

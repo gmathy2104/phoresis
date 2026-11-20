@@ -37,8 +37,8 @@ class BandDetectionSource(StrEnum):
 
 
 # Reference image height for pixel-based parameter calibration.
-# Default params (max_band_width_px=80, rolling_ball_radius=50, etc.)
-# are tuned for images ~800px tall. Larger images need proportionally
+# The default pixel params (max_band_width_px, rolling_ball_radius, etc.,
+# see BandDetectionParams) are tuned for images ~800px tall. Larger images need proportionally
 # scaled values via BandDetectionParams.scaled().
 REFERENCE_HEIGHT = 800
 
@@ -317,6 +317,9 @@ class IntensityProfile:
         lane_height: Lane height in pixels.
         profile_x_start: X start of the profile extraction window.
         profile_x_end: X end of the profile extraction window.
+        row_windows: ``(x_start, x_end)`` of the pixels averaged at each ``y_positions`` row, end
+                     exclusive (a polygon lane's window moves row by row). Filled by
+                     ``IntensityProfileExtractor``; the densitometry's saturation check counts these pixels.
     """
 
     y_positions: list[int] = field(default_factory=list)
@@ -330,6 +333,7 @@ class IntensityProfile:
     profile_x_start: int = 0
     profile_x_end: int = 0
     was_inverted: bool = False
+    row_windows: list[tuple[int, int]] = field(default_factory=list)
     valley_indices: list[int] = field(default_factory=list)  # profile indices of all valleys
     first_derivative: list[float] = field(default_factory=list)
     second_derivative: list[float] = field(default_factory=list)

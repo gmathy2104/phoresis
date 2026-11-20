@@ -15,7 +15,7 @@ from typing import Any
 
 from django.db import transaction
 
-from gel_analyzer.models import Band, LadderCalibration, LadderTemplate, Lane
+from gel_analyzer.models import LadderCalibration, LadderTemplate, Lane
 from gel_analyzer.services.calibration.models import BandMatch
 from gel_analyzer.services.calibration.service import CalibrationService
 from gel_analyzer.services.template_learning import TemplateLearningService
@@ -279,7 +279,7 @@ class StudioService:
         lane_top = lane.y
         lane_bottom = lane.y + lane.height
 
-        def rf_for(b: Band) -> float:
+        def rf_for(b):
             return self.calibration_service._calculate_rf(b.position_y, lane_top, lane_bottom)
 
         # Pre-compute the Rf of every detected band (used by all_bands serialization).

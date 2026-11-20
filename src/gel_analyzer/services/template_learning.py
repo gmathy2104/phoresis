@@ -11,11 +11,7 @@ import numpy as np
 
 from django.db.models import QuerySet
 
-from gel_analyzer.models import (
-    LadderBandDefinition,
-    LadderCalibration,
-    LadderTemplate,
-)
+from gel_analyzer.models import LadderBandDefinition, LadderCalibration, LadderTemplate
 from phoresis_core.logging_config import get_logger
 
 logger = get_logger(__name__)

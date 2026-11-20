@@ -26,18 +26,17 @@ Usage:
 
     # Multi-ladder calibration (gel smile correction)
     multi_service = MultiLadderCalibrationService(analysis)
-    result = multi_service.calibrate_all_ladders(template, user)
+    result = multi_service.calibrate_all_ladders(user, template)
     mw = multi_service.estimate_mw_at_position(y, x, top, bottom)
 """
 
-from .models import (
+from .models import (  # Multi-ladder dataclasses
     BandMatch,
     CalibrationParams,
     CalibrationResult,
     InterpolatedMWResult,
     InterpolationMethodType,
     InterpolationWeight,
-    # Multi-ladder dataclasses
     LadderCalibrationData,
     MultiLadderCalibrationResult,
 )

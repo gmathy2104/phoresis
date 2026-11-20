@@ -34,7 +34,7 @@ from .models import (
     PeakDetectionResult,
     PeakIntegrationResult,
 )
-from .normalizer import DensitometryNormalizer
+from .normalizer import DensitometryNormalizer, NormalizationRefused
 from .peak_deconvolution import PeakDeconvolutionService
 from .peak_integrator import PeakIntegrator
 from .peak_matching import PeakMatchingService, match_peaks_and_bands
@@ -63,4 +63,6 @@ __all__ = [
     "LaneDensitometryResultData",
     "DensitometryAnalysisResult",
     "NormalizationMethod",
+    # Refusal
+    "NormalizationRefused",
 ]

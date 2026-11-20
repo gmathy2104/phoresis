@@ -192,7 +192,7 @@ class TestSCNParserParse(SimpleTestCase):
     def _write_scn(self, data: bytes) -> Path:
         with tempfile.NamedTemporaryFile(suffix=".scn", delete=False) as f:
             f.write(data)
-            return Path(f.name)
+        return Path(f.name)
 
     def test_parse_basic(self):
         """Parse a valid SCN file and verify shape/dtype/values."""
@@ -307,7 +307,7 @@ class TestFileHandlerSCNIntegration(SimpleTestCase):
     def _write_scn(self, data: bytes) -> Path:
         with tempfile.NamedTemporaryFile(suffix=".scn", delete=False) as f:
             f.write(data)
-            return Path(f.name)
+        return Path(f.name)
 
     def test_detect_format_scn(self):
         """GelFileHandler.detect_format() should return 'SCN' for .scn files."""

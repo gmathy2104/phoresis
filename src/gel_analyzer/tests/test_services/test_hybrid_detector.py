@@ -19,6 +19,19 @@ def _make_lane_image(height=400, width=80, band_positions=None, band_intensity=2
     return np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
 
+def _lane_with_a_band_phase_1_misses():
+    """400x80 dark lane, Gaussian bands (sigma 5) of 190/20/8/4 at y=80/160/240/320, pixel noise sigma 3.
+
+    The noise makes the lane gate's noise term, not its 0.5 % floor, set the threshold.
+    """
+    y = np.arange(400)[:, None]
+    img = np.full((400, 80), 25.0)
+    for centre, contrast in ((80, 190), (160, 20), (240, 8), (320, 4)):
+        img[:, 8:72] += contrast * np.exp(-0.5 * ((y - centre) / 5.0) ** 2)
+    img += np.random.default_rng(0).normal(0, 3.0, img.shape)
+    return np.clip(np.rint(img), 0, 255).astype(np.uint8)
+
+
 class GapIdentificationTest(TestCase):
     """Test _find_gaps logic."""
 
@@ -114,41 +127,24 @@ class HybridDetectorPipelineTest(TestCase):
     def test_gap_fill_actually_runs(self):
         """REGRESSION: ensure d1/d2 gap-fill executes — not silently no-op.
 
-        Constructs a lane with two strong bands far apart (CV2 finds them)
-        and one faint band in the middle of the gap (CV2 may miss it,
-        d1/d2 should catch it). If gap-fill is broken, total bands == 2.
+        The faintest band (4/190 of the main one, at lane row 320) is under the
+        adaptive phase 1 threshold, so only the gap-fill can report it, and it must
+        clear the lane noise gate. The lane sits at image y=60, as real lanes do not
+        start at 0: the gate reads its profile in lane rows. The fixture this test had
+        before (a faint band phase 1 already found) only ever passed on gap-fill bands
+        in plain background - the noise the lane gate now drops.
         """
-        img = np.full((400, 80), 30, dtype=np.uint8)
-        img[40:60, 10:70] = 220
-        img[300:320, 10:70] = 220
-        img[170:185, 10:70] = 110
-        rng = np.random.RandomState(42)
-        img = np.clip(img.astype(np.int16) + rng.randint(0, 12, img.shape), 0, 255).astype(np.uint8)
-
-        params = HybridDetectionParams(sensitivity=8, faint_bands=True)
-        detector = HybridDetector(params)
-        bands = detector.detect(img, lane_bbox=(0, 0, 80, 400))
-
-        gap_fill_count = detector.last_summary.get("gap_fill_bands", 0)
-        self.assertGreater(
-            gap_fill_count, 0, f"Gap-fill produced 0 bands. summary={detector.last_summary}, total_bands={len(bands)}"
-        )
-
-    def test_gap_fill_bands_tagged_as_gap_fill(self):
-        img = np.full((400, 80), 30, dtype=np.uint8)
-        img[40:60, 10:70] = 220
-        img[300:320, 10:70] = 220
-        img[170:185, 10:70] = 110
-        rng = np.random.RandomState(42)
-        img = np.clip(img.astype(np.int16) + rng.randint(0, 12, img.shape), 0, 255).astype(np.uint8)
-
-        params = HybridDetectionParams(sensitivity=8, faint_bands=True)
-        detector = HybridDetector(params)
-        bands = detector.detect(img, lane_bbox=(0, 0, 80, 400))
+        img = _lane_with_a_band_phase_1_misses()
+        detector = HybridDetector(HybridDetectionParams())
+        bands = detector.detect(img, lane_bbox=(0, 60, 80, 400))
 
         phases = [getattr(b, "_hybrid_phase", None) for b in bands]
         self.assertIn("primary", phases)
-        self.assertIn("gap_fill", phases)
+        gap_fill_ys = [b.position_y for b in bands if getattr(b, "_hybrid_phase", None) == "gap_fill"]
+        self.assertTrue(
+            any(abs(y - 380) <= 5 for y in gap_fill_ys),
+            f"Gap-fill missed the faint band at y=380: gap_fill={gap_fill_ys}, summary={detector.last_summary}",
+        )
 
 
 class ClipToGapTest(TestCase):
@@ -166,3 +162,59 @@ class ClipToGapTest(TestCase):
         detector = HybridDetector(HybridDetectionParams())
         clipped = detector._clip_to_gap(band, gap)
         self.assertIsNone(clipped)
+
+
+class HybridDetectorNoiseGateTest(TestCase):
+    """The bands added after phase 1 (gap-fill, split) must clear the lane-level noise gate."""
+
+    def test_gap_fill_and_split_do_not_report_noise_as_bands(self):
+        """Regression: the gap-fill and the split reported the noise between three bands as bands.
+
+        The gap-fill's d1/d2 thresholds are ~1-2 sigma of a noise estimate made on
+        each short gap, re-applied on every gap, so a noise excursion nearly always
+        passed; the split, cutting at 15 % of a band's own amplitude, cut the noise
+        inside a phantom. Main on d3d18df2 added 33 bands here, all in plain background:
+        22 from the gap-fill, 11 from the split. Phase 1 bands are outside this test.
+        """
+        y = np.arange(800)[:, None]
+        img = np.full((800, 80), 230.0)
+        for centre in (200, 400, 600):
+            img[:, 8:72] -= 190 * np.exp(-0.5 * ((y - centre) / 10) ** 2)
+        img += np.random.default_rng(0).normal(0, 3.0, img.shape)
+        # Floor, not round: the truncation is part of the case.
+        lane = np.clip(np.floor(img), 0, 255).astype(np.uint8)
+
+        bands = HybridDetector(HybridDetectionParams()).detect(lane, lane_bbox=(0, 0, 80, 800))
+
+        added = [b.position_y for b in bands if getattr(b, "_hybrid_phase", None) in ("split", "gap_fill")]
+        off_band = [y for y in added if min(abs(y - centre) for centre in (200, 400, 600)) > 10]
+        self.assertEqual(off_band, [], f"Bands added after phase 1 in plain background: {off_band}")
+        for centre in (200, 400, 600):
+            self.assertTrue(
+                any(abs(b.position_y - centre) <= 10 for b in bands),
+                f"The band at y={centre} was lost: y={sorted(b.position_y for b in bands)}",
+            )
+
+    def test_gap_fill_band_passes_the_gate_on_a_light_background(self):
+        """On a light background (Coomassie) the bands are dips: the gate must flip the profile.
+
+        The faintest band (4/190, at y=640) is under the adaptive phase 1 threshold, so
+        only the gap-fill reports it, and it must clear the gate; nothing the gap-fill or
+        the split adds may sit in plain background. Without the flip the gate looks for
+        maxima where the bands are dips and drops the real band. Phase 1 bands are
+        outside this test.
+        """
+        y = np.arange(800)[:, None]
+        img = np.full((800, 80), 230.0)
+        for centre, contrast in ((160, 190), (320, 20), (480, 8), (640, 4)):
+            img[:, 8:72] -= contrast * np.exp(-0.5 * ((y - centre) / 10.0) ** 2)
+        img += np.random.default_rng(0).normal(0, 3.0, img.shape)
+        lane = np.clip(np.rint(img), 0, 255).astype(np.uint8)
+
+        bands = HybridDetector(HybridDetectionParams()).detect(lane, lane_bbox=(0, 0, 80, 800))
+
+        gap_fill_ys = [b.position_y for b in bands if getattr(b, "_hybrid_phase", None) == "gap_fill"]
+        self.assertTrue(any(abs(y - 640) <= 10 for y in gap_fill_ys), f"Gap-fill missed y=640: {gap_fill_ys}")
+        added = [b.position_y for b in bands if getattr(b, "_hybrid_phase", None) in ("split", "gap_fill")]
+        off_band = [y for y in added if min(abs(y - centre) for centre in (160, 320, 480, 640)) > 10]
+        self.assertEqual(off_band, [], f"Bands added after phase 1 in plain background: {off_band}")

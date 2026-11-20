@@ -6,6 +6,7 @@ Main entry point for densitometry analysis. Coordinates:
 - Peak integration (Gaussian fitting)
 - Normalization (relative quantification)
 - Purity calculations
+- Saturation check (a warning per band, never a correction: saturation.py)
 - Database persistence
 
 Usage:
@@ -31,22 +32,15 @@ if TYPE_CHECKING:
 
     from gel_analyzer.models import GelAnalysis, Lane
 
-from gel_analyzer.services.band_detection import (
-    BandDetectionParams,
-    IntensityProfile,
-)
+from gel_analyzer.services.band_detection import BandDetectionParams, IntensityProfile
 from gel_analyzer.services.band_detection.profile_extractor import IntensityProfileExtractor
 from gel_analyzer.services.band_detection.profile_processor import ProfileProcessor
 
-from .models import (
-    DensitometryAnalysisResult,
-    DensitometryParams,
-    LaneDensitometryResultData,
-    LaneProfileData,
-)
-from .normalizer import DensitometryNormalizer, compute_gel_statistics
-from .peak_integrator import PeakIntegrator
+from .models import DensitometryAnalysisResult, DensitometryParams, LaneDensitometryResultData, LaneProfileData
+from .normalizer import DensitometryNormalizer, NormalizationRefused, compute_gel_statistics
+from .peak_integrator import PeakIntegrator, band_window
 from .purity_calculator import PurityCalculator
+from .saturation import SaturationProbe
 
 logger = get_logger(__name__)
 
@@ -97,6 +91,7 @@ class DensitometryService:
         lane: Lane,
         image: np.ndarray,
         calibration_data: dict | None = None,
+        saturation: SaturationProbe | None = None,
     ) -> LaneDensitometryResultData:
         """
         Analyze a single lane for densitometry.
@@ -105,6 +100,8 @@ class DensitometryService:
             lane: Lane model instance with bands.
             image: Gel image as numpy array.
             calibration_data: Optional MW calibration data for MW axis.
+            saturation: The gel's saturation probe (``analyze_analysis`` builds one per gel, on the
+                original file). None counts on ``image``.
 
         Returns:
             LaneDensitometryResultData with all peak integration results.
@@ -147,13 +144,14 @@ class DensitometryService:
 
             # Integrate each band
             peaks = self.peak_integrator.integrate_bands(bands, profile, background)
+            self._measure_saturation(bands, peaks, profile, saturation, image)
 
             result.peaks = peaks
             result.bands_processed = len(bands)
             result.bands_successful = sum(1 for p in peaks if p.fit_successful or p.corrected_area > 0)
 
-            # Apply normalization
-            self.normalizer.normalize_lane(result)
+            # Not normalised here: normalisation is a gel-level step (analyze_analysis), refused for
+            # the whole gel when one lane lacks what the method needs -- never lane by lane.
 
             result.success = True
 
@@ -165,11 +163,13 @@ class DensitometryService:
         result.processing_time_ms = (time.time() - start_time) * 1000
 
         logger.debug(
-            f"Lane {lane.lane_number}: {result.bands_processed} bands, "
-            f"{result.bands_successful} successful, "
-            f"purity={result.poi_percentage:.1f}%"
-            if result.poi_percentage
-            else "N/A",
+            (
+                f"Lane {lane.lane_number}: {result.bands_processed} bands, "
+                f"{result.bands_successful} successful, "
+                f"purity={result.poi_percentage:.1f}%"
+                if result.poi_percentage
+                else "N/A"
+            ),
             f" ({result.processing_time_ms:.0f}ms)",
         )
 
@@ -181,6 +181,7 @@ class DensitometryService:
         image: np.ndarray,
         lane_ids: list[int] | None = None,
         progress_callback: callable | None = None,
+        original_image: np.ndarray | None = None,
     ) -> DensitometryAnalysisResult:
         """
         Analyze all lanes in a GelAnalysis.
@@ -190,10 +191,19 @@ class DensitometryService:
             image: Gel image as numpy array.
             lane_ids: Optional list of specific lane IDs to process.
             progress_callback: Optional callback(current, total, lane_number).
+            original_image: The file ``image`` was resized from, at its own bit depth
+                (``GelFileHandler.load_image_with_original``): saturation is counted on it. None counts
+                on ``image``.
 
         Returns:
             DensitometryAnalysisResult with all lane results.
+
+        Raises:
+            NormalizationRefused: the method asked for cannot normalise every lane (nothing computed).
         """
+        from gel_analyzer.services.mean_purity import mean_purity
+        from gel_analyzer.signals import published_purity
+
         start_time = time.time()
 
         result = DensitometryAnalysisResult(
@@ -220,14 +230,26 @@ class DensitometryService:
             # Get calibration data if available
             calibration_data = self._get_calibration_data(analysis)
 
+            # One probe for the gel: the original's scale ends are read once, not per lane. Never fails the
+            # run: without it, each lane counts on ``image`` (``_measure_saturation``).
+            try:
+                saturation = SaturationProbe.of(image, original_image)
+            except Exception:
+                logger.exception(f"Analysis {analysis.id}: saturation probe not built on the original file")
+                saturation = None
+
             # Process each lane
             lane_results = []
             for i, lane in enumerate(lanes, 1):
                 if progress_callback:
                     progress_callback(i, len(lanes), lane.lane_number)
 
-                lane_result = self.analyze_lane(lane, image, calibration_data)
+                lane_result = self.analyze_lane(lane, image, calibration_data, saturation)
                 lane_results.append(lane_result)
+
+            # Refused for the whole gel before any lane is normalised: no partial run, no lane
+            # silently normalised by another method (owner, 2026-10-05)
+            self.normalizer.refuse_unless_normalizable(lane_results)
 
             # Apply gel-level normalization
             lane_results = self.normalizer.normalize_gel(lane_results)
@@ -241,9 +263,14 @@ class DensitometryService:
             result.lanes_successful = sum(1 for r in lane_results if r.success)
             result.total_bands = sum(len(r.peaks) for r in lane_results)
             result.gel_total_area = gel_stats["gel_total_area"]
-            result.average_poi_percentage = gel_stats["average_poi_percentage"]
+            result.average_poi_percentage = mean_purity(
+                analysis.gel_image,
+                ((r.lane_type, published_purity(r) if r.success else None) for r in lane_results),
+            ).value
             result.success = result.lanes_successful > 0
 
+        except NormalizationRefused:
+            raise
         except Exception as e:
             logger.exception(f"Error analyzing gel {analysis.id}: {e}")
             result.success = False
@@ -265,6 +292,7 @@ class DensitometryService:
         user: AbstractUser,
         lane_ids: list[int] | None = None,
         progress_callback: callable | None = None,
+        original_image: np.ndarray | None = None,
     ) -> DensitometryAnalysisResult:
         """
         Analyze and save densitometry results to database.
@@ -275,12 +303,23 @@ class DensitometryService:
             user: User performing the analysis.
             lane_ids: Optional list of specific lane IDs to process.
             progress_callback: Optional callback(current, total, lane_number).
+            original_image: The file before its resize, where saturation is counted (``analyze_analysis``).
 
         Returns:
             DensitometryAnalysisResult with all lane results.
+
+        Raises:
+            AnalysisIsFinal: the analysis is approved, before the run or by the time it saves.
+            NormalizationRefused: the method asked for cannot normalise every lane.
         """
+        from gel_analyzer.services.analysis_status import AnalysisIsFinal, refuse_if_final
+
+        # An approved analysis is final (services/analysis_status.py): refused before the run, and
+        # again under a row lock when it saves -- it may be approved while the lanes integrate.
+        refuse_if_final(analysis.pk)
+
         # Run analysis
-        result = self.analyze_analysis(analysis, image, lane_ids, progress_callback)
+        result = self.analyze_analysis(analysis, image, lane_ids, progress_callback, original_image)
 
         if not result.success:
             return result
@@ -288,10 +327,16 @@ class DensitometryService:
         # Save to database
         try:
             self._save_results(result, user)
+        except AnalysisIsFinal:
+            raise
         except Exception as e:
             logger.exception(f"Error saving densitometry results: {e}")
             result.error_message = f"Analysis complete but save failed: {e}"
+            return result
 
+        # ds-hub-django publishes the western readouts to Process Development here. Phoresis has
+        # no such registry: a readout is computed when a page or a report reads it
+        # (services/readouts.py), never stored.
         return result
 
     @transaction.atomic
@@ -312,13 +357,16 @@ class DensitometryService:
         Args:
             result: Analysis result to save.
             user: User performing the save.
+
+        Raises:
+            AnalysisIsFinal: the analysis is approved; nothing is written.
         """
-        from gel_analyzer.models import (
-            Band,
-            DensitometryResult,
-            Lane,
-            LaneDensitometrySummary,
-        )
+        from gel_analyzer.models import Band, DensitometryResult, Lane, LaneDensitometrySummary
+        from gel_analyzer.services.analysis_status import refuse_if_final
+
+        # First, under the analysis row lock held until this transaction ends: an approval and a
+        # save are ordered, never interleaved.
+        refuse_if_final(result.analysis_id, lock=True)
 
         # Filter successful lane results
         successful_lanes = [lr for lr in result.lanes if lr.success]
@@ -358,8 +406,10 @@ class DensitometryService:
             LaneDensitometrySummary.objects.update_or_create(
                 lane=lane,
                 defaults={
+                    # The method asked for is the one that ran: none falls back to another
                     "normalization_method": self.params.normalization_method.value.upper(),
-                    "reference_band_id": self.params.reference_band_id,
+                    # Only REFERENCE_BAND (removed 2026-10-05) named one: a re-run clears it
+                    "reference_band_id": None,
                     "total_integrated_area": lane_result.total_integrated_area,
                     "poi_integrated_area": lane_result.poi_integrated_area,
                     "poi_percentage": lane_result.poi_percentage,
@@ -400,6 +450,7 @@ class DensitometryService:
                     "snr": peak.snr,
                     "relative_percent_lane": peak.relative_percent_lane,
                     "relative_percent_gel": peak.relative_percent_gel,
+                    "saturated_pixel_fraction": peak.saturated_pixel_fraction,
                 }
 
                 # Check if exists -> update, else -> create
@@ -407,9 +458,25 @@ class DensitometryService:
                     dr = existing_densitometry[band_id_str]
                     for field, value in defaults.items():
                         setattr(dr, field, value)
+                    # Do NOT touch estimated_amount / estimated_amount_unit /
+                    # estimated_amount_range on update — those are back-filled by
+                    # ProteinQuantCalibrationService.apply_to_analysis() and
+                    # represent a separate concern from densitometry peak data.
                     densitometry_to_update.append(dr)
                 else:
-                    densitometry_to_create.append(DensitometryResult(band=band, **defaults))
+                    # Explicitly initialise the quant-back-fill fields. Without
+                    # this, two productions hits showed bulk_create sending
+                    # NULL for estimated_amount_unit (NOT NULL column, schema
+                    # default stripped post-migration per Django convention).
+                    densitometry_to_create.append(
+                        DensitometryResult(
+                            band=band,
+                            estimated_amount=None,
+                            estimated_amount_unit="",
+                            estimated_amount_range=None,
+                            **defaults,
+                        )
+                    )
 
                 # Update band intensity
                 band.intensity_normalized = peak.relative_percent_lane
@@ -437,6 +504,7 @@ class DensitometryService:
                     "snr",
                     "relative_percent_lane",
                     "relative_percent_gel",
+                    "saturated_pixel_fraction",
                 ],
             )
             logger.debug(f"Bulk updated {len(densitometry_to_update)} DensitometryResult records")
@@ -449,6 +517,27 @@ class DensitometryService:
             f"Saved densitometry results for {len(successful_lanes)} lanes, "
             f"{len(densitometry_to_create)} created, {len(densitometry_to_update)} updated"
         )
+
+    @staticmethod
+    def _measure_saturation(
+        bands, peaks, profile: IntensityProfile, saturation: SaturationProbe | None, image: np.ndarray
+    ) -> None:
+        """Each band's share of saturated pixels, onto its peak: counted on the rows its area was integrated on.
+
+        ``saturation`` None counts on ``image``. A warning only, so it never costs a lane its areas: a failure
+        here is logged and leaves the share None ("not measured"), which every surface shows as such -- never as
+        "not saturated".
+        """
+        try:
+            probe = saturation or SaturationProbe.of(image)
+        except Exception:
+            logger.exception("Saturation not measured: no probe on the profile's image")
+            return
+        for band, peak in zip(bands, peaks, strict=False):
+            try:
+                peak.saturated_pixel_fraction = probe.band_fraction(profile, *band_window(band))
+            except Exception:
+                logger.exception(f"Saturation not measured for band {band.id}")
 
     def _create_profile_data(
         self,
@@ -505,9 +594,7 @@ class DensitometryService:
             Calibration data dict or None.
         """
         try:
-            from gel_analyzer.services.calibration.multi_ladder_service import (
-                MultiLadderCalibrationService,
-            )
+            from gel_analyzer.services.calibration.multi_ladder_service import MultiLadderCalibrationService
 
             service = MultiLadderCalibrationService()
             config = service.get_config(analysis)

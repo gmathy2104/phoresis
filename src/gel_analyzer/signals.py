@@ -1,11 +1,22 @@
 """Signal handlers for gel_analyzer."""
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from phoresis_core.logging_config import get_logger
 
-from .models import Band, GelImage
+from .models import Band, GelImage, Lane
+
+# The purity rules live in services/purity.py; re-exported here under the names
+# code ported from ds-hub-django imports them by (there they sit in signals.py).
+from .services.purity import (  # noqa: F401
+    PURITY_GEL_TYPES,
+    image_measures_purity,
+    lane_measures_purity,
+    lanes_measuring_purity_q,
+    published_purity,
+    summaries_publishing_purity_q,
+)
 
 logger = get_logger(__name__)
 
@@ -86,6 +97,60 @@ def invalidate_densitometry_on_band_delete(sender, instance: Band, **kwargs) -> 
     cascade.
     """
     invalidate_lane_densitometry(instance.lane_id)
+
+
+# ---------------------------------------------------------------------------
+# Lane-geometry edit -> the same densitometry-cache invalidation
+# ---------------------------------------------------------------------------
+
+# What IntensityProfileExtractor reads to place the profile: ``Lane.bbox``, ``has_polygon``, ``polygon``.
+LANE_GEOMETRY_FIELDS = ("lane_shape", "x", "y", "width", "height", "polygon")
+
+
+@receiver(pre_save, sender=Lane)
+def note_lane_geometry_change(sender, instance, raw=False, update_fields=None, **kwargs):
+    """
+    Before a lane save, record whether it rewrites the lane's box.
+
+    Compared with the stored row, not with the values the instance was loaded
+    with: a ``refresh_from_db()``, a deferred load or a polygon list edited in
+    place would make a load-time snapshot lie. Each value goes through the
+    field's ``get_prep_value`` -- what the save will write -- so an editor
+    sending ``50.7`` for a lane stored at ``50`` is not a change.
+
+    No query for a new lane (it has no densitometry yet) nor for a save whose
+    ``update_fields`` names no geometry field.
+    """
+    instance._geometry_changed = False
+    if raw or instance._state.adding:
+        return
+    names = [name for name in LANE_GEOMETRY_FIELDS if update_fields is None or name in update_fields]
+    if not names:
+        return
+    stored = Lane.objects.filter(pk=instance.pk).values(*names).first()
+    if stored is None:
+        return
+    instance._geometry_changed = any(
+        Lane._meta.get_field(name).get_prep_value(getattr(instance, name)) != stored[name] for name in names
+    )
+
+
+@receiver(post_save, sender=Lane)
+def invalidate_densitometry_on_lane_geometry_change(sender, instance, **kwargs):
+    """
+    Wipe the lane's cached densitometry when its box moved, was resized or reshaped.
+
+    The profile is read inside the lane's box, so the summary and the band
+    results of a moved lane were measured on another strip of the gel. Same
+    path as a band edit: ``invalidate_lane_densitometry``. A save that leaves
+    the box as it was (metadata, sample, lane type) keeps the numbers.
+
+    Like the Band receivers: ``QuerySet.update()`` and ``bulk_update()`` skip
+    it; a caller moving lanes that way invalidates by hand.
+    """
+    if instance.__dict__.pop("_geometry_changed", False):
+        invalidate_lane_densitometry(instance.pk)
+        logger.info(f"Lane {instance.pk} geometry changed: its densitometry was invalidated")
 
 
 @receiver(post_delete, sender=GelImage)

@@ -12,10 +12,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import curve_fit
 
-from gel_analyzer.services.calibration.fitters_shared import (
-    fit_polynomial,
-    format_polynomial_equation,
-)
+from gel_analyzer.services.calibration.fitters_shared import fit_polynomial, format_polynomial_equation
 
 # ---------- Linear y = a·x + b ----------------------------------------------
 

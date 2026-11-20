@@ -22,6 +22,17 @@ from .models import BandDetectionParams, IntensityProfile
 logger = get_logger(__name__)
 
 
+def to_grayscale(image: np.ndarray) -> np.ndarray:
+    """The 2-D array a profile is read from: RGB by luminance, any other multi-channel by its first channel."""
+    if len(image.shape) == 3:
+        if image.shape[2] == 3:
+            # RGB to grayscale using luminance formula
+            return np.dot(image[..., :3], [0.299, 0.587, 0.114])
+        # Just take first channel
+        return image[..., 0]
+    return image
+
+
 class IntensityProfileExtractor:
     """
     Extract 1D intensity profile from a gel lane region.
@@ -65,9 +76,7 @@ class IntensityProfileExtractor:
             IntensityProfile with raw intensities ready for processing.
         """
         # Ensure grayscale
-        if len(image.shape) == 3:
-            # RGB to grayscale using luminance formula, or just take first channel
-            image = np.dot(image[..., :3], [0.299, 0.587, 0.114]) if image.shape[2] == 3 else image[..., 0]
+        image = to_grayscale(image)
 
         # Get lane bounding box
         bbox = lane.bbox
@@ -127,6 +136,7 @@ class IntensityProfileExtractor:
             lane_height=lane_height,
             profile_x_start=profile_x_start,
             profile_x_end=profile_x_end,
+            row_windows=[(profile_x_start, profile_x_end)] * len(y_positions),
         )
 
     def _extract_from_polygon(
@@ -172,6 +182,7 @@ class IntensityProfileExtractor:
 
         y_positions = []
         raw_intensities = []
+        row_windows = []
 
         for y in range(y_start, y_end):
             # Find X range within polygon at this Y
@@ -201,6 +212,7 @@ class IntensityProfileExtractor:
                 avg_intensity = float(np.mean(row_slice))
                 y_positions.append(y)
                 raw_intensities.append(avg_intensity)
+                row_windows.append((int(x_start), int(x_end)))
 
         logger.debug(f"Extracted {len(y_positions)} profile points from polygon lane")
 
@@ -215,6 +227,7 @@ class IntensityProfileExtractor:
             lane_height=int(bbox["height"]),
             profile_x_start=default_x_start,
             profile_x_end=default_x_end,
+            row_windows=row_windows,
         )
 
     def _extract_from_bbox_fallback(
@@ -262,4 +275,5 @@ class IntensityProfileExtractor:
             lane_height=int(bbox["height"]),
             profile_x_start=profile_x_start,
             profile_x_end=profile_x_end,
+            row_windows=[(profile_x_start, profile_x_end)] * len(y_positions),
         )

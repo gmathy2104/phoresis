@@ -11,6 +11,7 @@ frontend automatically refines them using SAM for precise segmentation.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -20,13 +21,7 @@ from phoresis_core.logging_config import get_logger
 if TYPE_CHECKING:
     from gel_analyzer.models import Lane
 
-from .models import (
-    BandDetectionParams,
-    BandDetectionSource,
-    DetectedBand,
-    DetectedPeak,
-    IntensityProfile,
-)
+from .models import BandDetectionParams, BandDetectionSource, DetectedBand, DetectedPeak, IntensityProfile
 
 logger = get_logger(__name__)
 
@@ -152,9 +147,9 @@ class BandGeometryBuilder:
             if bbox_y + bbox_height > lane_y + lane_height:
                 bbox_height = lane_y + lane_height - bbox_y
 
-            # Band spans full lane width (horizontal extent)
-            bbox_x = lane_x
-            bbox_width = lane_width
+            # Band spans full lane width (horizontal extent) -- for a polygon lane, its span at the band's centre row
+            # (spec 2026-10-10 §5.1: a tilted lane's box is wider than the lane); a rectangle keeps its box.
+            bbox_x, bbox_width = self._lane_span(lane, band_center_y, lane_x, lane_width)
 
             # Calculate confidence from SNR and prominence
             confidence = self._calculate_confidence(peak, profile)
@@ -189,6 +184,23 @@ class BandGeometryBuilder:
 
         logger.debug(f"Built geometry for {len(bands)} bands")
         return bands
+
+    @staticmethod
+    def _lane_span(lane, row: float, lane_x: int, lane_width: int) -> tuple[int, int]:
+        """(x, width) of the lane on ``row``: a polygon lane's own span (rounded outward), else its box."""
+        polygon = getattr(lane, "polygon", None)
+        is_polygon_lane = getattr(lane, "lane_shape", None) in ("QUADRILATERAL", "POLYGON")
+        if not (is_polygon_lane and isinstance(polygon, list) and len(polygon) >= 3):
+            return lane_x, lane_width
+        # Imported here: this package is also loaded standalone, without its parent (tools/proofs).
+        from gel_analyzer.services.lane_geometry.shape import lane_outline, span_at  # noqa: PLC0415
+
+        outline = lane_outline(lane.lane_shape, lane.polygon, lane.x, lane.y, lane.width, lane.height)
+        span = span_at(outline, row)
+        if span is None:
+            return lane_x, lane_width
+        left, right = int(math.floor(span[0])), int(math.ceil(span[1]))
+        return left, right - left
 
     def _calculate_confidence(
         self,

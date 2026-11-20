@@ -18,11 +18,7 @@ from scipy.signal import argrelmin, find_peaks, peak_prominences, peak_widths
 
 from phoresis_core.logging_config import get_logger
 
-from .models import (
-    BandDetectionParams,
-    DetectedPeak,
-    IntensityProfile,
-)
+from .models import BandDetectionParams, DetectedPeak, IntensityProfile
 from .profile_processor import estimate_noise
 
 logger = get_logger(__name__)
@@ -114,10 +110,7 @@ class PeakDetector:
 
         # Height threshold: peak must be above some fraction of signal
         background_level = np.percentile(data, 10)  # Lower 10% as baseline
-        height_threshold = max(
-            background_level * self.params.min_intensity_ratio,
-            noise * 3,  # At least 3x noise
-        )
+        height_threshold = max(background_level * self.params.min_intensity_ratio, noise * 3)  # At least 3x noise
 
         logger.info(
             f"Peak detection: sensitivity={self.params.sensitivity:.2f}, "

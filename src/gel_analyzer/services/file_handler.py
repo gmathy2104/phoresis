@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 
 from phoresis_core.logging_config import get_logger
+from phoresis_core.stored_files import delete_replaced_file
 
 if TYPE_CHECKING:
     from gel_analyzer.models import GelImage
@@ -409,6 +410,30 @@ class GelFileHandler:
             ValueError: If no image file is available.
             IOError: If image cannot be read.
         """
+        img_array = cls._read_array(gel_image)
+        if not resize_to_display:
+            return img_array
+        return cls._resize_to_display(gel_image, img_array)
+
+    @classmethod
+    def load_image_with_original(cls, gel_image: "GelImage") -> tuple[np.ndarray, np.ndarray]:
+        """
+        The array ``load_image_as_array`` returns, and the original it was resized from, from ONE read.
+
+        The densitometry reads its profiles on the first and counts saturated pixels on the second, at the
+        file's own bit depth and resolution (``services/densitometry/saturation.py``): the resize interpolates
+        a clipped band core with its neighbours. The two are the same array when no resize was needed.
+
+        Raises:
+            ValueError: If no image file is available.
+            IOError: If image cannot be read.
+        """
+        original = cls._read_array(gel_image)
+        return cls._resize_to_display(gel_image, original), original
+
+    @classmethod
+    def _read_array(cls, gel_image: "GelImage") -> np.ndarray:
+        """The image file as a grayscale array at its native resolution, SCN polarity normalised."""
         # Prefer original_file for maximum bit depth
         file_field = gel_image.original_file or gel_image.display_file
         if not file_field:
@@ -422,7 +447,7 @@ class GelFileHandler:
             try:
                 with file_field.open("rb") as f:
                     file_content = f.read()
-            except FileNotFoundError as e:
+            except FileNotFoundError:
                 storage_backend = type(file_field.storage).__name__
                 log.error(
                     f"File not found via {storage_backend}: {file_field.name}. "
@@ -432,7 +457,7 @@ class GelFileHandler:
                     f"Gel image not found: {file_field.name} "
                     f"(storage: {storage_backend}). "
                     f"Check AZURE_STORAGE_KEY is set in the worker environment."
-                ) from e
+                ) from None
 
             # Determine format from filename
             filename = file_field.name.lower()
@@ -487,22 +512,6 @@ class GelFileHandler:
                 elif img_array.shape[0] in [3, 4]:  # (C, H, W)
                     img_array = img_array[0]  # Take first channel
 
-            # Resize to display dims if needed (lane annotations are in display-space).
-            # Set resize_to_display=False to preserve the native resolution — required
-            # by crop_image so it doesn't silently destroy image data.
-            if resize_to_display:
-                display_w = getattr(gel_image, "width", None)
-                display_h = getattr(gel_image, "height", None)
-                if display_w and display_h:
-                    img_h, img_w = img_array.shape[:2]
-                    if img_h != display_h or img_w != display_w:
-                        pil_img = Image.fromarray(img_array)
-                        pil_img = pil_img.resize((display_w, display_h), Image.Resampling.LANCZOS)
-                        img_array = np.array(pil_img)
-                        log.info(
-                            f"Resized from {img_w}x{img_h} to {display_w}x{display_h} for coordinate compatibility"
-                        )
-
             log.debug(f"Loaded image: shape={img_array.shape}, dtype={img_array.dtype}")
             return img_array
 
@@ -511,7 +520,64 @@ class GelFileHandler:
             raise OSError(f"Failed to load gel image: {e}") from e
 
     @classmethod
-    def crop_image(cls, gel_image: "GelImage", x: int, y: int, width: int, height: int) -> tuple[int, int]:
+    def _resize_to_display(cls, gel_image: "GelImage", img_array: np.ndarray) -> np.ndarray:
+        """
+        ``img_array`` resized to the display dims if they differ (lane annotations are in display-space).
+
+        ``load_image_as_array(resize_to_display=False)`` skips it to preserve the native resolution —
+        required by crop_image so it doesn't silently destroy image data.
+        """
+        log = logger.bind(gel_image_id=str(gel_image.pk))
+        try:
+            display_w = getattr(gel_image, "width", None)
+            display_h = getattr(gel_image, "height", None)
+            if display_w and display_h:
+                img_h, img_w = img_array.shape[:2]
+                if img_h != display_h or img_w != display_w:
+                    pil_img = Image.fromarray(img_array)
+                    pil_img = pil_img.resize((display_w, display_h), Image.Resampling.LANCZOS)
+                    img_array = np.array(pil_img)
+                    log.info(f"Resized from {img_w}x{img_h} to {display_w}x{display_h} for coordinate compatibility")
+            return img_array
+
+        except Exception as e:
+            log.error(f"Failed to load image: {e}")
+            raise OSError(f"Failed to load gel image: {e}") from e
+
+    @classmethod
+    def native_crop_rect(
+        cls, x: int, y: int, width: int, height: int, native_size: tuple[int, int], display_size: tuple
+    ) -> tuple[int, int, int, int]:
+        """
+        The display-space rect (x, y, width, height) in the original's native pixels, clamped to them.
+
+        ``native_size`` and ``display_size`` are (width, height). One rounding for ``crop_image`` and for
+        a caller that checks the file it wrote (``services/crop_backfill.py``).
+        """
+        native_w, native_h = native_size
+        display_w, display_h = display_size
+        if display_w and display_h and (native_h != display_h or native_w != display_w):
+            sx = native_w / display_w
+            sy = native_h / display_h
+            nx = int(round(x * sx))
+            ny = int(round(y * sy))
+            nw = int(round(width * sx))
+            nh = int(round(height * sy))
+        else:
+            # Display dims == native dims, no mapping needed
+            nx, ny, nw, nh = x, y, width, height
+
+        # Clamp to native bounds (guards against rounding beyond edge)
+        nx = max(0, min(nx, native_w - 1))
+        ny = max(0, min(ny, native_h - 1))
+        nw = max(1, min(nw, native_w - nx))
+        nh = max(1, min(nh, native_h - ny))
+        return nx, ny, nw, nh
+
+    @classmethod
+    def crop_image(
+        cls, gel_image: "GelImage", x: int, y: int, width: int, height: int, name_suffix: str = "_cropped"
+    ) -> tuple[int, int]:
         """
         Crop a GelImage to the specified rectangle.
 
@@ -524,6 +590,9 @@ class GelFileHandler:
             y: Top edge in display-space pixels.
             width: Crop width in display-space pixels.
             height: Crop height in display-space pixels.
+            name_suffix: Appended to the new files' names. ``_cropped`` marks a user's crop,
+                which never remaps coordinates (``ml_annotator``'s importer warns on it);
+                ``gel_crop_backfill`` remaps them and writes ``_autocrop``.
 
         Returns:
             Tuple of (new_width, new_height) after cropping.
@@ -569,36 +638,20 @@ class GelFileHandler:
                 # original file on every crop.
                 orig_array = cls.load_image_as_array(gel_image, resize_to_display=False)
                 native_h, native_w = orig_array.shape[:2]
-                display_w_now = gel_image.width
-                display_h_now = gel_image.height
-
-                # Convert display-space crop rect → native-space crop rect
-                if display_w_now and display_h_now and (native_h != display_h_now or native_w != display_w_now):
-                    sx = native_w / display_w_now
-                    sy = native_h / display_h_now
-                    nx = int(round(x * sx))
-                    ny = int(round(y * sy))
-                    nw = int(round(width * sx))
-                    nh = int(round(height * sy))
-                    log.info(
-                        f"Crop rect display→native: ({x},{y},{width},{height}) "
-                        f"× ({sx:.3f},{sy:.3f}) → ({nx},{ny},{nw},{nh})"
-                    )
-                else:
-                    # Display dims == native dims, no mapping needed
-                    nx, ny, nw, nh = x, y, width, height
-
-                # Clamp to native bounds (guards against rounding beyond edge)
-                nx = max(0, min(nx, native_w - 1))
-                ny = max(0, min(ny, native_h - 1))
-                nw = max(1, min(nw, native_w - nx))
-                nh = max(1, min(nh, native_h - ny))
+                nx, ny, nw, nh = cls.native_crop_rect(
+                    x, y, width, height, (native_w, native_h), (gel_image.width, gel_image.height)
+                )
+                if (nx, ny, nw, nh) != (x, y, width, height):
+                    log.info(f"Crop rect display→native: ({x},{y},{width},{height}) → ({nx},{ny},{nw},{nh})")
 
                 cropped_orig = orig_array[ny : ny + nh, nx : nx + nw]
                 log.debug(f"Cropped original array: shape={cropped_orig.shape}, dtype={cropped_orig.dtype}")
 
-                if cropped_orig.dtype in (np.uint16, np.int16):
-                    pil_img = Image.fromarray(cropped_orig)
+                # By kind and size, not `in (np.uint16, np.int16)`: a big-endian scan (`>u2`, the SCN
+                # parser's dtype for <endian>big</endian>) compares unequal to np.uint16 and fell to the
+                # 8-bit branch, whose astype(uint8) keeps each value modulo 256.
+                if cropped_orig.dtype.kind in "ui" and cropped_orig.dtype.itemsize == 2:
+                    pil_img = Image.fromarray(cropped_orig.astype(cropped_orig.dtype.newbyteorder("=")))
                     orig_buffer = io.BytesIO()
                     pil_img.save(orig_buffer, format="TIFF")
                     orig_buffer.seek(0)
@@ -633,11 +686,16 @@ class GelFileHandler:
 
         # Build filenames
         base_name = Path(gel_image.original_filename or "image").stem
-        display_filename = f"display/{base_name}_cropped.png"
-        thumb_filename = f"thumbnails/{base_name}_cropped_thumb.png"
-        orig_filename = f"originals/{base_name}_cropped{orig_ext or '.png'}"
+        display_filename = f"display/{base_name}{name_suffix}.png"
+        thumb_filename = f"thumbnails/{base_name}{name_suffix}_thumb.png"
+        orig_filename = f"originals/{base_name}{name_suffix}{orig_ext or '.png'}"
 
-        # Save to model fields
+        # Save to model fields. The storage never overwrites a taken name, so each
+        # new file lands beside the one it replaces. The superseded display and
+        # thumbnail go once the row points away; the superseded original stays in
+        # storage (unreferenced), as the raw upload always did after a crop.
+        old_display = gel_image.display_file.name
+        old_thumbnail = gel_image.thumbnail.name
         gel_image.display_file.save(display_filename, ContentFile(display_bytes), save=False)
         gel_image.thumbnail.save(thumb_filename, ContentFile(thumbnail_bytes), save=False)
         if orig_bytes and gel_image.original_file:
@@ -645,6 +703,8 @@ class GelFileHandler:
         gel_image.width = display_w
         gel_image.height = display_h
         gel_image.save()
+        delete_replaced_file(gel_image.display_file, old_display)
+        delete_replaced_file(gel_image.thumbnail, old_thumbnail)
 
         log.success(f"Cropped gel image to {display_w}x{display_h}")
         return display_w, display_h
@@ -668,13 +728,13 @@ class GelFileHandler:
         try:
             with file_field.open("rb") as f:
                 file_content = f.read()
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             storage_backend = type(file_field.storage).__name__
             raise OSError(
                 f"File not found: {file_field.name} "
                 f"(storage: {storage_backend}). "
                 f"Check AZURE_STORAGE_KEY is set in the worker environment."
-            ) from e
+            ) from None
 
         # Try to read with PIL
         pil_img = Image.open(io.BytesIO(file_content))

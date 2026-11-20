@@ -1,8 +1,11 @@
 """Tests for SavedComparison model."""
 
+from datetime import timedelta
+
 import pytest
 
 from django.db import IntegrityError
+from django.utils import timezone
 
 from gel_analyzer.models import SavedComparison, SavedComparisonLane
 
@@ -133,10 +136,14 @@ class TestSavedComparison:
             name="First",
             created_by=test_user,
         )
-        SavedComparison.objects.create(
+        comp2 = SavedComparison.objects.create(
             name="Second",
             created_by=test_user,
         )
+        # Windows' clock ticks every ~15 ms, so the re-save below could get the same
+        # updated_at as the second row (a tie, in any order). Move the second row an
+        # hour back: a queryset update() bypasses auto_now.
+        SavedComparison.objects.filter(pk=comp2.pk).update(updated_at=timezone.now() - timedelta(hours=1))
 
         # Update first one to make it newer
         comp1.name = "First Updated"

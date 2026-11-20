@@ -27,11 +27,7 @@ import numpy as np
 
 from phoresis_core.logging_config import get_logger
 
-from .models import (
-    BandDetectionParams,
-    DetectedPeak,
-    IntensityProfile,
-)
+from .models import BandDetectionParams, DetectedPeak, IntensityProfile
 from .profile_processor import estimate_noise
 
 logger = get_logger(__name__)
@@ -61,7 +57,7 @@ class IntegratedBand:
     peak_height: float
     left_boundary: IntegrationBoundary
     right_boundary: IntegrationBoundary
-    area: float  # np.trapezoid between boundaries
+    area: float  # np.trapz between boundaries
     width_px: int  # Width in profile indices
     snr: float
 
@@ -218,10 +214,10 @@ class PeakIntegrator:
         # Find all local minima in the segment
         valley_indices = []
         for i in range(1, len(segment) - 1):
+            # A local minimum that is actually lower than at least one neighbor (not a plateau)
             if (
                 segment[i] <= segment[i - 1]
                 and segment[i] <= segment[i + 1]
-                # Check it's actually lower than at least one neighbor (not plateau)
                 and (segment[i] < segment[i - 1] or segment[i] < segment[i + 1])
             ):
                 valley_indices.append(i)

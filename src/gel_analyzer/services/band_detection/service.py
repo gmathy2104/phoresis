@@ -43,12 +43,7 @@ if TYPE_CHECKING:
     from gel_analyzer.models import Band, GelAnalysis, GelImage, LadderTemplate, Lane
 
 from .geometry_builder import BandGeometryBuilder
-from .models import (
-    BandDetectionParams,
-    BandDetectionResult,
-    BandDetectionSource,
-    DetectedBand,
-)
+from .models import BandDetectionParams, BandDetectionResult, BandDetectionSource, DetectedBand
 from .peak_detector import PeakDetector  # DEPRECATED: used only by _detect_ladder_guided()
 from .profile_extractor import IntensityProfileExtractor
 from .profile_processor import ProfileProcessor

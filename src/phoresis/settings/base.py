@@ -189,3 +189,9 @@ STORAGES = {
 
 # Phase 1 — STALE_TASK_REGISTRY is empty until gel_analyzer lands in Phase 2.
 STALE_TASK_TIMEOUT_HOURS = 2
+
+# Densitometry saturation flag: a band is "saturated" when MORE than this share (0-1) of the pixels its
+# area was measured on sit at the end of the image's scale (gel_analyzer/services/densitometry/saturation.py).
+# A warning only: the areas are never corrected. Read at every display and export, so a new value needs
+# no re-run; 0 flags any saturated pixel.
+GEL_ANALYZER_SATURATED_PIXEL_THRESHOLD = float(os.environ.get("GEL_ANALYZER_SATURATED_PIXEL_THRESHOLD", "0.01"))

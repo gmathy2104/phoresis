@@ -8,11 +8,11 @@ encoder. Embeddings are cached and sent to browser for decoder inference.
 from __future__ import annotations
 
 import base64
+import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,6 +23,17 @@ if TYPE_CHECKING:
     from gel_analyzer.models import GelImage
 
 logger = get_logger(__name__)
+
+
+def embeddings_cache_key(gel_image: GelImage) -> str:
+    """The cache key of an image's embeddings: its pk AND its display file's name.
+
+    A crop (a user's, or ``gel_crop_backfill`` run from a workstation whose cache is not
+    production's) writes a new display file under a new name, so it changes the key wherever
+    the cache lives: no embedding of the uncropped image can answer for the cropped one.
+    """
+    name = gel_image.display_file.name if gel_image.display_file else ""
+    return f"sam_embeddings_{gel_image.pk}_{hashlib.sha1(name.encode()).hexdigest()[:12]}"
 
 
 class MobileSAMEncoderService:
@@ -86,6 +97,11 @@ class MobileSAMEncoderService:
                 f"MobileSAM weights not found at {self._model_path}. "
                 "Download from: https://github.com/ChaoningZhang/MobileSAM/raw/master/weights/mobile_sam.pt"
             )
+
+        # torch is imported here, not at module level: the admin autodiscovery imports
+        # gel_analyzer.services, which imports this module, so a module-level import made
+        # every Django boot (tests, runserver, Celery, manage.py) pay ~5 s for SAM alone.
+        import torch
 
         # Determine device (CPU for compatibility, MPS for M1/M2 Macs)
         if torch.backends.mps.is_available():
@@ -167,7 +183,7 @@ class MobileSAMEncoderService:
         Returns:
             Embedding dictionary.
         """
-        cache_key = f"sam_embeddings_{gel_image.pk}"
+        cache_key = embeddings_cache_key(gel_image)
         cache_timeout = 24 * 60 * 60  # 24 hours
 
         if not force_refresh:
@@ -204,7 +220,7 @@ class MobileSAMEncoderService:
         Returns:
             True if cache was cleared.
         """
-        cache_key = f"sam_embeddings_{gel_image.pk}"
+        cache_key = embeddings_cache_key(gel_image)
         cache.delete(cache_key)
         logger.info(f"Cleared SAM embeddings cache for image {gel_image.pk}")
         return True

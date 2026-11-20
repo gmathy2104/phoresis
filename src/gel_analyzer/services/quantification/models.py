@@ -34,6 +34,7 @@ class QuantPoint:
     is_excluded: bool = False
     residual: float | None = None  # filled at fit time
     predicted_amount: float | None = None  # filled at fit time
+    calibration_range: str | None = None  # projected points: service.calibration_range_of, filled at projection
 
 
 @dataclass
@@ -47,6 +48,8 @@ class QuantResult:
     calibration_points: list[QuantPoint] = field(default_factory=list)
     control_points: list[QuantPoint] = field(default_factory=list)
     sample_projections: list[QuantPoint] = field(default_factory=list)
+    # [min, max] corrected area of the fit's non-excluded standards (service.calibration_area_span)
+    calibration_area_range: tuple[float, float] | None = None
     error_message: str | None = None
     warnings: list[str] = field(default_factory=list)
 
@@ -61,6 +64,7 @@ class QuantResult:
             "calibration_points": [_pt_to_dict(p) for p in self.calibration_points],
             "control_points": [_pt_to_dict(p, with_recovery=True) for p in self.control_points],
             "sample_projections": [_pt_to_dict(p, sample=True) for p in self.sample_projections],
+            "calibration_area_range": list(self.calibration_area_range) if self.calibration_area_range else None,
             "warnings": self.warnings,
             "error_message": self.error_message,
         }
@@ -80,6 +84,8 @@ def _pt_to_dict(p: QuantPoint, *, with_recovery: bool = False, sample: bool = Fa
         base["predicted_amount"] = p.predicted_amount
         if p.residual is not None and has_load:
             base["residual_pct"] = round((p.residual / p.load_amount) * 100, 2)
+    if with_recovery or sample:
+        base["calibration_range"] = p.calibration_range
     if with_recovery and p.predicted_amount is not None and has_load:
         base["known_amount"] = p.load_amount
         recovery = (p.predicted_amount / p.load_amount) * 100

@@ -13,14 +13,38 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from .saturation import is_saturated
+
 
 class NormalizationMethod(StrEnum):
-    """Normalization methods for relative quantification."""
+    """The normalization methods a run accepts: what may be asked, not what is stored.
+
+    Owner, 2026-10-05: ``gel_total`` and ``reference_band`` were removed, and asking for them is
+    refused with the reason (``_missing_``). Gel Total produced the lane total -- the gel share,
+    ``relative_percent_gel``, is computed on every run whatever the method -- and Reference Band named
+    one band, which only its own lane carries. Lane summaries written before keep ``GEL_TOTAL`` /
+    ``REFERENCE_BAND`` (``LaneDensitometrySummary.NormalizationMethod``, the stored vocabulary).
+    """
 
     LANE_TOTAL = "lane_total"
-    GEL_TOTAL = "gel_total"
     LOADING_CONTROL = "loading_control"
-    REFERENCE_BAND = "reference_band"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Raised as is by Enum's lookup: every path that builds a method names the reason.
+        retired = {
+            "gel_total": (
+                "Gel Total normalization was removed: it gave the Lane Total numbers, and each band's "
+                "share of the whole gel is computed on every run anyway (% Gel in the CSV export)."
+            ),
+            "reference_band": (
+                "Reference Band normalization was removed: it named a single band, which only its own lane carries."
+            ),
+        }
+        reason = retired.get(value) if isinstance(value, str) else None
+        raise ValueError(
+            f"{reason or f'Unknown normalization method {value!r}.'} Choose lane_total or loading_control."
+        )
 
 
 class BackgroundMethodDensitometry(StrEnum):
@@ -63,9 +87,6 @@ class DensitometryParams:
     profile_width_percent: float = 50.0
     integration_method: str = "gaussian"  # 'gaussian' or 'trapezoid'
 
-    # Reference band for LOADING_CONTROL or REFERENCE_BAND normalization
-    reference_band_id: str | None = None
-
     # Profile correction flag - if True, profile is already background-corrected
     # by ProfileProcessor, so PeakIntegrator should NOT subtract background again
     profile_already_corrected: bool = True
@@ -87,7 +108,8 @@ class DensitometryParams:
         # Convert string to enum if needed
         if isinstance(self.background_method, str):
             self.background_method = BackgroundMethodDensitometry(self.background_method)
-        if isinstance(self.normalization_method, str):
+        if not isinstance(self.normalization_method, NormalizationMethod):
+            # A retired or unknown method raises with its reason (NormalizationMethod._missing_)
             self.normalization_method = NormalizationMethod(self.normalization_method)
 
     def to_dict(self) -> dict:
@@ -103,7 +125,6 @@ class DensitometryParams:
             "min_fit_r_squared": self.min_fit_r_squared,
             "profile_width_percent": self.profile_width_percent,
             "integration_method": self.integration_method,
-            "reference_band_id": self.reference_band_id,
             "profile_already_corrected": self.profile_already_corrected,
         }
 
@@ -132,7 +153,6 @@ class DensitometryParams:
             "min_fit_r_squared",
             "profile_width_percent",
             "integration_method",
-            "reference_band_id",
             "profile_already_corrected",
         }
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
@@ -337,6 +357,10 @@ class PeakIntegrationResult:
         # Relative quantification (filled by normalizer)
         relative_percent_lane: Percentage of lane total
         relative_percent_gel: Percentage of gel total
+
+        # Saturation (a warning: the areas above are not corrected for it)
+        saturated_pixel_fraction: Share (0-1) of the band's pixels at the end of the image's scale
+            (saturation.py); None when it could not be counted
     """
 
     band_id: str
@@ -365,6 +389,9 @@ class PeakIntegrationResult:
     relative_percent_lane: float | None = None
     relative_percent_gel: float | None = None
 
+    # Saturation
+    saturated_pixel_fraction: float | None = None
+
     def to_dict(self) -> dict:
         """Serialize to dictionary for API response."""
         return {
@@ -383,12 +410,16 @@ class PeakIntegrationResult:
             "fit_r_squared": round(self.fit_r_squared, 4),
             "snr": round(self.snr, 2),
             "fit_successful": self.fit_successful,
-            "relative_percent_lane": round(self.relative_percent_lane, 2)
-            if self.relative_percent_lane is not None
-            else None,
-            "relative_percent_gel": round(self.relative_percent_gel, 2)
-            if self.relative_percent_gel is not None
-            else None,
+            "relative_percent_lane": (
+                round(self.relative_percent_lane, 2) if self.relative_percent_lane is not None else None
+            ),
+            "relative_percent_gel": (
+                round(self.relative_percent_gel, 2) if self.relative_percent_gel is not None else None
+            ),
+            "saturated_pixel_fraction": (
+                round(self.saturated_pixel_fraction, 4) if self.saturated_pixel_fraction is not None else None
+            ),
+            "saturated": is_saturated(self.saturated_pixel_fraction),
         }
 
     @property

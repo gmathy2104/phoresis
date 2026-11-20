@@ -24,6 +24,8 @@ if TYPE_CHECKING:
         LadderTemplate,
     )
 
+import contextlib
+
 from .models import (
     CalibrationParams,
     InterpolatedMWResult,
@@ -50,7 +52,7 @@ class MultiLadderCalibrationService:
         service = MultiLadderCalibrationService(analysis)
 
         # Calibrate all ladders
-        result = service.calibrate_all_ladders(template, user)
+        result = service.calibrate_all_ladders(user, template)
 
         # Estimate MW for a band
         mw_result = service.estimate_mw_at_position(
@@ -95,7 +97,7 @@ class MultiLadderCalibrationService:
                     lane_id=cal.ladder_lane.id,
                     lane_top=cal.ladder_lane.y,
                     lane_bottom=cal.ladder_lane.y + cal.ladder_lane.height,
-                    band_matches=cal.band_matches or [],
+                    band_matches=cal.band_matches or [],  # Include band matches for chart display
                     excluded_band_ids=cal.excluded_band_ids or [],
                 )
             )
@@ -104,8 +106,8 @@ class MultiLadderCalibrationService:
 
     def calibrate_all_ladders(
         self,
-        template: LadderTemplate | None,
         user: User,
+        template: LadderTemplate | None = None,
         method: str = "LOG_LINEAR",
         excluded_band_ids: list[str] | None = None,
     ) -> MultiLadderCalibrationResult:
@@ -121,8 +123,13 @@ class MultiLadderCalibrationService:
         5. Creates/updates MultiLadderCalibrationConfig
 
         Args:
-            template: LadderTemplate to use for all ladders
             user: User performing the calibration
+            template: LadderTemplate to use for all ladders. Optional — when
+                omitted (or ``None``), the fit consumes the MW values that
+                ladder bands already carry (manual MW workflow / Band
+                Editor assignments). Code-review fix: previously the
+                annotation said ``LadderTemplate | None`` but no default
+                was supplied, so callers couldn't omit the argument.
             method: Calibration method (LOG_LINEAR, POLYNOMIAL_2, etc.)
             excluded_band_ids: Ladder band UUIDs (str) the user wants to
                 drop from the fit — typically high-residual outliers spotted
@@ -133,11 +140,7 @@ class MultiLadderCalibrationService:
         Returns:
             MultiLadderCalibrationResult with all calibration results
         """
-        from gel_analyzer.models import (
-            InterpolationMethod,
-            LadderCalibration,
-            MultiLadderCalibrationConfig,
-        )
+        from gel_analyzer.models import InterpolationMethod, LadderCalibration, MultiLadderCalibrationConfig
 
         # Find all ladder lanes
         ladder_lanes = list(self.analysis.lanes.filter(lane_type="LADDER").order_by("x"))
@@ -526,9 +529,7 @@ class MultiLadderCalibrationService:
                     bands_failed += 1
                     continue
 
-                # Round MW to 1 decimal place — kDa precision beyond that
-                # is meaningless given the calibration error budget, and
-                # the extra digits clutter every UI surface that shows MW.
+                # Update band (round MW to 1 decimal place for cleaner display)
                 band.estimated_mw_kda = round(result.estimated_mw_kda, 1)
                 band.mw_estimation_method = f"MULTI_{result.method}"
                 band.save(update_fields=["estimated_mw_kda", "mw_estimation_method"])
@@ -583,8 +584,6 @@ class MultiLadderCalibrationService:
         Returns:
             Number of calibrations deleted
         """
-        import contextlib
-
         from gel_analyzer.models import MultiLadderCalibrationConfig
 
         # Delete calibrations

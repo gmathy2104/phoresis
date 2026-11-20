@@ -156,7 +156,7 @@ class AdvancedPeakDetector:
             left_idx = int(max(0, left_ips[i]))
             right_idx = int(min(len(intensities) - 1, right_ips[i]))
             area = (
-                float(np.trapz(intensities[left_idx : right_idx + 1], y_positions[left_idx : right_idx + 1]))
+                float(np.trapezoid(intensities[left_idx : right_idx + 1], y_positions[left_idx : right_idx + 1]))
                 if right_idx > left_idx
                 else 0.0
             )

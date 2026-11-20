@@ -98,6 +98,19 @@ def gaussian_truncated_area(amplitude: float, center: float, sigma: float, lower
     return max(0.0, float(area))
 
 
+def band_window(band: Band) -> tuple[float, float]:
+    """The profile rows a band is integrated on, both ends included: its box, else 20 px around its position.
+
+    The saturation check (``saturation.py``) counts the pixels of these same rows.
+    """
+    band_bbox = band.bbox
+    if band_bbox:
+        # Use bounding box for region
+        return band_bbox["y"], band_bbox["y"] + band_bbox["height"]
+    # Estimate region from position and typical width
+    return band.position_y - 20, band.position_y + 20
+
+
 class PeakIntegrator:
     """
     Integrate band peaks using Gaussian fitting.
@@ -167,16 +180,7 @@ class PeakIntegrator:
 
             # Find band region in profile
             band_y = band.position_y
-            band_bbox = band.bbox
-
-            if band_bbox:
-                # Use bounding box for region
-                band_top = band_bbox["y"]
-                band_bottom = band_bbox["y"] + band_bbox["height"]
-            else:
-                # Estimate region from position and typical width
-                band_top = band_y - 20
-                band_bottom = band_y + 20
+            band_top, band_bottom = band_window(band)
 
             # Get indices within band region
             mask = (y_positions >= band_top) & (y_positions <= band_bottom)
@@ -312,6 +316,13 @@ class PeakIntegrator:
             center_guess = float(min(max(initial_center, x[0]), x[-1]))
             sigma_guess = (x[-1] - x[0]) / 4.0  # ~1/4 of region width
 
+            # Bounds to prevent unreasonable fits
+            # amplitude: positive, center: within region, sigma: reasonable width
+            (
+                [0, x[0] - 10, 1],  # lower bounds
+                [amplitude_guess * 3, x[-1] + 10, (x[-1] - x[0]) * 2],  # upper bounds
+            )
+
             # Fit with constant baseline.
             # Center is constrained to the bbox window (``[x[0], x[-1]]``)
             # rather than the previous ``±10`` slack. The slack let
@@ -330,10 +341,7 @@ class PeakIntegrator:
             # already kicks in for regions with <5 samples upstream of here.
             sigma_upper = max((x[-1] - x[0]) * 2, 2.0)
             p0 = [amplitude_guess, center_guess, sigma_guess, float(np.min(y))]
-            bounds_with_baseline = (
-                [0, x[0], 1, 0],
-                [amplitude_guess * 3, x[-1], sigma_upper, np.max(y)],
-            )
+            bounds_with_baseline = ([0, x[0], 1, 0], [amplitude_guess * 3, x[-1], sigma_upper, np.max(y)])
 
             popt, pcov = curve_fit(
                 gaussian_with_baseline,

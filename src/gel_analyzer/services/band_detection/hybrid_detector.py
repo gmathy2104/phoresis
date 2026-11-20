@@ -7,6 +7,11 @@ Pipeline:
 3. D1/d2 derivative detection runs on each gap to find faint/shoulder bands
 4. Results merge with no overlap by construction
 
+The bands added after phase 1 (gap-fill, wide-band split) must also clear a
+lane-level significance gate (_LaneGate): their own thresholds are relative to
+a short gap's noise or to a band's own amplitude, so on their own they report
+noise as bands.
+
 Usage:
     from gel_analyzer.services.band_detection.hybrid_detector import HybridDetector
     from gel_analyzer.services.band_detection.hybrid_params import HybridDetectionParams
@@ -19,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import time
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,6 +45,15 @@ TOP_REGION_FRACTION = 0.12
 VARIANCE_RATIO_THRESHOLD = 0.6
 MAX_MASK_FRACTION = 0.15
 
+# Significance gate for the bands added after phase 1 (_LaneGate): a peak must
+# stand GATE_SIGMAS noise sigmas (of the smoothed lane profile) above its
+# surroundings. Noise-relative and lane-level, so one number serves a faint and a
+# bright gel alike; chosen with the owner on two real gels, 2026-09-27. The 0.5 %
+# of the profile's range is the same relative floor as CV2's _find_bands.
+GATE_SIGMAS = 5
+GATE_SMOOTH_WINDOW = 9
+GATE_RELATIVE_FLOOR = 0.005
+
 
 @dataclass
 class GapRegion:
@@ -50,6 +65,72 @@ class GapRegion:
     @property
     def size(self) -> int:
         return self.end - self.start
+
+
+@dataclass(frozen=True)
+class _LaneGate:
+    """Lane-level significance test for a band the hybrid adds after phase 1.
+
+    The gap-fill and the split judge a candidate against a short gap's noise or a
+    band's own amplitude (see _detect_in_gap, _split_wide_bands), which noise clears.
+    This gate measures the noise ONCE, on the whole lane profile, from its first
+    differences (a slope or a band barely moves a median of differences), and BEFORE
+    any background subtraction or zero clip that would deflate it. A candidate
+    passes when the highest row of the smoothed profile within 3 rows of it is a
+    local maximum whose prominence clears max(GATE_SIGMAS sigmas of the smoothed
+    profile's noise, GATE_RELATIVE_FLOOR of its range) - the floor governs a lane
+    with no pixel noise (sigma 0). Phase 1 (primary) bands are never gated.
+    """
+
+    prof_s: np.ndarray
+    threshold: float
+    lane_y: int
+
+    @classmethod
+    def from_lane(cls, lane_crop: np.ndarray, bg_type: str, lane_y: int) -> _LaneGate:
+        """Build the gate from the (effective) lane crop, oriented bands-up."""
+        from scipy.signal import savgol_coeffs, savgol_filter
+
+        gray = np.mean(lane_crop, axis=2) if lane_crop.ndim == 3 else lane_crop.astype(np.float64)
+        prof = gray.mean(axis=1).astype(np.float64)
+        if bg_type == "light":
+            prof = prof.max() - prof
+
+        # Row noise from the first differences (MAD, scaled to a sigma per row).
+        d = np.diff(prof)
+        sigma = 1.4826 * float(np.median(np.abs(d - np.median(d)))) / np.sqrt(2)
+
+        # The prominence is read on the smoothed profile, so the noise it is
+        # compared with is the smoothed one: sigma times the filter's white-noise gain.
+        if len(prof) >= GATE_SMOOTH_WINDOW:
+            prof_s = savgol_filter(prof, GATE_SMOOTH_WINDOW, 2)
+            gain = float(np.sqrt(np.sum(savgol_coeffs(GATE_SMOOTH_WINDOW, 2) ** 2)))
+        else:
+            prof_s, gain = prof, 1.0
+
+        threshold = max(GATE_SIGMAS * sigma * gain, GATE_RELATIVE_FLOOR * float(np.ptp(prof_s)))
+        return cls(prof_s=prof_s, threshold=threshold, lane_y=lane_y)
+
+    def passes(self, y: int) -> bool:
+        """True if a significant local maximum of the lane profile sits at image row y (+/-3)."""
+        from scipy.signal import peak_prominences
+
+        prof_s = self.prof_s
+        n = len(prof_s)
+        p = int(y - self.lane_y)
+        if p < 1 or p >= n - 1:
+            return False
+        lo, hi = max(0, p - 3), min(n, p + 4)
+        q = lo + int(np.argmax(prof_s[lo:hi]))
+        if q <= 0 or q >= n - 1 or prof_s[q] < prof_s[q - 1] or prof_s[q] < prof_s[q + 1]:
+            return False
+        # A plateau has prominence 0: scipy warns (PeakPropertyWarning, a
+        # RuntimeWarning it does not export publicly) and the candidate fails
+        # against any threshold above 0.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            prominence = float(peak_prominences(prof_s, [q])[0][0])
+        return prominence >= self.threshold
 
 
 class HybridDetector:
@@ -86,6 +167,9 @@ class HybridDetector:
             mask_offset = lane_y - lane_bbox[1]
             lane_crop = lane_crop[mask_offset : mask_offset + lane_h, :]
 
+        # Significance gate for the bands phases 1b and 2 add (phase 1 is never gated).
+        gate = _LaneGate.from_lane(lane_crop, bg_type, lane_y)
+
         # Phase 1: CV2 primary (now receives effective bbox + explicit bg_type).
         cv2_bands_raw = self.cv2_detector.detect(
             lane_crop,
@@ -96,7 +180,7 @@ class HybridDetector:
         # Merge overlapping CV2 bands so gaps are well-defined
         cv2_bands = self._merge_overlapping(cv2_bands_raw)
         # Phase 1b: split wide bands that contain doublets.
-        cv2_bands = self._split_wide_bands(cv2_bands, lane_crop, effective_bbox, bg_type)
+        cv2_bands = self._split_wide_bands(cv2_bands, lane_crop, effective_bbox, bg_type, gate=gate)
         for band in cv2_bands:
             band.detection_source = BandDetectionSource.HYBRID
             if not hasattr(band, "_hybrid_phase") or band._hybrid_phase is None:
@@ -114,7 +198,7 @@ class HybridDetector:
                 continue
             gaps_analyzed += 1
             sub_bands = self._detect_in_gap(gap, lane_crop, effective_bbox, bg_type)
-            gap_bands.extend(sub_bands)
+            gap_bands.extend(band for band in sub_bands if gate.passes(band.position_y))
 
         all_bands = cv2_bands + gap_bands
         all_bands.sort(key=lambda b: b.position_y)
@@ -269,6 +353,7 @@ class HybridDetector:
         lane_crop: np.ndarray,
         lane_bbox: tuple[int, int, int, int],
         bg_type: str,
+        gate: _LaneGate | None = None,
     ) -> list[DetectedBand]:
         """Split bands that contain >=2 internal peaks separated by a clean valley.
 
@@ -276,6 +361,11 @@ class HybridDetector:
         ProfileProcessor, no DerivativeDetector overhead. Prominence threshold
         is relative to the local band amplitude, which is the same criterion
         the human eye uses when looking at the electropherogram.
+
+        Relative to the band's own amplitude, that threshold cuts noise when the
+        band is itself a phantom made of noise: with `gate` (detect() passes it),
+        a split stands only if every sub-peak clears the lane-level _LaneGate,
+        otherwise the band stays whole.
 
         Polarity-aware: `bg_type` is the globally-resolved polarity (resolved
         once at the top of detect()). On light bg the profile is inverted so
@@ -389,6 +479,15 @@ class HybridDetector:
                 result.append(band)
                 continue
 
+            # Guard: a sub-peak under the lane's noise gate → keep the band whole.
+            if gate is not None and not all(gate.passes(band.bbox_y + int(p)) for p in peaks):
+                logger.info(
+                    f"[HYBRID-SPLIT] Rejected at y={band.bbox_y}: a sub-peak is under the "
+                    f"lane noise gate (threshold={gate.threshold:.2f}), n_peaks={len(peaks)}"
+                )
+                result.append(band)
+                continue
+
             logger.info(
                 f"[HYBRID-SPLIT] Split band at y={band.bbox_y} "
                 f"(h={band.bbox_height}, amplitude={amplitude:.1f}) into "
@@ -471,6 +570,11 @@ class HybridDetector:
         Polarity-locked: `bg_type` is the globally-resolved polarity (from
         the top of detect()) and we force `invert_profile` accordingly so
         the local ProfileProcessor cannot re-detect and flip per gap.
+
+        Not a significance test on its own: the d1/d2 thresholds are ~1-2 sigma of
+        a noise estimate made on this short gap, re-applied on every gap, so a
+        noise excursion nearly always passes. detect() keeps only the bands that
+        clear the lane-level _LaneGate.
         """
         import dataclasses
 

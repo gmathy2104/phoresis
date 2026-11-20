@@ -13,20 +13,25 @@ import time
 
 import cv2
 import numpy as np
-from scipy.ndimage import binary_closing, grey_opening
+from scipy.ndimage import grey_dilation, grey_erosion, grey_opening
 from scipy.ndimage import label as ndi_label
-from scipy.signal import find_peaks, peak_widths, savgol_filter
+from scipy.signal import find_peaks, peak_widths, savgol_coeffs, savgol_filter
 from scipy.stats import skew
 
 from phoresis_core.logging_config import get_logger
 
 from .cv2_params import CV2DetectionParams
 from .models import BandDetectionSource, DetectedBand
-from .profile_processor import estimate_noise_profile
 
 logger = get_logger(__name__)
 
 MAX_BANDS_PER_LANE = 50
+
+# Scale of the noise term of _find_bands' prominence threshold. With the honest
+# noise (_row_noise), 2 x the historical factor puts the hybrid's bias 10 (factor
+# 1.49) at ~3 sigma of the smoothed profile's noise; the owner chose this scale over
+# 1 x on two real gels, 2026-09-27 - 1 x made the panel MORE permissive in dense lanes.
+PROMINENCE_NOISE_SCALE = 2.0
 
 
 class CV2BandDetector:
@@ -51,8 +56,10 @@ class CV2BandDetector:
             adaptive: If True AND lane_h >= 30, apply zone-local adaptive
                 thresholds (Feature 4) instead of the global find_peaks
                 pipeline. Adds a zone-boundary component merge pass at the
-                end. Default False preserves the legacy global pipeline
-                bit-exactly for existing callers.
+                end. Either way the lane gets the lane-wide CLAHE tiles and
+                the profile clipped to its data (_clip_to_local_data): the
+                adaptive call kept the historical tiles and smoothing until
+                2026-09-27, and their phantom bands with them (_apply_clahe).
 
         Returns:
             List of DetectedBand with coordinates relative to the full image.
@@ -70,6 +77,8 @@ class CV2BandDetector:
             logger.info("Uniform lane crop, no bands to detect")
             return []
 
+        use_adaptive = bool(adaptive) and lane_h >= 30
+
         # Optional CLAHE for local contrast enhancement
         if self.params.clahe_enabled:
             gray = self._apply_clahe(gray)
@@ -78,10 +87,12 @@ class CV2BandDetector:
 
         # Step 1: Extract mean intensity per row
         profile = self._extract_profile(gray)
+        # Kept as extracted: the global pipeline measures its noise on it (_find_bands).
+        raw_profile = profile
 
-        # Step 2: Smooth
+        # Step 2: Smooth, kept within the range of the raw rows around each point
         smoothing = self.params.block_size  # repurposed slider
-        profile = self._smooth_profile(profile, smoothing)
+        profile = self._clip_to_local_data(self._smooth_profile(raw_profile, smoothing), raw_profile)
 
         # Step 3: Detect polarity and normalize so bands = peaks
         bg_type = bg_type_override if bg_type_override in ("light", "dark") else self._detect_polarity(profile)
@@ -95,23 +106,22 @@ class CV2BandDetector:
             f"max={profile.max():.1f}, mean={profile.mean():.1f}"
         )
 
-        use_adaptive = bool(adaptive) and lane_h >= 30
-
         if use_adaptive:
             # Adaptive zone-local threshold path (Feature 4).
             # Operates on the oriented profile so that "above threshold" means
             # "band" regardless of bg_type.
             bands_raw, corrected = self._detect_adaptive(profile, bg_type, lane_h)
-            logger.info(f"[CV2-DIAG] Adaptive: {len(bands_raw)} components found (lane_h={lane_h}, zones=3)")
+            logger.info(f"[CV2-DIAG] Adaptive: {len(bands_raw)} bands found (lane_h={lane_h}, zones=3)")
         else:
-            # Legacy global pipeline (unchanged).
+            # Global pipeline: the CV2 panel, the hybrid with adaptive off, and
+            # an adaptive call on a lane under 30 rows.
             # Step 4: Background subtraction (rolling ball on 1D)
             radius = self.params.tophat_radius  # repurposed slider
             background = self._subtract_background(profile, radius)
             corrected = np.maximum(profile - background, 0)
 
             # Step 5: Find peaks
-            bands_raw = self._find_bands(corrected, lane_h)
+            bands_raw = self._find_bands(corrected, lane_h, raw_profile=raw_profile)
 
             logger.info(f"[CV2-DIAG] Peaks found: {len(bands_raw)}")
 
@@ -148,6 +158,24 @@ class CV2BandDetector:
             return savgol_filter(profile, w, polyorder=2)
         except ValueError:
             return profile
+
+    @staticmethod
+    def _clip_to_local_data(smoothed: np.ndarray, raw: np.ndarray, reach: int = 5) -> np.ndarray:
+        """Keep the smoothed profile within the range of the raw samples around it.
+
+        Savitzky-Golay (order 2, window = block_size, often several band widths)
+        overshoots beside a sharp band - once the profile is oriented bands-up, a
+        dip below the lane background on each side - and drags close bands into
+        each other. The rolling-ball opening followed those dips down, so the
+        plain background between two bands stood above its own estimate and came
+        out as a band: the phantom in the gap, since the 1D rewrite ec50a5c12.
+        Bounded by the min and max of the `reach` raw samples around each point,
+        the smoothing can no longer invent a value no nearby row has; where it
+        stays inside that range (noise on a flat background) it is untouched.
+        """
+        if len(raw) < 7:
+            return smoothed
+        return np.clip(smoothed, grey_erosion(raw, size=reach), grey_dilation(raw, size=reach))
 
     # ----- Polarity detection -----
 
@@ -219,8 +247,22 @@ class CV2BandDetector:
         self,
         corrected: np.ndarray,
         lane_h: int,
+        raw_profile: np.ndarray | None = None,
     ) -> list[tuple[int, int, float]]:
         """Find bands as peaks in the background-corrected profile.
+
+        The noise term of the prominence threshold is NOT measured on `corrected`:
+        `max(profile - opening, 0)` is zero-clipped, most of its samples are exactly
+        0 on a clean lane, so a noise estimate on it came out ~0 (or deflated), the
+        0.5 % floor governed every lane and threshold_bias had no effect.
+
+        Args:
+            corrected: background-subtracted, oriented profile (bands = peaks).
+            lane_h: lane height in pixels.
+            raw_profile: the row profile as extracted, before smoothing, background
+                subtraction and clipping; the noise is measured on it (_row_noise),
+                carried through detect()'s smoothing. A direct caller that omits it
+                hands an unclipped profile: the noise is measured on `corrected`.
 
         Returns:
             List of (y_center, height, prominence) tuples.
@@ -228,9 +270,10 @@ class CV2BandDetector:
         if corrected.max() < 1.0:
             return []
 
-        # Unified baseline-aware noise + signal-relative floor
-        noise_profile = estimate_noise_profile(corrected)
-        noise = noise_profile.noise_signal
+        if raw_profile is not None:
+            noise = self._row_noise(raw_profile, smoothing_window=self.params.block_size)
+        else:
+            noise = self._row_noise(corrected)
 
         # Prominence threshold from params (repurposed threshold_bias)
         # Lower bias = more sensitive. Scale: bias=3 → factor=0.45, bias=10 → factor=1.5
@@ -241,7 +284,8 @@ class CV2BandDetector:
         # and bright gels don't get under-detected.
         dynamic_range = float(corrected.max() - corrected.min())
         relative_floor = dynamic_range * 0.005
-        prominence_min = max(noise * prominence_factor, relative_floor)
+        noise_term = PROMINENCE_NOISE_SCALE * noise * prominence_factor
+        prominence_min = max(noise_term, relative_floor)
 
         # Min distance between peaks (repurposed morph_kernel)
         min_distance = max(2, self.params.morph_kernel)
@@ -252,10 +296,9 @@ class CV2BandDetector:
 
         logger.debug(
             f"[CV2-DIAG] Peak params: noise={noise:.2f} "
-            f"(baseline_pct={noise_profile.baseline_percentile:.0f}%, "
-            f"fallback={noise_profile.fallback_reason or 'none'}), "
+            f"(on {'raw profile' if raw_profile is not None else 'corrected'}), "
             f"prominence_min={prominence_min:.2f} "
-            f"(noise*factor={noise * prominence_factor:.2f}, "
+            f"(scale*noise*factor={noise_term:.2f}, "
             f"rel_floor={relative_floor:.2f}), "
             f"distance={min_distance}, min_height={min_height:.1f}"
         )
@@ -288,6 +331,26 @@ class CV2BandDetector:
 
         return bands
 
+    @staticmethod
+    def _row_noise(profile: np.ndarray, smoothing_window: int | None = None) -> float:
+        """Row noise sigma of a profile, from its first differences.
+
+        MAD of the differences, scaled to a sigma per row: a slope or a band barely
+        moves a median of differences, so the estimate stays honest on a loaded
+        lane. With `smoothing_window`, the sigma is carried through the smoothing
+        _smooth_profile applies with that window (same window rule), times the
+        filter's white-noise gain: the peaks are read on the smoothed profile. A
+        profile under 7 rows is left unsmoothed there, so its gain is 1.
+        """
+        d = np.diff(profile)
+        sigma = 1.4826 * float(np.median(np.abs(d - np.median(d)))) / np.sqrt(2)
+        if smoothing_window is None or len(profile) < 7:
+            return sigma
+        w = max(5, min(smoothing_window, len(profile) - 1))
+        if w % 2 == 0:
+            w += 1
+        return sigma * float(np.sqrt(np.sum(savgol_coeffs(w, 2) ** 2)))
+
     # ----- Adaptive threshold per zone (Feature 4) -----
 
     def _detect_adaptive(
@@ -298,10 +361,27 @@ class CV2BandDetector:
     ) -> tuple[list[tuple[int, int, float]], np.ndarray]:
         """Adaptive per-zone threshold detection.
 
-        Splits the lane profile into 3 vertical zones, computes a MAD-based
-        threshold per zone, applies it to build a binary band mask, smooths
-        zone boundaries with a 5-px morphological close, then extracts
-        connected components as bands.
+        Splits the lane profile into 3 vertical zones and takes a baseline
+        (median) and a MAD-based threshold offset per zone, both interpolated
+        linearly between the zone centres: the threshold moves smoothly down
+        the lane. Until 2026-09-27 it stepped at each zone border, and a band
+        sitting on a border was cut in two by the step, its centre off by up
+        to 10 px; the 5-px morphological close at the borders, now gone, did
+        not rejoin it.
+
+        The rows above threshold form runs (connected components), and the
+        bands are the profile's peaks inside each run, found once on the whole
+        oriented profile with the local offset as minimum prominence. A
+        doublet or a packed ladder is one run above threshold but several
+        peaks: taking one band per run merged them into a single band at the
+        run's midpoint. A band sits at its peak row, as high as its FWHM (3
+        rows at least); a run with no peak inside (a slope running off the
+        lane end, a bump too shallow for the local prominence) keeps one band
+        at its maximum, as high as the run. At a lane end on a sloped
+        background that band is a phantom on the last rows; dropping it where
+        the run touches the lane end was measured on 11 real gels on
+        2026-09-27 and rejected: it also drops the real last ladder band of a
+        lane that ends on it.
 
         Args:
             profile: 1D oriented profile (already inverted on light bg so
@@ -316,17 +396,15 @@ class CV2BandDetector:
             positive-valued signal used for confidence scaling.
         """
         N_ZONES = 3
-        TRANSITION_SMOOTH_PX = 5
         SIGMA_FALLBACK_MIN = 1.0
 
         zone_h = lane_h // N_ZONES
         global_sigma = float(max(np.std(profile), 1e-6))
         threshold_bias = float(self.params.threshold_bias)
 
-        # Build a local-baseline-subtracted "corrected" signal for confidence.
-        corrected = np.zeros_like(profile, dtype=np.float64)
-        mask = np.zeros_like(profile, dtype=bool)
-
+        centres: list[float] = []
+        baselines: list[float] = []
+        offsets: list[float] = []
         for i in range(N_ZONES):
             zstart = i * zone_h
             zend = lane_h if i == N_ZONES - 1 else (i + 1) * zone_h
@@ -340,24 +418,29 @@ class CV2BandDetector:
             # Scale threshold bias by the ratio of zone/global sigma. This
             # lets quieter zones use a tighter numeric threshold.
             thr_offset = threshold_bias * sigma_zone / max(global_sigma, 1e-6)
-            thr = baseline + thr_offset  # above this = band (profile is oriented)
-            mask[zstart:zend] = zone > thr
-            # Subtract zone baseline to produce a corrected signal for
-            # confidence scaling.
-            corrected[zstart:zend] = np.maximum(zone - baseline, 0.0)
+            centres.append((zstart + zend - 1) / 2.0)
+            baselines.append(baseline)
+            offsets.append(thr_offset)
 
             logger.debug(
                 f"[CV2-DIAG] zone{i} [{zstart}:{zend}] baseline={baseline:.1f} "
                 f"sigma={sigma_zone:.2f} thr_offset={thr_offset:.2f}"
             )
 
-        # Smooth zone boundary transitions with a 5-px morphological close.
-        for i in range(1, N_ZONES):
-            b = i * zone_h
-            lo = max(0, b - TRANSITION_SMOOTH_PX)
-            hi = min(lane_h, b + TRANSITION_SMOOTH_PX)
-            if hi - lo >= 3:
-                mask[lo:hi] = binary_closing(mask[lo:hi], structure=np.ones(3))
+        # Baseline and offset per row, linear between the zone centres (flat
+        # beyond the outer ones): no step left at a zone border to cut a band.
+        # Above baseline + offset = band (the profile is oriented); the signal
+        # above the baseline scales the confidence.
+        rows_all = np.arange(len(profile))
+        base_y = np.interp(rows_all, centres, baselines)
+        off_y = np.interp(rows_all, centres, offsets)
+        mask = profile > base_y + off_y
+        corrected = np.maximum(profile - base_y, 0.0)
+
+        # The peaks, found once on the whole profile, each at least as
+        # prominent as the local offset; their FWHM is the band height.
+        peaks, _ = find_peaks(profile, prominence=np.maximum(off_y, 1e-6), distance=max(2, self.params.morph_kernel))
+        fwhm = peak_widths(profile, peaks, rel_height=0.5)[0] if peaks.size else np.array([])
 
         # Connected components on the 1D mask.
         labeled, n_components = ndi_label(mask)
@@ -371,13 +454,20 @@ class CV2BandDetector:
                 continue
             y_start = int(rows.min())
             y_end = int(rows.max())
-            height = max(3, y_end - y_start + 1)
-            y_center = (y_start + y_end) // 2
-            # Prominence = max corrected within the component
-            prominence = float(np.max(corrected[y_start : y_end + 1]))
-            if prominence <= 0:
-                prominence = float(np.max(profile[y_start : y_end + 1]) - np.min(profile[y_start : y_end + 1]))
-            bands_raw.append((int(y_center), int(height), float(prominence)))
+            # One band per peak inside the run: a doublet or a packed ladder is
+            # one run above threshold but several peaks.
+            inside = np.where((peaks >= y_start) & (peaks <= y_end))[0]
+            if inside.size:
+                run_bands = [(int(peaks[j]), max(3, int(np.ceil(fwhm[j])))) for j in inside]
+            else:
+                y_max = y_start + int(np.argmax(profile[y_start : y_end + 1]))
+                run_bands = [(y_max, max(3, y_end - y_start + 1))]
+            for y_center, height in run_bands:
+                # Prominence = the signal above the local baseline at the band row
+                prominence = float(corrected[y_center])
+                if prominence <= 0:
+                    prominence = float(np.ptp(profile[y_start : y_end + 1]))
+                bands_raw.append((int(y_center), int(height), float(prominence)))
 
         # Cap at max by prominence
         if len(bands_raw) > MAX_BANDS_PER_LANE:
@@ -399,6 +489,11 @@ class CV2BandDetector:
           - They straddle a zone boundary (z1, z2) expressed in image coords.
           - Vertical gap ≤ 3px.
           - Horizontal overlap ≥ 80% of the narrower bbox width.
+
+        With the zone threshold interpolated (2026-09-27) there is no step left
+        to cut a band, yet this still merges on real gels: 18 pairs over 11 gels,
+        none on the synthetic grid. Measured then, it is neutral - without it,
+        one more real ladder band and two more phantoms - so it stays.
         """
         if not bands or lane_h < 30:
             return bands
@@ -492,7 +587,7 @@ class CV2BandDetector:
             if actual_h < 2:
                 continue
 
-            # Intensity stats from the original grayscale lane crop
+            # Intensity stats from the grayscale lane crop, CLAHE'd when enabled
             roi = gray[y_start:y_end, :]
             intensity_raw = float(np.sum(roi))
             intensity_peak = float(np.max(roi))
@@ -531,7 +626,14 @@ class CV2BandDetector:
     # ----- Image preprocessing (kept from original) -----
 
     def _normalize_to_uint8(self, image: np.ndarray) -> np.ndarray:
-        """Normalize any image dtype to uint8 grayscale."""
+        """Normalize any image dtype to uint8 grayscale.
+
+        A 16-bit lane crop is stretched between its OWN 2nd and 98th percentiles,
+        so an empty lane's background mottling gets full contrast. A range shared
+        by the gel (whole image, union of the lane boxes, or a fixed /257) was
+        measured on 11 real gels on 2026-09-27 and rejected by the owner: about
+        10 fewer detections over 5 empty lanes, for 2 to 9 real ladder bands lost.
+        """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image.copy()
 
         if gray.dtype == np.uint8:
@@ -549,8 +651,18 @@ class CV2BandDetector:
         return normalized
 
     def _apply_clahe(self, gray: np.ndarray) -> np.ndarray:
-        """Apply CLAHE local contrast enhancement."""
-        h, w = gray.shape
-        tile_size = max(4, min(32, h // 8))
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(tile_size, tile_size))
+        """Apply CLAHE local contrast enhancement, one tile across the lane, 8 down.
+
+        `tileGridSize` is a tile COUNT (columns, rows). The historical grid,
+        min(32, h // 8) each way, cut an 80-px lane into ~2.5-px columns and
+        rows a 25th-32nd of its height: a tile of near-flat background has a
+        histogram a grey level or two wide, and equalising it turned a one-level
+        step in a band's tail into a 7-level one, a phantom band ~38 px either
+        side of the real one. The global pipeline has used the lane-wide tiles
+        since aeda84d0; the adaptive path kept the historical grid until
+        2026-09-27, as its absolute zone thresholds counted on the stretch to
+        lift faint bands - the owner validated the lane-wide tiles on both
+        paths on 11 real gels.
+        """
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(1, 8))
         return clahe.apply(gray)

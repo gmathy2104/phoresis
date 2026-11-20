@@ -240,7 +240,7 @@ class TestLoadImageAsArray:
         img_16bit = np.zeros((300, 200), dtype=np.uint16)
         img_16bit[100:110, 50:150] = 40000
         tiff_buffer = io.BytesIO()
-        Image.fromarray(img_16bit, mode="I;16").save(tiff_buffer, format="TIFF")
+        Image.fromarray(img_16bit).save(tiff_buffer, format="TIFF")  # uint16 -> I;16 (Pillow 13 refuses mode=)
         tiff_bytes = tiff_buffer.getvalue()
 
         # Create 8-bit PNG content for display_file

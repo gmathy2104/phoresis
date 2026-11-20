@@ -61,7 +61,7 @@ class PurityCalculator:
 
             if peak.band_type == "POI":
                 poi_area += area
-            elif peak.band_type == "OTHER" or (peak.band_type == "MW_REFERENCE" and not exclude_reference):
+            elif peak.band_type == "OTHER" or peak.band_type == "MW_REFERENCE" and not exclude_reference:
                 other_area += area
 
         if poi_area <= 0:
@@ -191,55 +191,3 @@ class PurityCalculator:
             "other_band_count": len(other_peaks),
             "reference_band_count": len(ref_peaks),
         }
-
-
-def compute_gel_purity_statistics(
-    lane_results: list[LaneDensitometryResultData],
-) -> dict:
-    """
-    Compute gel-wide purity statistics.
-
-    Args:
-        lane_results: List of lane densitometry results.
-
-    Returns:
-        Dict with gel-level purity metrics.
-    """
-    calculator = PurityCalculator()
-
-    sample_lanes = [r for r in lane_results if r.success and r.lane_type == "SAMPLE"]
-
-    if not sample_lanes:
-        return {
-            "average_purity": None,
-            "min_purity": None,
-            "max_purity": None,
-            "std_purity": None,
-            "sample_lane_count": 0,
-        }
-
-    purities = []
-    for lane in sample_lanes:
-        summary = calculator.get_purity_summary(lane)
-        if summary["purity"] is not None:
-            purities.append(summary["purity"])
-
-    if not purities:
-        return {
-            "average_purity": None,
-            "min_purity": None,
-            "max_purity": None,
-            "std_purity": None,
-            "sample_lane_count": len(sample_lanes),
-        }
-
-    import numpy as np
-
-    return {
-        "average_purity": float(np.mean(purities)),
-        "min_purity": float(np.min(purities)),
-        "max_purity": float(np.max(purities)),
-        "std_purity": float(np.std(purities)) if len(purities) > 1 else 0.0,
-        "sample_lane_count": len(sample_lanes),
-        "lanes_with_purity": len(purities),
-    }

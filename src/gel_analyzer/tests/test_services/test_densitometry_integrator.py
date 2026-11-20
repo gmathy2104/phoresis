@@ -14,10 +14,7 @@ import numpy as np
 import pytest
 
 from gel_analyzer.services.densitometry.models import DensitometryParams
-from gel_analyzer.services.densitometry.peak_integrator import (
-    PeakIntegrator,
-    gaussian_truncated_area,
-)
+from gel_analyzer.services.densitometry.peak_integrator import PeakIntegrator, gaussian_truncated_area
 
 pytestmark = pytest.mark.django_db
 

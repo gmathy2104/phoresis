@@ -3,9 +3,12 @@ and projects samples onto it. Mirror of CalibrationService for protein quantific
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+from django.db.models import Q
 
 from phoresis_core.logging_config import get_logger
 
@@ -17,6 +20,65 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# The bands `apply_to_analysis` projects -- its writer's scope: those of SAMPLE and CONTROL lanes, every band type
+# but MW_REFERENCE (Lane.LaneType / Band.BandType values). Named so the gel export publishes a stored estimate only
+# for a band this writer projects (gel_analyzer/api/export/rows.py).
+PROJECTED_LANE_TYPES = ("SAMPLE", "CONTROL")
+UNPROJECTED_BAND_TYPES = ("MW_REFERENCE",)
+
+
+def quant_result_of(calibration: ProteinQuantCalibration) -> QuantResult:
+    """The fit a stored calibration projects with -- what :meth:`apply_to_analysis` rebuilds, nothing else."""
+    return QuantResult(
+        success=True,
+        method=calibration.method,
+        unit=calibration.unit,
+        coefficients=calibration.coefficients,
+        r_squared=calibration.r_squared,
+        equation=calibration.equation,
+    )
+
+
+def calibration_point_bands_q() -> Q:
+    """The bands a calibration is fitted on: CALIBRATION bands with a declared load, in CALIBRATION lanes.
+
+    A ``Band`` filter, shared by :meth:`ProteinQuantCalibrationService.collect_calibration_points` and the gel
+    export's ``estimate_within_calibration_range`` (``gel_analyzer/api/export/rows.py``): one set of points.
+    """
+    from gel_analyzer.models import Band, Lane
+
+    return Q(lane__lane_type=Lane.LaneType.CALIBRATION, band_type=Band.BandType.CALIBRATION, quant_point__isnull=False)
+
+
+# ------------ Calibration range ------------------------------------------------
+# A projection outside the standards' areas is an extrapolation: kept, never refused, but flagged -- a poly2 or a
+# 4PL can turn sharply past its last point. ONE rule for every reader: the stored DensitometryResult.
+# estimated_amount_range (apply_to_analysis), the preview's projections, the report, the gel export's
+# estimate_within_calibration_range.
+
+
+def calibration_area_span(points, excluded_band_ids) -> tuple[float, float] | None:
+    """[min, max] corrected area of a fit's standards -- ``(band id, area)`` pairs (the bands of
+    :func:`calibration_point_bands_q`) minus ``excluded_band_ids``, what :meth:`ProteinQuantCalibrationService.fit`
+    leaves out. A standard without an area is skipped; None when none holds one."""
+    excluded = {str(band_id) for band_id in excluded_band_ids or []}
+    areas = [area for band_id, area in points if area is not None and str(band_id) not in excluded]
+    return (min(areas), max(areas)) if areas else None
+
+
+def calibration_range_of(area: float | None, span: tuple[float, float] | None) -> str | None:
+    """The ``DensitometryResult.CalibrationRange`` value of ``area`` against ``span``, bounds inclusive; None
+    without both, or when a NaN is involved (it compares neither below nor above: it would read as in range)."""
+    from gel_analyzer.models import DensitometryResult
+
+    if area is None or span is None or any(math.isnan(value) for value in (area, *span)):
+        return None
+    if area < span[0]:
+        return DensitometryResult.CalibrationRange.BELOW_RANGE.value
+    if area > span[1]:
+        return DensitometryResult.CalibrationRange.ABOVE_RANGE.value
+    return DensitometryResult.CalibrationRange.IN_RANGE.value
+
 
 class ProteinQuantCalibrationService:
     def __init__(self, params: QuantParams | None = None):
@@ -26,15 +88,10 @@ class ProteinQuantCalibrationService:
 
     def collect_calibration_points(self, analysis: GelAnalysis) -> list[QuantPoint]:
         """All CALIBRATION-typed bands inside CALIBRATION-typed lanes of the analysis."""
-        from gel_analyzer.models import Band, Lane
+        from gel_analyzer.models import Band
 
         bands = (
-            Band.objects.filter(
-                lane__analysis=analysis,
-                lane__lane_type=Lane.LaneType.CALIBRATION,
-                band_type=Band.BandType.CALIBRATION,
-                quant_point__isnull=False,
-            )
+            Band.objects.filter(calibration_point_bands_q(), lane__analysis=analysis)
             .select_related("lane", "quant_point")
             .prefetch_related("densitometry")
         )
@@ -68,7 +125,7 @@ class ProteinQuantCalibrationService:
         bands on a SAMPLE lane shouldn't drive a projection: OTHER is
         noise we don't care to quantify, and CALIBRATION points belong
         to a CALIBRATION lane post-auto-promote (see
-        _auto_promote_lane_for_band)."""
+        band_type_change.apply_band_type)."""
         from gel_analyzer.models import Band, Lane
 
         bands = (
@@ -214,29 +271,27 @@ class ProteinQuantCalibrationService:
         return None
 
     def apply_to_analysis(self, calibration: ProteinQuantCalibration) -> int:
-        """Persist DensitometryResult.estimated_amount{,_unit} for all SAMPLE/CONTROL
+        """Persist DensitometryResult.estimated_amount{,_unit,_range} for all SAMPLE/CONTROL
         bands of the calibration's analysis. Returns count of rows updated."""
-        from gel_analyzer.models import Band, DensitometryResult, Lane
+        from gel_analyzer.models import Band, DensitometryResult
 
-        result = QuantResult(
-            success=True,
-            method=calibration.method,
-            unit=calibration.unit,
-            coefficients=calibration.coefficients,
-            r_squared=calibration.r_squared,
-            equation=calibration.equation,
+        result = quant_result_of(calibration)
+        span = calibration_area_span(
+            ((p.band_id, p.corrected_area) for p in self.collect_calibration_points(calibration.analysis)),
+            calibration.excluded_band_ids,
         )
         target_bands = (
             Band.objects.filter(
                 lane__analysis=calibration.analysis,
-                lane__lane_type__in=[Lane.LaneType.SAMPLE, Lane.LaneType.CONTROL],
+                lane__lane_type__in=PROJECTED_LANE_TYPES,
                 densitometry__isnull=False,
             )
-            .exclude(band_type=Band.BandType.MW_REFERENCE)
+            .exclude(band_type__in=UNPROJECTED_BAND_TYPES)
             .select_related("densitometry", "lane")
         )
         updated = 0
         skipped_negative = 0
+        outside = 0
         for band in target_bands:
             estimated = self.project(band.densitometry.corrected_area, result)
             if estimated is None:
@@ -251,14 +306,18 @@ class ProteinQuantCalibrationService:
                 )
                 skipped_negative += 1
                 continue
+            calibration_range = calibration_range_of(band.densitometry.corrected_area, span)
             DensitometryResult.objects.filter(pk=band.densitometry.pk).update(
                 estimated_amount=float(estimated),
                 estimated_amount_unit=calibration.unit,
+                estimated_amount_range=calibration_range,
             )
             updated += 1
+            if calibration_range not in (None, DensitometryResult.CalibrationRange.IN_RANGE):
+                outside += 1
         logger.info(
             f"Quantification calibration {calibration.id} applied to {updated} bands "
-            f"({skipped_negative} skipped as negative extrapolations)"
+            f"({skipped_negative} skipped as negative extrapolations, {outside} outside the calibration range)"
         )
         return updated
 
@@ -274,11 +333,15 @@ class ProteinQuantCalibrationService:
         from django.utils import timezone
 
         from gel_analyzer.models import ProteinQuantCalibration
+        from gel_analyzer.services.analysis_status import refuse_if_final
 
         if not result.success:
             raise ValueError(f"Cannot save a failed fit: {result.error_message}")
 
         with transaction.atomic():
+            # An approved analysis is final (services/analysis_status.py): read under the row lock,
+            # so an approval and a save are ordered. Raises AnalysisIsFinal; nothing is written.
+            refuse_if_final(analysis.pk, lock=True)
             previous = analysis.quant_calibrations.filter(is_active=True)
             previous.update(is_active=False, superseded_at=timezone.now())
             calib = ProteinQuantCalibration.objects.create(

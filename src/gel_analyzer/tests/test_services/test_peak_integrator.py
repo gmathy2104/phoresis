@@ -13,10 +13,7 @@ import numpy as np
 
 from django.test import SimpleTestCase
 
-from gel_analyzer.services.band_detection.models import (
-    BandDetectionParams,
-    IntensityProfile,
-)
+from gel_analyzer.services.band_detection.models import BandDetectionParams, IntensityProfile
 from gel_analyzer.services.band_detection.peak_integrator import (
     BoundaryType,
     PeakIntegrator,
@@ -363,7 +360,7 @@ class TestAreaIntegration(SimpleTestCase):
         bands, _ = integrator.integrate(profile)
 
         self.assertEqual(len(bands), 1)
-        # np.trapezoid of a rectangular pulse of height 50, width 30 = 50*29 = 1450
+        # np.trapz of a rectangular pulse of height 50, width 30 = 50*29 = 1450
         # (trapz uses N-1 intervals for N points)
         self.assertAlmostEqual(bands[0].area, 50.0 * 29, delta=1.0)
 
