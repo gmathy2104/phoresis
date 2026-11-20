@@ -24,8 +24,6 @@ if TYPE_CHECKING:
         LadderTemplate,
     )
 
-import contextlib
-
 from .models import (
     CalibrationParams,
     InterpolatedMWResult,
@@ -529,7 +527,9 @@ class MultiLadderCalibrationService:
                     bands_failed += 1
                     continue
 
-                # Update band (round MW to 1 decimal place for cleaner display)
+                # Round MW to 1 decimal place — kDa precision beyond that
+                # is meaningless given the calibration error budget, and
+                # the extra digits clutter every UI surface that shows MW.
                 band.estimated_mw_kda = round(result.estimated_mw_kda, 1)
                 band.mw_estimation_method = f"MULTI_{result.method}"
                 band.save(update_fields=["estimated_mw_kda", "mw_estimation_method"])
@@ -584,6 +584,8 @@ class MultiLadderCalibrationService:
         Returns:
             Number of calibrations deleted
         """
+        import contextlib
+
         from gel_analyzer.models import MultiLadderCalibrationConfig
 
         # Delete calibrations

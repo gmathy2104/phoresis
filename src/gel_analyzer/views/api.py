@@ -2415,9 +2415,9 @@ def api_analysis_calibrate_multi(request, pk):
     try:
         service = MultiLadderCalibrationService(analysis)
         result = service.calibrate_all_ladders(
-            template,
-            request.user,
-            method,
+            user=request.user,
+            template=template,
+            method=method,
             excluded_band_ids=excluded_band_ids,
         )
 
