@@ -35,7 +35,9 @@ dependencies = [
     # Scientific stack — required by gel_analyzer services (Phase 2)
     "numpy>=2.0",
     "scipy>=1.13",
-    "opencv-python>=4.10",
+    # OpenCV 5 is a major release of the library the classical band detector is validated on: stay on 4.x
+    # until the detector is re-validated on real gels (gel_analyzer tests: the frozen default-hybrid case).
+    "opencv-python>=4.10,<5",
     "tifffile>=2024.7",
     "scikit-image>=0.24",
     "onnxruntime>=1.19",
