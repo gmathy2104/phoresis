@@ -8,16 +8,16 @@
  * - Main -> Worker: { type: 'LOAD_MODEL' | 'RUN_INFERENCE' | 'CANCEL', payload: {...} }
  * - Worker -> Main: { type: 'MODEL_LOADED' | 'INFERENCE_PROGRESS' | 'INFERENCE_COMPLETE' | 'INFERENCE_ERROR', payload: {...} }
  *
- * @requires ONNX Runtime Web (loaded from CDN)
+ * @requires ONNX Runtime Web (vendored: js/vendor/onnxruntime/)
  */
 
-// Load ONNX Runtime Web (v1.21.0 supports opset 22)
-importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.js');
+// ONNX Runtime Web, vendored (js/vendor/onnxruntime/, no CDN: AGENTS.md §1). Found relative to this worker's
+// own URL, so it works whatever prefix the static files are served under.
+const ORT_BASE = new URL('../../vendor/onnxruntime/', self.location.href).href;
+importScripts(`${ORT_BASE}ort.min.js`);
 
-// Configure ONNX Runtime WASM paths to use CDN
-// This is required because Web Workers load relative to their own location,
-// not the CDN where ort.min.js was loaded from
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/';
+// The WebAssembly files sit beside ort.min.js.
+ort.env.wasm.wasmPaths = ORT_BASE;
 
 // Disable multi-threading to avoid crossOriginIsolated requirement
 ort.env.wasm.numThreads = 1;

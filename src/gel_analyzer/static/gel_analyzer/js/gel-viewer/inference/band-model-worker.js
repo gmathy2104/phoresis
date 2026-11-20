@@ -27,9 +27,9 @@
  *   worker -> main  {type: 'error', id, stage, message}
  */
 
-// ONNX Runtime Web 1.24.3 (WebGPU + WASM), from the CDN the lane worker already loads its runtime from.
-const ORT_VERSION = '1.24.3';
-const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+// ONNX Runtime Web 1.24.3 (WebGPU + WASM), vendored: js/vendor/onnxruntime/ (no CDN: AGENTS.md §1). Found relative
+// to this worker's own URL. The parity with ultralytics was measured on this version.
+const ORT_BASE = new URL('../../vendor/onnxruntime/', self.location.href).href;
 importScripts(`${ORT_BASE}ort.min.js`);
 ort.env.wasm.wasmPaths = ORT_BASE;
 ort.env.wasm.numThreads = 1;

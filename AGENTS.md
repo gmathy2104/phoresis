@@ -35,6 +35,12 @@ cache-busting.
   - `phoresis_ui/js/vendor/alpine-3.14.3.min.js`
   - `phoresis_ui/js/vendor/countup-2.8.0.min.js`
   - `gel_analyzer/js/vendor/svg.min.js`
+  - `gel_analyzer/js/vendor/d3.v7.min.js` (d3 7.9.0)
+  - `gel_analyzer/js/vendor/plotly.min.js` (plotly.js 3.0.1)
+  - `gel_analyzer/js/vendor/three/` (three.js 0.170.0: `three.module.min.js` + `addons/controls/OrbitControls.js`,
+    mapped one file at a time in the page's import map -- `{% static %}` on a directory raises under the manifest storage)
+  - `gel_analyzer/js/vendor/onnxruntime/` (ONNX Runtime Web 1.24.3: `ort.min.js`, its `.jsep.mjs` loader and the
+    `.jsep.wasm` binary in Git LFS; the inference workers find the folder relative to their own URL)
   - Lucide icons sprite at `phoresis_ui/icons/lucide-sprite.svg`
 
 If you find a remaining CDN URL anywhere in `src/`, it's a bug. Vendor it.

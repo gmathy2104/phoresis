@@ -21,15 +21,16 @@
  *   - BATCH_COMPLETE: Batch processing complete
  *   - ERROR: Error occurred
  *
- * @requires ONNX Runtime Web 1.14.0 (most compatible with MobileSAM)
+ * @requires ONNX Runtime Web (vendored: js/vendor/onnxruntime/, 1.24.3 -- both decoders load and run on it)
  */
 
-// Use ONNX Runtime Web 1.14.0 as recommended by MobileSAM-in-the-Browser
-// Newer versions have compatibility issues with the decoder
-importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js');
+// ONNX Runtime Web, vendored (js/vendor/onnxruntime/, no CDN: AGENTS.md §1). Found relative to this worker's
+// own URL, so it works whatever prefix the static files are served under.
+const ORT_BASE = new URL('../../vendor/onnxruntime/', self.location.href).href;
+importScripts(`${ORT_BASE}ort.min.js`);
 
 // Configure ONNX Runtime
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
+ort.env.wasm.wasmPaths = ORT_BASE;
 ort.env.wasm.numThreads = 1;
 
 // Worker state
