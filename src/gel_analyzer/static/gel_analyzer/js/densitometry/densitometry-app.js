@@ -12,6 +12,16 @@
     const State = global.Densitometry.State;
     const ApiClient = global.Densitometry.ApiClient;
 
+    // showMessage renders HTML: a message carrying server text is escaped first.
+    function _escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     /**
      * PanelMagnifier Class
      *
@@ -132,7 +142,7 @@
             this.autoSave = (window.PhoresisShared && window.PhoresisShared.AutoSave)
                 ? window.PhoresisShared.AutoSave.create({
                     eventBus: this.eventBus,
-                    showToast: (msg) => this.showMessage(msg, 'error'),
+                    showToast: (msg) => this.showMessage(_escapeHtml(String(msg)), 'error'),
                 })
                 : null;
 
@@ -140,6 +150,24 @@
             this.state = new State({
                 eventBus: this.eventBus,
                 analysisId: this.analysisId,
+                pageSummary: options.pageSummary || null,
+            });
+
+            // A saved quantification changes the summary's cards and the Lanes view's Measured column: re-read
+            // them with the readouts (state.setReadouts carries the page summary).
+            // Phoresis: the saved calibration also back-fills DensitometryResult.estimated_amount server-side
+            // (apply_to_analysis), so re-load the whole results payload, not only its readout block: the
+            // client cache would otherwise keep the old amounts until a page reload.
+            this.eventBus.on(global.Densitometry.Events.QUANT_CALIBRATION_CHANGED, () => {
+                if (this.autoSave) {
+                    this.autoSave.run({
+                        operation: 'Refresh densitometry after calibration',
+                        promise: this._loadExistingResults(),
+                        context: { kind: 'densitometry-refresh', analysisId: this.analysisId },
+                    });
+                } else {
+                    this._loadExistingResults().catch((err) => console.warn('[Densitometry] summary refresh failed', err));
+                }
             });
 
             // Create API client
@@ -163,6 +191,19 @@
             // Store calibration data for MW axis mode
             if (options.calibrationData) {
                 this.state.calibrationData = options.calibrationData;
+            }
+
+            // Western readout facts known at render time (views/densitometry.py,
+            // script_json): the gel overview tags the HCP reference before the
+            // first fetch. The readouts themselves come with that fetch.
+            if (options.readoutConfig) {
+                const cfg = options.readoutConfig;
+                this.state.setReadouts({
+                    assay: cfg.assay,
+                    readout_reference_lane_id: cfg.reference_lane_id,
+                    can_write: cfg.can_write,
+                    is_editable: cfg.is_editable,
+                });
             }
 
             // Bind methods
@@ -216,8 +257,8 @@
                     container: document.getElementById('chromatogram-panel'),
                     eventBus: this.eventBus,
                     state: this.state,
-                    // Phase 7.1: needed by the Quantification curve tab to call
-                    // /quantification/ + /quantification/preview/.
+                    // The quantification-curve sub-view reads the active calibration through these:
+                    // without them it always showed "No active quantification calibration".
                     apiClient: this.api,
                     analysisId: this.analysisId,
                 });
@@ -238,11 +279,45 @@
                     container: document.getElementById('results-table-panel'),
                     eventBus: this.eventBus,
                     state: this.state,
-                    // Phase 7.2: lane-level table reads the active quantification
-                    // calibration to gate the Quantification column group + units.
+                    // Est. amount and Recovery read the active calibration through these: without them both
+                    // columns always read "—".
                     apiClient: this.api,
                     analysisId: this.analysisId,
                 });
+            }
+
+            // Measurements › Lanes (one row per lane, the readout's columns) beside the band table above.
+            if (global.Densitometry.LanesView) {
+                this.panels.lanes = new global.Densitometry.LanesView({
+                    container: document.getElementById('results-table-panel'),
+                    eventBus: this.eventBus,
+                    state: this.state,
+                });
+            }
+
+            // Western readout — 5th sub-view of the Graphical View (top-right);
+            // its container exists only for an image with a western assay.
+            if (global.Densitometry.ReadoutPanel) {
+                this.panels.readout = new global.Densitometry.ReadoutPanel({
+                    container: document.getElementById('dm-readout-container'),
+                    eventBus: this.eventBus,
+                    state: this.state,
+                });
+            }
+
+            // Quantification Modal (opened from header button)
+            if (global.Densitometry.QuantificationModal) {
+                this.panels.quantificationModal = new global.Densitometry.QuantificationModal({
+                    apiClient: this.api,
+                    analysisId: this.analysisId,
+                    eventBus: this.eventBus,
+                });
+                const openQuantBtn = document.getElementById('open-quantification-btn');
+                if (openQuantBtn) {
+                    openQuantBtn.addEventListener('click', () => {
+                        this.panels.quantificationModal.open();
+                    });
+                }
             }
         }
 
@@ -324,6 +399,13 @@
                 });
             }
 
+            // HCP reference lane select (server-rendered for an anti-HCP
+            // western only; disabled there for a reader / a locked analysis)
+            const referenceSelect = document.getElementById('hcp-reference-select');
+            if (referenceSelect) {
+                referenceSelect.addEventListener('change', () => this._onReferenceLaneChange(referenceSelect));
+            }
+
             // Confirmation modal buttons
             const confirmCancel = document.getElementById('confirm-cancel-btn');
             const confirmProceed = document.getElementById('confirm-proceed-btn');
@@ -342,59 +424,6 @@
             // Analysis Options modal controls
             this._setupOptionsModal();
 
-            // Quantification calibration modal — opened from the toolbar.
-            // Re-renders all panels when a new calibration is saved so that
-            // the freshly-applied estimated_amount values appear in tables /
-            // chromatograms without a full page reload.
-            this._setupQuantificationModal();
-        }
-
-        /**
-         * Wire the Quantification calibration modal to the toolbar button.
-         */
-        _setupQuantificationModal() {
-            const QuantModalCtor = global.Densitometry.QuantificationModal
-                                || global.QuantificationModal;
-            if (!QuantModalCtor) {
-                console.warn('[DensitometryApp] QuantificationModal class not loaded');
-                return;
-            }
-            const trigger = document.getElementById('open-quantification-modal');
-            if (!trigger) {
-                // Modal markup absent — nothing to wire.
-                return;
-            }
-            this.quantModal = new QuantModalCtor({
-                apiClient: this.api,
-                analysisId: this.analysisId,
-                eventBus: this.eventBus,
-            });
-            trigger.addEventListener('click', () => this.quantModal.open());
-
-            // Re-load densitometry results after a new calibration is applied
-            // — apply_to_analysis() bulk-updates DensitometryResult.estimated_amount
-            // server-side, but the client cache still holds the old null/stale
-            // values until we re-fetch.
-            this.eventBus.on(
-                Events.QUANT_CALIBRATION_CHANGED || 'QUANT_CALIBRATION_CHANGED',
-                () => {
-                    if (this.autoSave) {
-                        this.autoSave.run({
-                            operation: 'Refresh densitometry after calibration',
-                            promise: this._loadExistingResults(),
-                            context: { kind: 'densitometry-refresh', analysisId: this.analysisId },
-                        });
-                    } else {
-                        this._loadExistingResults().catch(err => {
-                            console.error('[DensitometryApp] post-quant refresh failed:', err);
-                            this.showMessage(
-                                `❌ Refresh failed: ${(err && err.message) || err}`,
-                                'error',
-                            );
-                        });
-                    }
-                }
-            );
         }
 
         /**
@@ -408,6 +437,11 @@
                     this.state.loadResults(result);
                     this.hasExistingResults = true;
                     this.showMessage('Loaded existing results', 'success');
+                }
+                // The readout block comes whether or not densitometry ran
+                // (a lane not analysed yet says so).
+                if (result.success) {
+                    this.state.setReadouts(result);
                 }
             } catch (error) {
                 console.warn('[DensitometryApp] No existing results:', error.message);
@@ -512,7 +546,7 @@
                 // Was silent before — surface the actual server error so
                 // users notice when chromatograms are stale.
                 this.showMessage(
-                    `❌ Lane profile load failed: ${(error && error.message) || error}`,
+                    _escapeHtml(`❌ Lane profile load failed: ${(error && error.message) || error}`),
                     'error',
                 );
             }
@@ -534,7 +568,8 @@
          */
         _onAnalysisError(data) {
             console.error('[DensitometryApp] Analysis error:', data);
-            this.showMessage(data.error || 'Analysis failed', 'error');
+            // A refusal from the server (e.g. Loading Control naming lanes): shown as text
+            this.showMessage(_escapeHtml(data.error || 'Analysis failed'), 'error');
 
             this._setAnalysisRunning(false);
         }
@@ -758,6 +793,8 @@
                 if (freshResults.success) {
                     this.state.loadResults(freshResults);
                     this.hasExistingResults = true;
+                    // The run republished the readouts: show the new values.
+                    this.state.setReadouts(freshResults);
                 }
 
                 this._updateStaleBanner();
@@ -821,6 +858,8 @@
                 if (freshResults.success) {
                     this.state.loadResults(freshResults);
                     this.hasExistingResults = true;  // Now we have results
+                    // The run republished the readouts: show the new values.
+                    this.state.setReadouts(freshResults);
                 }
 
                 this._updateStaleBanner();
@@ -831,6 +870,64 @@
                 this.eventBus.emit(Events.ANALYSIS_ERROR, { error: error.message });
             } finally {
                 this._hideSpinner();
+            }
+        }
+
+        /**
+         * "HCP reference lane" select changed: POST the new reference (same
+         * endpoint as the annotation editor's lane menu; the server
+         * republishes), then re-fetch ONLY the readout block — never
+         * state.loadResults, which would re-render every panel. On a refusal
+         * the select goes back to the stored reference.
+         */
+        async _onReferenceLaneChange(select) {
+            const previous = this.state.readoutReferenceLaneId;
+            const laneId = select.value === '' ? null : Number(select.value);
+
+            select.disabled = true;
+            try {
+                let result;
+                try {
+                    result = await this.api.setReadoutReferenceLane(laneId);
+                } catch (error) {
+                    select.value = previous === null || previous === undefined ? '' : String(previous);
+                    this.showMessage(_escapeHtml(`Could not change the HCP reference: ${error.message}`), 'error');
+                    return;
+                }
+
+                // Saved: apply it now (REF tag), then reload the values.
+                this.state.setReadouts({
+                    readout_reference_lane_id: result.reference_lane_id,
+                    reference_lane_number: result.reference_lane_number,
+                });
+                this.showMessage(
+                    result.reference_lane_id === null
+                        ? 'HCP reference cleared'
+                        : _escapeHtml(`Lane ${result.reference_lane_number} is the HCP reference`),
+                    'success'
+                );
+                try {
+                    await this.refreshReadouts();
+                } catch (error) {
+                    this.showMessage(
+                        _escapeHtml(`HCP reference saved, but the readout could not be reloaded: ${error.message}`),
+                        'warning'
+                    );
+                }
+            } finally {
+                select.disabled = !(this.state.canWrite && this.state.isEditable);
+            }
+        }
+
+        /**
+         * Re-fetch the densitometry payload and apply ONLY its readout block
+         * (emits READOUTS_UPDATED: the readout sub-view and the gel
+         * overview's REF tag redraw, nothing else).
+         */
+        async refreshReadouts() {
+            const result = await this.api.getDensitometry();
+            if (result && result.success) {
+                this.state.setReadouts(result);
             }
         }
 
@@ -857,7 +954,7 @@
 
             } catch (error) {
                 console.error('[DensitometryApp] Export failed:', error);
-                this.showMessage('Export failed: ' + error.message, 'error');
+                this.showMessage('Export failed: ' + _escapeHtml(error.message), 'error');
             }
         }
 
@@ -873,8 +970,8 @@
             if (runBtn) {
                 runBtn.disabled = running;
                 runBtn.innerHTML = running
-                    ? '<span class="spinner-border spinner-border-sm me-2"></span>Running...'
-                    : '<i class="bi bi-play-circle me-2"></i>Run Analysis';
+                    ? '<i class="bi bi-hourglass-split" aria-hidden="true"></i><span class="dm-btn-label">Running…</span>'
+                    : '<i class="bi bi-play-fill" aria-hidden="true"></i><span class="dm-btn-label">Run Analysis</span>';
             }
 
             const progressBar = document.getElementById('analysis-progress');
@@ -992,16 +1089,18 @@
             alert.className = `alert ${alertClass} alert-dismissible fade show`;
             alert.innerHTML = `
                 ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                <button type="button" class="btn-close" aria-label="Close"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             `;
+            alert.querySelector('.btn-close').addEventListener('click', () => alert.remove());
 
             container.appendChild(alert);
 
-            // Auto-dismiss after 5 seconds
+            // Auto-dismiss: an error stays 10 s (owner, 2026-10-06 -- a refusal naming
+            // lanes needs time to be read), every other message 5 s
             setTimeout(() => {
                 alert.classList.remove('show');
                 setTimeout(() => alert.remove(), 150);
-            }, 5000);
+            }, type === 'error' ? 10000 : 5000);
         }
 
         // =====================================================================

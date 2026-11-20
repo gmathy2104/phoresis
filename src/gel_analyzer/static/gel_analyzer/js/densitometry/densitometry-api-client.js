@@ -7,10 +7,9 @@
 (function(global) {
     'use strict';
 
-    // Same shared helper used by gel-viewer/api-client.js: extracts a
-    // useful message from non-OK fetch responses (DRF detail → field
-    // errors → status text → fallback) so the toasts AutoSave shows
-    // are actually informative.
+    // Same shared helper used by gel-viewer/api-client.js: extracts a useful
+    // message from non-OK fetch responses (DRF detail → field errors → status
+    // text → fallback) so toasts/inline errors are actually informative.
     const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError)
         || (async function fallbackExtract(response, fallback) {
             try {
@@ -56,6 +55,49 @@
             return response.json();
         }
 
+        /**
+         * Fetch variant for endpoints where a 422 carries a meaningful body
+         * (domain-level failure, not a transport error). Returns the parsed
+         * body on both 2xx AND 422 so callers can branch on `body.success`
+         * to render an empty/explanatory state instead of treating 422 as
+         * an error. Used by the quantification preview/save endpoints
+         * which return `result.to_dict()` with `success: false` and
+         * `error_message: ...` when there's nothing to fit yet.
+         */
+        async _fetchDomain(url, options = {}) {
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+            };
+
+            const response = await fetch(url, { ...defaultOptions, ...options });
+
+            if (response.ok || response.status === 422) {
+                // Guard against non-JSON bodies (e.g. Django DEBUG=True
+                // serves an HTML error page on misconfigured 422 routes;
+                // a bare response.json() then throws SyntaxError and the
+                // caller can't tell domain failure from transport failure).
+                // Synthesize a domain-shaped fallback so the modal's
+                // r.success branch still works.
+                try {
+                    return await response.json();
+                } catch (parseErr) {
+                    console.warn(
+                        `[DensitometryApiClient] Non-JSON ${response.status} body on ${url}:`,
+                        parseErr
+                    );
+                    return {
+                        success: false,
+                        error_message: `Server returned a non-JSON ${response.status} response. Check the server logs.`,
+                    };
+                }
+            }
+
+            throw new Error(await extractApiError(response, `HTTP ${response.status}`));
+        }
+
         // =====================================================================
         // Densitometry Analysis
         // =====================================================================
@@ -65,6 +107,37 @@
          */
         async getDensitometry() {
             return this._fetch(`${this.baseUrl}/analyses/${this.analysisId}/densitometry/`);
+        }
+
+        /**
+         * Set (laneId) or clear (null) the anti-HCP reference lane. Same
+         * endpoint as the annotation editor's lane menu; the server
+         * republishes the readouts. 403 for a reader or a non-editable
+         * analysis, 400 for a foreign lane.
+         * @returns {Promise<Object>} { reference_lane_id, reference_lane_number, published }
+         */
+        async setReadoutReferenceLane(laneId) {
+            const response = await fetch(`${this.baseUrl}/analyses/${this.analysisId}/readout-reference/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+                body: JSON.stringify({ lane_id: laneId }),
+            });
+            if (!response.ok) {
+                // The endpoint answers {"error": "..."} (json_error): read it
+                // first — the shared extractor would print "error: ...".
+                let message = null;
+                try {
+                    const body = await response.clone().json();
+                    if (body && typeof body.error === 'string' && body.error.trim()) {
+                        message = body.error;
+                    }
+                } catch (_) { /* not JSON: fall through */ }
+                throw new Error(message || await extractApiError(response, `HTTP ${response.status}`));
+            }
+            return response.json();
         }
 
         /**
@@ -169,7 +242,8 @@
         // =====================================================================
 
         /**
-         * Export densitometry results to CSV (synchronous, returns download).
+         * Export the SAVED densitometry to CSV (synchronous, returns download). A refusal -- 409
+         * "Run the densitometry first" -- throws with the server's message, which the page shows.
          */
         async exportCSV(includeProfile = false) {
             const response = await fetch(
@@ -189,7 +263,7 @@
             );
 
             if (!response.ok) {
-                throw new Error(await extractApiError(response, 'Export failed'));
+                throw new Error(await extractApiError(response, `HTTP ${response.status}`));
             }
 
             // Return blob for download
@@ -320,7 +394,10 @@
          */
         async previewQuantification(analysisId, body) {
             const id = analysisId || this.analysisId;
-            return this._fetch(`${this.baseUrl}/v1/analyses/${id}/quantification/preview/`, {
+            // _fetchDomain so a 422 (no points yet / not enough points) comes
+            // back as a domain result with success=false instead of throwing
+            // — the modal renders the empty state from result.error_message.
+            return this._fetchDomain(`${this.baseUrl}/v1/analyses/${id}/quantification/preview/`, {
                 method: 'POST',
                 body: JSON.stringify(body || {}),
             });
@@ -332,7 +409,7 @@
          */
         async saveQuantification(analysisId, body) {
             const id = analysisId || this.analysisId;
-            return this._fetch(`${this.baseUrl}/v1/analyses/${id}/quantification/`, {
+            return this._fetchDomain(`${this.baseUrl}/v1/analyses/${id}/quantification/`, {
                 method: 'POST',
                 body: JSON.stringify(body || {}),
             });

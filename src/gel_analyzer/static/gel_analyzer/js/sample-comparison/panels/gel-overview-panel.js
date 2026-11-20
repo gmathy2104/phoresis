@@ -13,14 +13,18 @@
     const ComparisonEvents = global.SampleComparison?.Events;
     const DragReorder = global.SampleComparison?.DragReorder;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * GelOverviewPanel Class
      */
-    class GelOverviewPanel {
+    class GelOverviewPanel extends GelAnalyzer.Viz.Panel {
         constructor(options) {
-            this.container = options.container;
-            this.eventBus = options.eventBus;
-            this.state = options.state;
+            super(options);  // sets this.container/eventBus/state/options/tooltipLayer/_disposers
 
             this.contentElement = null;
 
@@ -40,13 +44,21 @@
                 bandPOI: '#a855f7',
                 bandOther: '#22c55e',
                 bandRef: '#f97316',
+                bandCalibration: '#f87171',  // Red-400 — CALIBRATION (matches annotation)
                 bandSelected: '#ef4444',
             };
 
-            this._init();
+            // Canvas backdrop and placeholder text, seen while an image loads or when a
+            // lane has none. Day mode (`data-theme="light"` on <html>, set only by hosts
+            // that offer it: the PD dashboard) keeps them light; the band overlays sit on
+            // the gel photo itself, so they keep one palette. Read once: the host rebuilds
+            // the panel when the mode switches.
+            const day = document.documentElement.getAttribute('data-theme') === 'light';
+            this._canvasBg = day ? '#f1f5f9' : '#1e1e22';
+            this._canvasPlaceholder = day ? '#64748b' : 'rgba(255,255,255,0.3)';
         }
 
-        _init() {
+        init() {
             if (!this.container) return;
 
             this.contentElement = this.container.querySelector('.dm-panel-content');
@@ -72,10 +84,14 @@
             this._setupEnhanceButtons();
 
             // Re-render on window resize (magnifier open/close triggers this)
-            window.addEventListener('resize', () => {
+            // Cancel-previous debounce: keep _resizeTimer local, register one teardown disposer.
+            this._onWindow('resize', () => {
                 if (this._resizeTimer) cancelAnimationFrame(this._resizeTimer);
                 this._resizeTimer = requestAnimationFrame(() => this._render());
             });
+            this._disposers.push(() => cancelAnimationFrame(this._resizeTimer));
+            // Cancel any pending magnified-render frame on teardown.
+            this._disposers.push(() => cancelAnimationFrame(this._magnifiedRaf));
         }
 
         _showPlaceholder(message) {
@@ -89,49 +105,59 @@
 
         /**
          * Detect if the panel is currently in magnified (fullscreen) mode.
-         * The PanelMagnifier moves .dm-panel-content into #magnify-content.
+         * The PanelMagnifier (page chrome, OUTSIDE the mounted component) moves
+         * .dm-panel-content into #magnify-content. When the component is mounted
+         * standalone with no magnifier present, this safely returns false.
          */
         _isMagnified() {
             return !!this.contentElement.closest('#magnify-content');
         }
 
+        /**
+         * Container-scoped DOM listener with teardown tracking (Task 7).
+         * Repeated mount/unmount cycles won't duplicate listeners because
+         * destroy() runs the registered disposer.
+         */
+        _onEl(el, type, handler) {
+            if (!el) return;
+            el.addEventListener(type, handler);
+            this._disposers.push(() => el.removeEventListener(type, handler));
+        }
+
         _setupBandToggle() {
-            const btn = document.getElementById('gel-bands-toggle');
-            if (btn) {
-                btn.addEventListener('click', () => {
-                    this.showBands = !this.showBands;
-                    btn.classList.toggle('active', this.showBands);
-                    this._render();
-                });
-            }
+            // Container-scoped (Task 7): control lives in the mounted skeleton.
+            const btn = this.container.querySelector('[data-ga-control="gel-bands-toggle"]');
+            this._onEl(btn, 'click', () => {
+                this.showBands = !this.showBands;
+                btn.classList.toggle('active', this.showBands);
+                this._render();
+            });
         }
 
         _setupEnhanceButtons() {
+            // Container-scoped (Task 7): controls live in the mounted skeleton.
+
             // Auto-enhance button
-            const enhanceBtn = document.getElementById('gel-auto-enhance');
-            if (enhanceBtn) {
-                enhanceBtn.addEventListener('click', () => {
-                    const isActive = enhanceBtn.classList.toggle('active');
-                    if (isActive) {
-                        this._autoEnhanceAll();
-                    } else {
-                        // Reset all per-image adjustments
-                        this._imageAdjustments.clear();
-                        this._enhancedUrls.clear();
-                        this._render();
-                    }
-                });
-            }
+            const enhanceBtn = this.container.querySelector('[data-ga-control="gel-auto-enhance"]');
+            this._onEl(enhanceBtn, 'click', () => {
+                const isActive = enhanceBtn.classList.toggle('active');
+                if (isActive) {
+                    this._autoEnhanceAll();
+                } else {
+                    // Reset all per-image adjustments
+                    this._imageAdjustments.clear();
+                    this._enhancedUrls.clear();
+                    this._render();
+                }
+            });
 
             // Invert toggle button
-            const invertBtn = document.getElementById('gel-invert-toggle');
-            if (invertBtn) {
-                invertBtn.addEventListener('click', () => {
-                    this._invertAll = !this._invertAll;
-                    invertBtn.classList.toggle('active', this._invertAll);
-                    this._render();
-                });
-            }
+            const invertBtn = this.container.querySelector('[data-ga-control="gel-invert-toggle"]');
+            this._onEl(invertBtn, 'click', () => {
+                this._invertAll = !this._invertAll;
+                invertBtn.classList.toggle('active', this._invertAll);
+                this._render();
+            });
         }
 
         /**
@@ -273,12 +299,12 @@
         }
 
         _setupEvents() {
-            this.eventBus.on(ComparisonEvents.DATA_LOADED, () => this._onDataChanged());
-            this.eventBus.on(ComparisonEvents.SAMPLE_ADDED, () => this._onDataChanged());
-            this.eventBus.on(ComparisonEvents.SAMPLE_REMOVED, () => this._onDataChanged());
-            this.eventBus.on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._render());
-            this.eventBus.on(ComparisonEvents.SAMPLE_SELECTED, () => this._render());
-            this.eventBus.on(ComparisonEvents.BAND_SELECTED, () => this._render());
+            this._on(ComparisonEvents.DATA_LOADED, () => this._onDataChanged());
+            this._on(ComparisonEvents.SAMPLE_ADDED, () => this._onDataChanged());
+            this._on(ComparisonEvents.SAMPLE_REMOVED, () => this._onDataChanged());
+            this._on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._render());
+            this._on(ComparisonEvents.SAMPLE_SELECTED, () => this._render());
+            this._on(ComparisonEvents.BAND_SELECTED, () => this._render());
         }
 
         // ──────────────────────────────────────────────
@@ -314,8 +340,9 @@
                 this._imageCache.set(url, img);
                 this._pendingLoads.delete(url);
 
-                // If auto-enhance is active, analyze newly loaded image
-                const enhanceBtn = document.getElementById('gel-auto-enhance');
+                // If auto-enhance is active, analyze newly loaded image.
+                // Container-scoped (Task 7): control lives in the mounted skeleton.
+                const enhanceBtn = this.container.querySelector('[data-ga-control="gel-auto-enhance"]');
                 if (enhanceBtn && enhanceBtn.classList.contains('active') && !this._enhancedUrls.has(url)) {
                     const optimal = this._analyzeImage(img);
                     this._imageAdjustments.set(url, {
@@ -347,8 +374,10 @@
 
             // Dispatch to magnified renderer if expanded
             if (this._isMagnified()) {
-                // Delay slightly so the magnify modal is fully laid out
-                requestAnimationFrame(() => this._renderMagnified(samples));
+                // Delay slightly so the magnify modal is fully laid out.
+                // Cancel-previous (not _raf) so repeated renders don't accumulate disposers.
+                if (this._magnifiedRaf) cancelAnimationFrame(this._magnifiedRaf);
+                this._magnifiedRaf = requestAnimationFrame(() => this._renderMagnified(samples));
                 return;
             }
 
@@ -365,7 +394,7 @@
                          data-sample-id="${sample.sampleId}"
                          style="border-top: 3px solid ${sample.color};">
                         <div class="dm-gel-crop-header" data-sample-id="${sample.sampleId}">
-                            ${this._truncate(sample.label, 16) || 'Sample'}
+                            ${escapeHtml(this._truncate(sample.label, 16) || 'Sample')}
                         </div>
                         <canvas class="dm-gel-crop-canvas"
                                 data-sample-id="${sample.sampleId}"></canvas>
@@ -400,9 +429,31 @@
             }
         }
 
+        /**
+         * The lane's crop in its image: the outer box of its outline (the server's Rule 2 -- never a stale stored
+         * box), padded as before, clipped to the image. Null without geometry.
+         */
+        _cropOf(sample, img) {
+            const lane = sample.lane;
+            if (!lane || (!lane.outline && !lane.bbox)) return null;
+            const G = GelAnalyzer.LaneGeometry;
+            const outline = G.outlineOfPayload(lane);
+            const [x, y, width, height] = G.outerBox(outline);
+            if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height)) return null;
+            const padX = Math.max(5, width * 0.1);
+            const padY = Math.max(5, height * 0.05);
+            const sx = Math.max(0, x - padX);
+            const sy = Math.max(0, y - padY);
+            const sw = Math.min(img.width - sx, width + padX * 2);
+            const sh = Math.min(img.height - sy, height + padY * 2);
+            // An upright 4-corner outline is its box: nothing to mask, the crop looks as it always did.
+            const upright = G.isUprightBox(outline);
+            return { outline, upright, sx, sy, sw, sh };
+        }
+
         _drawCropCanvas(canvas, sample, selectedBandId) {
-            const bbox = sample.lane?.bbox;
             const img = sample.image_url ? this._imageCache.get(sample.image_url) : null;
+            const crop = img ? this._cropOf(sample, img) : null;
 
             // Size canvas to container
             const col = canvas.parentElement;
@@ -417,13 +468,13 @@
             canvas.height = Math.max(availH, 80);
 
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#1e1e22';
+            ctx.fillStyle = this._canvasBg;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            if (!img || !bbox || !bbox.width || !bbox.height) {
-                // No image or no bbox — dark placeholder
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.font = '11px Inter, system-ui, sans-serif';
+            if (!img || !crop) {
+                // No image or no lane geometry — dark placeholder
+                ctx.fillStyle = this._canvasPlaceholder;
+                ctx.font = `${11 * this._fontScale()}px Inter, system-ui, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.fillText(
                     img ? 'No lane geometry' : 'Loading...',
@@ -432,19 +483,27 @@
                 return;
             }
 
-            // Crop parameters with padding
-            const padX = Math.max(5, bbox.width * 0.1);
-            const padY = Math.max(5, bbox.height * 0.05);
-            const sx = Math.max(0, bbox.x - padX);
-            const sy = Math.max(0, bbox.y - padY);
-            const sw = Math.min(img.width - sx, bbox.width + padX * 2);
-            const sh = Math.min(img.height - sy, bbox.height + padY * 2);
+            const { outline, upright, sx, sy, sw, sh } = crop;
 
             // Draw cropped gel, scaled to fill canvas
             ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
             // Apply per-image adjustments (brightness, contrast, invert)
             this._applyImageAdjustments(ctx, sample.image_url, canvas.width, canvas.height);
+
+            // Mask outside a tilted lane's outline: its box takes in its neighbours (spec 2026-10-10 §5.1, masked,
+            // not deskewed).
+            if (!upright) {
+                const toCrop = ([x, y]) => [(x - sx) * canvas.width / sw, (y - sy) * canvas.height / sh];
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(0, 0, canvas.width, canvas.height);
+                outline.map(toCrop).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+                ctx.closePath();
+                ctx.fillStyle = this._canvasBg;
+                ctx.fill('evenodd');
+                ctx.restore();
+            }
 
             // Draw band overlays (if enabled)
             if (sample.bands && this.showBands) {
@@ -466,6 +525,7 @@
                     switch (band.band_type) {
                         case 'POI': color = this.colors.bandPOI; break;
                         case 'MW_REFERENCE': color = this.colors.bandRef; break;
+                        case 'CALIBRATION': color = this.colors.bandCalibration; break;
                         default: color = this.colors.bandOther;
                     }
 
@@ -494,19 +554,14 @@
                     if (!sample) return;
 
                     // Try to detect band click
-                    const bbox = sample.lane?.bbox;
                     const img = sample.image_url ? this._imageCache.get(sample.image_url) : null;
-                    if (bbox && img && sample.bands) {
+                    const crop = img ? this._cropOf(sample, img) : null;
+                    if (crop && sample.bands) {
                         const rect = canvas.getBoundingClientRect();
                         const cx = e.clientX - rect.left;
                         const cy = e.clientY - rect.top;
 
-                        const padX = Math.max(5, bbox.width * 0.1);
-                        const padY = Math.max(5, bbox.height * 0.05);
-                        const sx = Math.max(0, bbox.x - padX);
-                        const sy = Math.max(0, bbox.y - padY);
-                        const sw = Math.min(img.width - sx, bbox.width + padX * 2);
-                        const sh = Math.min(img.height - sy, bbox.height + padY * 2);
+                        const { sx, sy, sw, sh } = crop;
                         const scaleX = canvas.width / sw;
                         const scaleY = canvas.height / sh;
 
@@ -541,9 +596,20 @@
             });
         }
 
+        /**
+         * The PD dashboard's chart text size (pdd-style.js sets --pdd-font-scale on
+         * <html>); 1 on every other page. The canvas cannot read a CSS variable in a
+         * font string, so the labels drawn on it scale by this factor.
+         * @private
+         */
+        _fontScale() {
+            const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pdd-font-scale'));
+            return v > 0 ? v : 1;
+        }
+
         _truncate(str, max) {
             if (!str) return '';
-            return str.length > max ? str.substring(0, max - 1) + '\u2026' : str;
+            return str.length > max ? str.substring(0, max - 1) + '…' : str;
         }
 
         // ──────────────────────────────────────────────
@@ -572,11 +638,11 @@
                 html += `
                     <div class="dm-magnified-gel-card">
                         <div class="dm-magnified-gel-title">
-                            ${this._truncate(title, 40)} — ${laneLabels}
+                            ${escapeHtml(this._truncate(title, 40))} — ${laneLabels}
                         </div>
                         <div class="dm-magnified-gel-canvas-wrap">
                             <canvas class="dm-magnified-gel-canvas"
-                                    data-image-url="${url}"></canvas>
+                                    data-image-url="${escapeHtml(url)}"></canvas>
                         </div>
                     </div>
                 `;
@@ -603,10 +669,10 @@
                 canvas.width = 400;
                 canvas.height = 200;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#1e1e22';
+                ctx.fillStyle = this._canvasBg;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.font = '14px Inter, system-ui, sans-serif';
+                ctx.fillStyle = this._canvasPlaceholder;
+                ctx.font = `${14 * this._fontScale()}px Inter, system-ui, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.fillText('No gel image available', canvas.width / 2, 100);
                 return;
@@ -619,46 +685,56 @@
 
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, img.width, img.height);
+            const fs = this._fontScale(); // label text AND the boxes around it
 
             // Apply per-image adjustments (brightness, contrast, invert)
             this._applyImageAdjustments(ctx, imageUrl, canvas.width, canvas.height);
 
+            const G = GelAnalyzer.LaneGeometry;
+
             // Draw lane and band overlays for each sample on this gel
             for (const sample of samples) {
                 const isSelectedSample = sample.sampleId === selectedSampleId;
-                const bbox = sample.lane?.bbox;
-                if (!bbox || !bbox.width) continue;
+                const lane = sample.lane;
+                if (!lane || (!lane.outline && !(lane.bbox && lane.bbox.width))) continue;
 
-                // Lane bounding box
-                const lx = bbox.x * scale;
-                const ly = bbox.y * scale;
-                const lw = bbox.width * scale;
-                const lh = bbox.height * scale;
+                // The lane's outline (Rule 2): its label above the left end of its top row, its name under the
+                // middle of its bottom row.
+                const outline = G.outlineOfPayload(lane);
+                const [topX, topY] = G.topLeft(outline);
+                const [bottomX, bottomY] = G.bottomCentre(outline);
+                const lx = topX * scale;
+                const ly = topY * scale;
 
                 ctx.strokeStyle = sample.color;
                 ctx.lineWidth = isSelectedSample ? 3 : 2;
                 ctx.setLineDash(isSelectedSample ? [] : [6, 4]);
-                ctx.strokeRect(lx, ly, lw, lh);
+                ctx.beginPath();
+                outline.forEach(([x, y], i) => (i ? ctx.lineTo(x * scale, y * scale) : ctx.moveTo(x * scale, y * scale)));
+                ctx.closePath();
+                ctx.stroke();
                 ctx.setLineDash([]);
 
                 // Lane label pill
                 const label = `L${sample.lane.lane_number}`;
-                ctx.font = 'bold 12px Inter, system-ui, sans-serif';
-                const lbl_w = ctx.measureText(label).width + 10;
+                ctx.font = `bold ${12 * fs}px Inter, system-ui, sans-serif`;
+                const lbl_w = ctx.measureText(label).width + 10 * fs;
                 ctx.fillStyle = sample.color;
-                ctx.fillRect(lx, ly - 20, lbl_w, 18);
+                ctx.fillRect(lx, ly - 20 * fs, lbl_w, 18 * fs);
                 ctx.fillStyle = '#fff';
-                ctx.fillText(label, lx + 5, ly - 5);
+                ctx.fillText(label, lx + 5 * fs, ly - 5 * fs);
 
                 // Sample name below lane
-                ctx.font = '11px Inter, system-ui, sans-serif';
+                ctx.font = `${11 * fs}px Inter, system-ui, sans-serif`;
                 const sName = this._truncate(sample.label, 22);
-                const sNameW = ctx.measureText(sName).width + 8;
+                const sNameW = ctx.measureText(sName).width + 8 * fs;
+                const nameX = bottomX * scale;
+                const nameY = bottomY * scale;
                 ctx.fillStyle = 'rgba(0,0,0,0.6)';
-                ctx.fillRect(lx + (lw - sNameW) / 2, ly + lh + 2, sNameW, 16);
+                ctx.fillRect(nameX - sNameW / 2, nameY + 2 * fs, sNameW, 16 * fs);
                 ctx.fillStyle = '#fff';
                 ctx.textAlign = 'center';
-                ctx.fillText(sName, lx + lw / 2, ly + lh + 14);
+                ctx.fillText(sName, nameX, nameY + 14 * fs);
                 ctx.textAlign = 'start';
 
                 // Band overlays (if enabled)
@@ -675,6 +751,7 @@
                         switch (band.band_type) {
                             case 'POI': color = this.colors.bandPOI; break;
                             case 'MW_REFERENCE': color = this.colors.bandRef; break;
+                            case 'CALIBRATION': color = this.colors.bandCalibration; break;
                             default: color = this.colors.bandOther;
                         }
 
@@ -691,13 +768,13 @@
 
                         // MW label for magnified view
                         if (band.estimated_mw_kda) {
-                            ctx.font = '10px Inter, system-ui, sans-serif';
+                            ctx.font = `${10 * fs}px Inter, system-ui, sans-serif`;
                             const mwText = `${band.estimated_mw_kda.toFixed(0)}`;
                             ctx.fillStyle = 'rgba(0,0,0,0.7)';
-                            const tw = ctx.measureText(mwText).width + 4;
-                            ctx.fillRect(bx + bw + 2, by, tw, 14);
+                            const tw = ctx.measureText(mwText).width + 4 * fs;
+                            ctx.fillRect(bx + bw + 2, by, tw, 14 * fs);
                             ctx.fillStyle = '#fff';
-                            ctx.fillText(mwText, bx + bw + 4, by + 11);
+                            ctx.fillText(mwText, bx + bw + 2 + 2 * fs, by + 11 * fs);
                         }
                     }
                 }
@@ -726,11 +803,11 @@
                     }
                 }
 
-                // Check lane clicks
+                // Check lane clicks: inside the lane's outline, not its box
                 for (const sample of samples) {
-                    const bbox = sample.lane?.bbox;
-                    if (!bbox) continue;
-                    if (cx >= bbox.x && cx <= bbox.x + bbox.width && cy >= bbox.y && cy <= bbox.y + bbox.height) {
+                    const lane = sample.lane;
+                    if (!lane || (!lane.outline && !lane.bbox)) continue;
+                    if (G.pointInPolygon(cx, cy, G.outlineOfPayload(lane))) {
                         this.state.selectSample(sample.sampleId);
                         return;
                     }

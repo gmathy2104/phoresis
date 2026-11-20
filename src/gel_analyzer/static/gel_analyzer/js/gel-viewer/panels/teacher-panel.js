@@ -13,6 +13,12 @@
     const GelViewer = global.GelViewer || (global.GelViewer = {});
     const Events = GelViewer.Events;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     const STEPS = [
         {
             key: 'background',
@@ -95,6 +101,18 @@
             this.eventBus.emit(Events.TEACHER_PANEL_SHOWN);
             this.panel.style.display = '';
             this.panel.classList.remove('gv-teacher-collapsed');
+            global.GelViewer.Layers?.open(this.panel, {
+                // Esc cancels a rectangle being drawn first (the panel stays), then closes the panel.
+                close: () => {
+                    if (this.isDrawing) {
+                        this._cancelDraw();
+                        return false;
+                    }
+                    this.hide();
+                    return true;
+                },
+                isOpen: () => this.isOpen,
+            });
             this._reset();
             this._goToStep(0);
             this._attachMouseListeners();
@@ -104,6 +122,7 @@
             if (!this.panel) return;
             this.isOpen = false;
             this.panel.style.display = 'none';
+            global.GelViewer.Layers?.close(this.panel);
             this._clearAllRects();
             this._cancelDraw();
             this._detachMouseListeners();
@@ -209,16 +228,7 @@
             // Collapse toggle
             document.getElementById('teacher-collapse')?.addEventListener('click', () => this._toggleCollapse());
 
-            // Escape key
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && this.isOpen) {
-                    if (this.isDrawing) {
-                        this._cancelDraw();
-                    } else {
-                        this.hide();
-                    }
-                }
-            });
+            // Esc: GelViewer.Layers (show).
 
             // Step indicators (click to navigate)
             this.panel.querySelectorAll('.gv-teacher-step').forEach((el) => {
@@ -580,7 +590,7 @@
                     <tr>
                         <td class="gv-teacher-param-name">${key}</td>
                         <td class="gv-teacher-param-value">${val}</td>
-                        <td class="gv-teacher-param-why">${explanation}</td>
+                        <td class="gv-teacher-param-why">${escapeHtml(explanation)}</td>
                     </tr>
                 `;
             }
@@ -598,7 +608,7 @@
                 diag.innerHTML = `
                     <div class="gv-teacher-error">
                         <i class="bi bi-exclamation-triangle"></i>
-                        <span>${message}</span>
+                        <span>${escapeHtml(message)}</span>
                     </div>
                 `;
             }

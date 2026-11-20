@@ -229,6 +229,15 @@
             const dropdown = document.querySelector('.gv-tool-dropdown');
             if (dropdown) {
                 dropdown.classList.toggle('open');
+                if (dropdown.classList.contains('open')) {
+                    // Esc closes the menu alone. Closed by a click, a shape or a tool change: isOpen drops it.
+                    global.GelViewer.Layers?.open(dropdown, {
+                        close: () => dropdown.classList.remove('open'),
+                        isOpen: () => dropdown.classList.contains('open'),
+                    });
+                } else {
+                    global.GelViewer.Layers?.close(dropdown);
+                }
             }
         }
 

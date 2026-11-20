@@ -1,9 +1,10 @@
 <!--
   MW Calibration Panel — large responsive modal.
-  Layout: 2 columns on desktop (workflow / results), single column on mobile.
+  Layout: 2 columns on desktop (workflow / results) above the markers table, which takes the full width (one column
+  per ladder lane); single column on mobile.
 -->
 <div class="gv-modal-backdrop" id="calibration-backdrop" style="display: none;"></div>
-<div class="gv-calibration-panel" id="calibration-panel" style="display: none;">
+<div class="gv-calibration-panel" id="calibration-panel" style="display: none;" role="dialog" aria-modal="true" aria-label="MW calibration" tabindex="-1">
     <!-- Header -->
     <div class="gv-calibration-header">
         <div class="gv-calibration-title">
@@ -99,6 +100,8 @@
                         <div class="gv-calibration-r2-value" id="calibration-r2-value">0.0000</div>
                         <div class="gv-calibration-r2-indicator" id="calibration-r2-indicator"></div>
                     </div>
+                    <!-- One chip per ladder lane (its colour on the curve and in the markers table), from 2 ladders -->
+                    <div class="gv-calibration-ladder-r2" id="calibration-ladder-r2" style="display: none;"></div>
                     <div class="gv-calibration-multi-info" id="calibration-multi-info" style="display: none;">
                         <div class="gv-calibration-multi-badge">
                             <i class="bi bi-diagram-3"></i>
@@ -114,22 +117,6 @@
                 <!-- Plotly Chart -->
                 <div class="gv-calibration-chart" id="calibration-chart"></div>
 
-                <!-- Markers table — checkbox to exclude outliers + residual % -->
-                <div class="gv-calibration-markers" id="calibration-markers">
-                    <div class="gv-calibration-markers-header">
-                        <span class="gv-calibration-markers-title">
-                            <i class="bi bi-check2-square"></i>
-                            Calibration markers
-                        </span>
-                        <span class="gv-calibration-markers-hint">
-                            Uncheck a marker to drop it from the fit
-                        </span>
-                    </div>
-                    <div class="gv-calibration-markers-body" id="calibration-markers-body">
-                        <!-- Populated by JS -->
-                    </div>
-                </div>
-
                 <!-- Calibration warnings only — pure fit-quality concerns.
                      Template-completeness ("you haven't annotated band X") is
                      an *annotation* concern, surfaced in the Band Editor /
@@ -137,6 +124,26 @@
                      modal focused on the regression itself. -->
                 <div class="gv-calibration-warnings" id="calibration-warnings" style="display: none;"></div>
 
+            </div>
+        </div>
+
+        <!-- ============== Full width: markers, one column per ladder lane ============== -->
+        <!-- Shown with the results (_showResultsStep). A row per MW, a column per ladder: the same marker reads
+             across the ladders, so one ladder's bad band stands out from the template's. -->
+        <div class="gv-calibration-markers-row" id="calibration-markers-row" style="display: none;">
+            <div class="gv-calibration-markers" id="calibration-markers">
+                <div class="gv-calibration-markers-header">
+                    <span class="gv-calibration-markers-title">
+                        <i class="bi bi-check2-square"></i>
+                        Calibration markers
+                    </span>
+                    <span class="gv-calibration-markers-hint">
+                        Uncheck a marker to drop it from its ladder's fit · hover a row to find it on the curve
+                    </span>
+                </div>
+                <div class="gv-calibration-markers-body" id="calibration-markers-body">
+                    <!-- Populated by JS -->
+                </div>
             </div>
         </div>
 

@@ -1,0 +1,95 @@
+/*
+ * Night | Day switch of the gel workbench header (gel_analyzer/workbench/_theme_toggle.html).
+ *
+ * Prefix: .dsh-theme-toggle (the name it has in ds-hub-django, where it comes from).
+ * Linked by the partial itself, so it must not lean on the host page's tokens: it declares its
+ * own, night by default, day under :root[data-theme="light"] (the attribute
+ * gel_analyzer/js/shared/theme.js manages).
+ *
+ * The active segment follows the <html> attribute, not aria-pressed: the attribute is set in
+ * <head> before the first paint, the script only after.
+ */
+
+.dsh-theme-toggle {
+    --dsh-tt-border: #475569;
+    --dsh-tt-text: #94a3b8;
+    --dsh-tt-hover-bg: rgba(148, 163, 184, 0.12);
+    --dsh-tt-active-bg: #334155;
+    --dsh-tt-active-text: #f1f5f9;
+    --dsh-tt-focus: #3b82f6;
+
+    display: inline-flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    border: 1px solid var(--dsh-tt-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+:root[data-theme="light"] .dsh-theme-toggle {
+    --dsh-tt-border: #cbd5e1;
+    --dsh-tt-text: #475569;
+    --dsh-tt-hover-bg: rgba(15, 23, 42, 0.05);
+    --dsh-tt-active-bg: #e2e8f0;
+    --dsh-tt-active-text: #0f172a;
+    --dsh-tt-focus: #2563eb;
+}
+
+.dsh-theme-toggle__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0;
+    padding: 5px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--dsh-tt-text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.dsh-theme-toggle__btn + .dsh-theme-toggle__btn {
+    border-left: 1px solid var(--dsh-tt-border);
+}
+
+.dsh-theme-toggle__btn:hover {
+    background: var(--dsh-tt-hover-bg);
+}
+
+.dsh-theme-toggle__btn:focus-visible {
+    outline: 2px solid var(--dsh-tt-focus);
+    outline-offset: -2px;
+}
+
+.dsh-theme-toggle__btn i {
+    font-size: 12px;
+}
+
+/* The active segment. */
+:root:not([data-theme="light"]) .dsh-theme-toggle__btn[data-dsh-theme-value="dark"],
+:root[data-theme="light"] .dsh-theme-toggle__btn[data-dsh-theme-value="light"] {
+    background: var(--dsh-tt-active-bg);
+    color: var(--dsh-tt-active-text);
+    font-weight: 600;
+    cursor: default;
+}
+
+/* The sun keeps its warmth in both modes; amber-400 at night, amber-700 by day. */
+:root:not([data-theme="light"]) .dsh-theme-toggle__btn[data-dsh-theme-value="light"] i {
+    color: #fbbf24;
+}
+
+:root[data-theme="light"] .dsh-theme-toggle__btn[data-dsh-theme-value="light"] i {
+    color: #b45309;
+}
+
+@media print {
+    .dsh-theme-toggle {
+        display: none !important;
+    }
+}

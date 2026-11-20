@@ -440,15 +440,15 @@
         /**
          * Calculate band bounds (integration boundaries).
          *
-         * Returns the bbox edges, NOT ±3σ. The server-side integrator
-         * (services/densitometry/peak_integrator.py:132-144) uses bbox_y /
-         * bbox_y + bbox_height as the integration region — anything else
-         * shown on the chromatogram would mislead the user about what was
-         * actually integrated.
+         * Returns the bbox window the user drew — i.e. what the server-side
+         * ``gaussian_truncated_area`` actually integrates over. Falls back
+         * to ±3σ around the peak center only when no bbox is attached, so
+         * the dashed lines drawn on the chromatogram never lie about what
+         * the results table reports.
          *
-         * peakY remains the peak center used for MW estimation, which is a
-         * separate concept (read on the calibration curve) and gets its
-         * own marker in the rendering layer.
+         * Accepts both payload shapes used across the app:
+         *   - nested  ``band.bbox = {x, y, width, height}``  (densitometry API)
+         *   - flat    ``band.bbox_y`` / ``band.bbox_height``  (gel-viewer state)
          *
          * @param {Object} band - Band data object
          * @returns {Object} { peakY, leftBound, rightBound, sigma }
@@ -456,9 +456,16 @@
         calculateBandBounds(band) {
             const peakY = band.densitometry?.peak_center_y ?? band.position_y;
             const sigma = band.densitometry?.sigma ?? band.densitometry?.peak_sigma ?? null;
+            // Densitometry API serializes bbox as a nested object, gel-viewer
+            // state stores it flat — accept both so callers don't have to
+            // normalise the payload shape.
+            const bboxTop = band.bbox?.y ?? band.bbox_y;
+            const bboxHeight = band.bbox?.height ?? band.bbox_height;
 
-            const bboxTop = band.bbox_y;
-            const bboxHeight = band.bbox_height;
+            // Prefer the manual bbox the user defined: the densito server
+            // already integrates over [bbox_y, bbox_y + bbox_height], so the
+            // chromatogram shading must show the same window. Fall back to
+            // ±3σ around the peak only when the API didn't surface the bbox.
             if (bboxTop != null && bboxHeight != null && bboxHeight > 0) {
                 return {
                     peakY,
@@ -468,9 +475,6 @@
                 };
             }
 
-            // Fallback for legacy bands missing bbox: use ±3σ if a fit exists,
-            // else a fixed 20-px window centered on the peak (mirrors the
-            // server-side fallback in peak_integrator.integrate_band).
             const halfWidth = sigma ? sigma * 3 : 20;
             return {
                 peakY,
@@ -480,11 +484,12 @@
             };
         },
 
+
         /**
-         * Render a peak-maximum marker — the X position used to read the
-         * molecular weight off the calibration curve. Visually distinct
-         * from integration bounds: solid red vertical line + ▼ on the top
-         * axis.
+         * Render the peak-maximum marker — vertical dashed line + ▼ glyph
+         * on the X-axis at the exact peak position. Distinct from the
+         * integration-bbox boundaries: this marker shows the X position used
+         * to read MW off the calibration curve.
          *
          * @param {d3.Selection} peakGroup - D3 selection for peak highlights group
          * @param {d3.Scale} xScale - Current X scale

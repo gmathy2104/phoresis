@@ -117,9 +117,9 @@
                     : mw;
                 return `
                     <div class="lts-strip-band${flaggedCls}" style="top:${bandY.toFixed(1)}px;"
-                         title="MW ${mw} · Rf ${(b.rf || 0).toFixed(3)}${b.matched_flagged ? ' · FLAGGED' : ''}">
+                         title="MW ${escapeAttr(mw)} · Rf ${(b.rf || 0).toFixed(3)}${b.matched_flagged ? ' · FLAGGED' : ''}">
                         <span class="lts-strip-band-tick"></span>
-                        <span class="lts-strip-band-label">${mwLabel}</span>
+                        <span class="lts-strip-band-label">${escapeHtml(mwLabel)}</span>
                     </div>
                 `;
             }).join('');
@@ -145,7 +145,7 @@
                 top_n_intensity: { label: 'AUTO (top-N)', cls: 'is-auto', title: 'Untrained template — top-N by intensity fallback' },
             };
             const s = map[result.matching_strategy] || { label: result.matching_strategy, cls: 'is-auto', title: '' };
-            strategyBadge = `<span class="lts-strip-strategy ${s.cls}" title="${s.title}">${s.label}</span>`;
+            strategyBadge = `<span class="lts-strip-strategy ${s.cls}" title="${s.title}">${escapeHtml(s.label)}</span>`;
         }
 
         return `
@@ -176,7 +176,7 @@
         );
     }
     function escapeAttr(s) {
-        return String(s || '').replace(/"/g, '&quot;');
+        return escapeHtml(s);
     }
 
     // ─── Wiring ───────────────────────────────────────────────────────

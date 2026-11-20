@@ -19,6 +19,12 @@
     const Events = global.GelViewer.Events;
     const Base = global.GelViewer.DetectionPanelBase;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * Default CV2 detection parameters.
      * Must stay in sync with CV2DetectionParams dataclass defaults.
@@ -45,7 +51,6 @@
          * @param {EventBus} options.eventBus - Event bus for communication
          * @param {APIClient} options.apiClient - API client for server requests
          * @param {StateManager} options.stateManager - State manager reference
-         * @param {Object} options.svg - SVG.js instance for previews
          * @param {Function} options.onDetectionComplete - Callback when detection completes
          * @param {Object} [options.electropherogramPanel] - Unused (kept for API compat)
          */
@@ -53,7 +58,6 @@
             this.eventBus = options.eventBus;
             this.apiClient = options.apiClient;
             this.stateManager = options.stateManager;
-            this.svg = options.svg;
             this.onDetectionComplete = options.onDetectionComplete;
             this.electropherogramPanel = options.electropherogramPanel || null;
 
@@ -61,7 +65,6 @@
             this.isVisible = false;
             this.isProcessing = false;
             this.params = { ...DEFAULT_PARAMS };
-            this.previewResults = [];
             this.targetLanes = [];
             this.laneFilter = 'all';
             this._bgType = 'auto';        // auto-detected background type
@@ -77,7 +80,6 @@
             // DOM references
             this.panel = null;
             this.backdrop = null;
-            this.previewGroup = null;
 
             // Embed state — managed by DetectionPanelBase
             // No electropherogram embedding — CV2 works on 2D image directly
@@ -111,11 +113,6 @@
         _setupDOM() {
             this.panel = document.getElementById('cv2-detection-panel');
             this.backdrop = document.getElementById('cv2-detection-backdrop');
-
-            // Create SVG group for CV2 band previews
-            if (this.svg) {
-                this.previewGroup = this.svg.group().attr('id', 'cv2-band-previews');
-            }
         }
 
         // ─── Event Binding ────────────────────────────────────────────
@@ -130,10 +127,8 @@
                 closeBtn.addEventListener('click', () => this.hide());
             }
 
-            // Backdrop click to close
-            if (this.backdrop) {
-                this.backdrop.addEventListener('click', () => this.hide());
-            }
+            // A click on the backdrop closes nothing (owner, 2026-10-13): a stray click lost the tuned parameters.
+            // The x button and Esc close.
 
             // Lane filter select
             const filterSelect = document.getElementById('cv2-detection-lane-filter');
@@ -202,13 +197,7 @@
                 detectBtn.addEventListener('click', () => this._runDetection());
             }
 
-            // Keyboard: Escape to close
-            document.addEventListener('keydown', (e) => {
-                if (!this.isVisible) return;
-                if (e.key === 'Escape') {
-                    this.hide();
-                }
-            });
+            // Esc: GelViewer.Layers (show) closes the panel.
 
             // Listen for lane selection changes
             this.eventBus.on(Events.LANE_SELECTED, () => {
@@ -344,6 +333,11 @@
             this._updateTargetLanes();
             Base.showPanel(this.panel, this.backdrop);
             this.isVisible = true;
+            global.GelViewer.Layers?.open(this.panel, {
+                modal: true,
+                close: () => this.hide(),
+                isOpen: () => this.isVisible,
+            });
 
             // Auto-calibrate sliders from image
             await this._loadCalibratedParams();
@@ -361,6 +355,7 @@
          * Hide the CV2 detection panel (modal).
          */
         hide() {
+            global.GelViewer.Layers?.close(this.panel);
             this._clearPreviews();
 
             this._hideAnimationPending = true;
@@ -429,7 +424,7 @@
             listEl.innerHTML = this.targetLanes.slice(0, 10).map(lane => `
                 <div class="gv-detection-lane-item" data-lane-id="${lane.id}">
                     <span class="lane-number">#${lane.lane_number || '?'}</span>
-                    <span class="lane-type">${lane.lane_type}</span>
+                    <span class="lane-type">${escapeHtml(lane.lane_type)}</span>
                 </div>
             `).join('');
 
@@ -519,8 +514,6 @@
                 const result = await this.apiClient.detectBandsCV2Preview(lane.id, this.params, bgType);
 
                 if (result && result.bands) {
-                    this.previewResults = [{ laneId: lane.id, bands: result.bands }];
-                    this._renderPreviews();
                     this._showPreviewStats(result.band_count || result.bands.length, 1);
                 }
 
@@ -722,49 +715,13 @@
             if (barEl) barEl.style.display = 'none';
         }
 
-        // ─── SVG Preview Rendering ────────────────────────────────────
+        // ─── Preview ──────────────────────────────────────────────────
 
         /**
-         * Render band previews on SVG as dashed rectangles.
-         */
-        _renderPreviews() {
-            this._clearPreviews();
-
-            if (!this.previewGroup) return;
-
-            for (const result of this.previewResults) {
-                for (const band of result.bands) {
-                    this._renderBandPreview(band);
-                }
-            }
-        }
-
-        /**
-         * Render a single band preview as a dashed rectangle.
-         */
-        _renderBandPreview(band) {
-            if (!this.previewGroup) return;
-
-            const x = band.bbox_x;
-            const y = band.bbox_y;
-            const width = band.bbox_width;
-            const height = band.bbox_height;
-
-            this.previewGroup.rect(width, height)
-                .attr('x', x)
-                .attr('y', y)
-                .addClass('gv-cv2-preview-band');
-        }
-
-        /**
-         * Clear all previews.
+         * Clear the preview. A preview is never drawn on the gel, only counted in the panel
+         * (owner, 2026-10-13): the backdrop dims and blurs the gel behind it.
          */
         _clearPreviews() {
-            if (this.previewGroup) {
-                this.previewGroup.clear();
-            }
-            this.previewResults = [];
-
             this.eventBus.emit(Events.CV2_DETECTION_PREVIEW_CLEAR);
         }
 
@@ -777,15 +734,13 @@
             const existing = document.querySelector('.gv-message');
             if (existing) existing.remove();
 
+            // Over the panel's own backdrop: in .gv-viewer it was drawn under it (.gv-main is a stacking context).
             const message = document.createElement('div');
-            message.className = 'gv-message';
+            message.className = 'gv-message gv-message--over';
+            message.setAttribute('role', 'status');
             message.textContent = text;
-
-            const viewer = document.querySelector('.gv-viewer');
-            if (viewer) {
-                viewer.appendChild(message);
-                setTimeout(() => message.remove(), 3000);
-            }
+            document.body.appendChild(message);
+            setTimeout(() => message.remove(), 3000);
         }
 
         // ─── Public Getters ───────────────────────────────────────────

@@ -13,14 +13,18 @@
     const MWUtils = global.SampleComparison?.MWUtils;
     const NormalizationUtils = global.SampleComparison?.NormalizationUtils;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * ComparisonChromatogramPanel Class
      */
-    class ComparisonChromatogramPanel {
+    class ComparisonChromatogramPanel extends GelAnalyzer.Viz.Panel {
         constructor(options) {
-            this.container = options.container;
-            this.eventBus = options.eventBus;
-            this.state = options.state;
+            super(options);  // sets this.container/eventBus/state/options/tooltipLayer/_disposers
 
             this.contentElement = null;
             this.margin = { top: 20, right: 20, bottom: 50, left: 70 };
@@ -39,9 +43,20 @@
             this.xScaleOriginal = null;
             this.yScaleOriginal = null;
 
-            // Zoom state
-            this.currentTransform = d3.zoomIdentity;
-            this.zoom = null;
+            // Brush-zoom window in the data units of _zoomUnit ('mw' | 'position'), in
+            // pixel order (the MW axis runs high to low); null = full view. Y re-fits to
+            // it. A PD dashboard tile hands in { view, onChange } as options.zoom.
+            this._zoomX = null;
+            this._zoomUnit = null;
+            this._xUnit = null;
+            this._xLog = false;
+            this.xScaleZoomed = null;
+            this.zoomUi = null;
+            const zoom = this.options.zoom;
+            if (zoom && zoom.view && Array.isArray(zoom.view.x)) {
+                this._zoomX = zoom.view.x.slice();
+                this._zoomUnit = zoom.view.xUnit || null;
+            }
 
             // Store profile data for zoom updates
             this.profileDataSets = [];
@@ -50,18 +65,24 @@
             // Axis mode: 'mw' (log scale) or 'position' (Y pixel)
             this.xAxisMode = 'mw';
 
+            // Day mode (`data-theme="light"` on <html>, set only by hosts that offer it:
+            // the PD dashboard) draws on white, so the peak markers take darker shades of
+            // the same hues. Read once: the host rebuilds the panel when the mode switches.
+            const day = document.documentElement.getAttribute('data-theme') === 'light';
             this.colors = {
                 profile: '#2196F3',
                 background: '#E0E0E0',
-                poi: '#22C55E',
-                other: '#9E9E9E',
-                mwReference: '#FFC107',
+                poi: day ? '#15803d' : '#22C55E',
+                other: day ? '#6b7280' : '#9E9E9E',
+                mwReference: day ? '#b45309' : '#FFC107',
+                calibration: '#f87171',  // Red-400 — CALIBRATION (matches annotation), both modes
             };
 
-            this._init();
+            // Unique clip-path id so multiple mounted instances don't collide.
+            this._clipId = 'comparison-chart-clip-' + Math.random().toString(36).slice(2);
         }
 
-        _init() {
+        init() {
             if (!this.container) return;
 
             this.contentElement = this.container.querySelector('#chromatogram-container')
@@ -72,7 +93,22 @@
 
             this._createChart();
             this._setupEvents();
+            this._setupControls();
             this._setupResizeObserver();
+        }
+
+        /**
+         * Wire panel-relevant controls living in the mounted skeleton header
+         * (Task 7). Container-scoped lookup + tracked listener so repeated
+         * mount/unmount cycles don't duplicate handlers.
+         */
+        _setupControls() {
+            const poiOnly = this.container.querySelector('[data-ga-control="poi-only-mode"]');
+            if (poiOnly) {
+                const handler = (e) => this.state.setPoiOnlyMode(e.target.checked);
+                poiOnly.addEventListener('change', handler);
+                this._disposers.push(() => poiOnly.removeEventListener('change', handler));
+            }
         }
 
         _createChart() {
@@ -94,11 +130,14 @@
                 .attr('height', this.height + this.margin.top + this.margin.bottom)
                 .attr('class', 'dm-chromatogram-svg');
 
+            // (A press inside the chart never reaches the dashboard's tile drag:
+            // BrushZoom.attachX guards the SVG, see _setupZoom.)
+
             // Defs for gradients and clip path
             const defs = this.svg.append('defs');
 
             defs.append('clipPath')
-                .attr('id', 'comparison-chart-clip')
+                .attr('id', this._clipId)
                 .append('rect')
                 .attr('width', this.width)
                 .attr('height', this.height);
@@ -122,7 +161,7 @@
             // Content group with clip path
             this.contentGroup = this.chartGroup.append('g')
                 .attr('class', 'chart-content')
-                .attr('clip-path', 'url(#comparison-chart-clip)');
+                .attr('clip-path', `url(#${this._clipId})`);
 
             // Profiles group
             this.profilesGroup = this.contentGroup.append('g')
@@ -132,17 +171,8 @@
             this.peakGroup = this.contentGroup.append('g')
                 .attr('class', 'peak-highlights');
 
-            // Zoom overlay rect
-            this.zoomRect = this.chartGroup.append('rect')
-                .attr('class', 'zoom-rect')
-                .attr('width', this.width)
-                .attr('height', this.height)
-                .attr('fill', 'none')
-                .attr('pointer-events', 'all');
-
-            // Create legend and zoom controls
+            // Create legend
             this._createLegendContainer();
-            this._createZoomControls();
 
             // Axis labels
             this.xAxisLabel = this.chartGroup.append('text')
@@ -171,78 +201,71 @@
         }
 
         _setupZoom() {
-            this.zoom = d3.zoom()
-                .scaleExtent([1, 20])
-                .translateExtent([[0, 0], [this.width, this.height]])
-                .extent([[0, 0], [this.width, this.height]])
-                .on('zoom', (event) => this._onZoom(event));
-
-            this.zoomRect.call(this.zoom);
-            this.zoomRect.on('.zoom', null);
-
-            // Brush for selection-to-zoom
-            this.brush = d3.brushX()
-                .extent([[0, 0], [this.width, this.height]])
-                .on('end', (event) => this._onBrushEnd(event));
-
-            this.brushGroup = this.chartGroup.append('g')
-                .attr('class', 'brush-group')
-                .call(this.brush);
-
-            this.zoomRect.on('dblclick', () => {
-                this.zoomRect.transition()
-                    .duration(300)
-                    .call(this.zoom.transform, d3.zoomIdentity);
+            // The shared gesture (GelAnalyzer.Viz.BrushZoom): brush on X, Y re-fits,
+            // "Reset zoom" badge + double-click. The badge sits top LEFT: the legend
+            // overlays the top right. The brush layer stays on top of the traces.
+            this.brushGroup = this.chartGroup.append('g').attr('class', 'brush-group');
+            this.zoomUi = global.GelAnalyzer.Viz.BrushZoom.attachX(this.brushGroup, {
+                getXScale: () => this.xScaleZoomed || this.xScale,
+                width: this.width,
+                height: this.height,
+                zoomed: false,
+                badgeAt: 'left',
+                onZoom: (domain) => this._setZoom(domain),
+                onReset: () => this._setZoom(null),
             });
-
-            this._addZoomHint();
+            this._disposers.push(() => { if (this.brushGroup) this.brushGroup.on('.brush', null); });
         }
 
-        _onBrushEnd(event) {
-            if (!event.selection) return;
-
-            const [x0, x1] = event.selection;
-            this.brushGroup.call(this.brush.move, null);
-
-            if (Math.abs(x1 - x0) < 10) return;
-
-            const scale = this.width / (x1 - x0);
-            const clampedScale = Math.min(Math.max(scale, 1), 20);
-
-            const newTransform = d3.zoomIdentity
-                .scale(clampedScale)
-                .translate(-x0, 0);
-
-            this.zoomRect.transition()
-                .duration(300)
-                .call(this.zoom.transform, newTransform);
+        _setZoom(domain) {
+            this._zoomX = domain;
+            this._zoomUnit = domain ? this._xUnit : null;
+            const zoom = this.options.zoom;
+            if (zoom && typeof zoom.onChange === 'function') {
+                zoom.onChange(domain ? { x: domain.slice(), y: null, xUnit: this._xUnit } : null);
+            }
+            this._applyZoom();
         }
 
-        _addZoomHint() {
-            this.chartGroup.selectAll('.zoom-hint').remove();
-
-            this.chartGroup.append('text')
-                .attr('class', 'zoom-hint')
-                .attr('x', this.width / 2)
-                .attr('y', this.height + 28)
-                .attr('text-anchor', 'middle')
-                .attr('fill', 'rgba(255,255,255,0.4)')
-                .attr('font-size', '10px')
-                .attr('font-family', 'Inter, system-ui, sans-serif')
-                .text('Drag to select zoom region \u2022 Double-click to reset');
-        }
-
-        _onZoom(event) {
-            this.currentTransform = event.transform;
-
-            const zoomedXScale = this.currentTransform.rescaleX(this.xScaleOriginal || this.xScale);
-            const yScale = this.yScaleOriginal || this.yScale;
-
-            this.xAxisGroup.call(d3.axisBottom(zoomedXScale));
+        /** Traces, peaks and axes at the zoom window, or at the full view. */
+        _applyZoom() {
+            if (!this.xScaleOriginal || !this.yScaleOriginal) return;
+            const zoomed = !!this._zoomX && this._zoomUnit === this._xUnit;
+            const xScale = this.xScaleOriginal.copy();
+            let yScale = this.yScaleOriginal.copy();
+            if (zoomed) {
+                // Unclamped: a point outside the window leaves the plot and is clipped,
+                // instead of piling up on its edge (the full-view MW scale clamps).
+                xScale.domain(this._zoomX).clamp(false);
+                const lo = Math.min(this._zoomX[0], this._zoomX[1]);
+                const hi = Math.max(this._zoomX[0], this._zoomX[1]);
+                const values = [];
+                this.profileDataSets.forEach(p => {
+                    if (!this._isTraceVisible(p.sampleId)) return;
+                    p.chartData.forEach(d => { if (d.x >= lo && d.x <= hi) values.push(d.y); });
+                });
+                const fitted = global.GelAnalyzer.Viz.BrushZoom.fitY(values, true);
+                if (fitted) yScale = yScale.domain(fitted).nice();
+            }
+            this.xScaleZoomed = xScale;
+            this._drawXAxis(xScale);
+            this.yAxisGroup.call(d3.axisLeft(yScale));
             this._styleAxes();
+            this._updateProfilesWithZoom(xScale, yScale);
+            this._updatePeaksWithZoom(xScale, yScale);
+            if (this.zoomUi) this.zoomUi.setZoomed(zoomed);
+        }
 
-            this._updateProfilesWithZoom(zoomedXScale, yScale);
-            this._updatePeaksWithZoom(zoomedXScale, yScale);
+        _drawXAxis(xScale) {
+            if (this._xLog) {
+                this.xAxisGroup.call(
+                    d3.axisBottom(xScale)
+                        .ticks(8, '.0f')
+                        .tickFormat(d => `${d}`)
+                );
+            } else {
+                this.xAxisGroup.call(d3.axisBottom(xScale));
+            }
         }
 
         _updateProfilesWithZoom(xScale, yScale) {
@@ -312,21 +335,22 @@
         }
 
         _setupEvents() {
-            this.eventBus.on(ComparisonEvents.DATA_LOADED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.SAMPLE_ADDED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.SAMPLE_REMOVED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.PROFILE_LOADED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.POI_ONLY_MODE_CHANGED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.BAND_SELECTED, (data) => this._highlightSelectedBand(data.bandId));
-            this.eventBus.on(ComparisonEvents.SAMPLE_SELECTED, (data) => this._highlightSelectedSample(data.sampleId));
-            this.eventBus.on(ComparisonEvents.X_AXIS_MODE_CHANGED, (data) => {
+            this._on(ComparisonEvents.DATA_LOADED, () => this._renderProfiles());
+            this._on(ComparisonEvents.SAMPLE_ADDED, () => this._renderProfiles());
+            this._on(ComparisonEvents.SAMPLE_REMOVED, () => this._renderProfiles());
+            this._on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._renderProfiles());
+            this._on(ComparisonEvents.PROFILE_LOADED, () => this._renderProfiles());
+            this._on(ComparisonEvents.POI_ONLY_MODE_CHANGED, () => this._renderProfiles());
+            this._on(ComparisonEvents.BAND_SELECTED, (data) => this._highlightSelectedBand(data.bandId));
+            this._on(ComparisonEvents.SAMPLE_SELECTED, (data) => this._highlightSelectedSample(data.sampleId));
+            this._on(ComparisonEvents.X_AXIS_MODE_CHANGED, (data) => {
                 this.xAxisMode = data.mode;
+                if (this._zoomX) this._setZoom(null);
                 this._updateXAxisLabel();
                 this._renderProfiles();
             });
-            this.eventBus.on(ComparisonEvents.NORMALIZATION_MODE_CHANGED, () => this._renderProfiles());
-            this.eventBus.on(ComparisonEvents.TRACE_VISIBILITY_CHANGED, () => this._renderProfiles());
+            this._on(ComparisonEvents.NORMALIZATION_MODE_CHANGED, () => this._renderProfiles());
+            this._on(ComparisonEvents.TRACE_VISIBILITY_CHANGED, () => this._renderProfiles());
         }
 
         _getXAxisLabel() {
@@ -357,6 +381,8 @@
             this.peakDataMap.clear();
 
             const hasMWData = profiles.some(p => p.mw_profile?.mw_values?.length > 0);
+            this._xUnit = useMWMode ? 'mw' : 'position';
+            this._xLog = useMWMode && hasMWData;
 
             profiles.forEach(p => {
                 if (!p.profile || !p.profile.y_positions) return;
@@ -408,7 +434,20 @@
             const xExtent = d3.extent(allData, d => d.x);
             let yMax = d3.max(allData, d => d.y) * 1.1;
 
-            if (this.state.scaleMode === 'normalized') {
+            // The Y domain of the values the traces will be drawn with (normalised below, at render): Total and
+            // Max Peak give 0-100 per trace, the per-trace scaling 0-1. A fixed [0, 1.1] clipped the first two.
+            if (NormalizationUtils && this.state.normalizationMode !== 'raw') {
+                const mode = this.state.normalizationMode;
+                yMax = 1.1 * Math.max(1e-9, ...this.profileDataSets.map((set) => {
+                    // As drawn below: the POI-only filter first, then the normalisation.
+                    const drawn = this.state.poiOnlyMode
+                        ? this._filterChartDataToPOI(set.chartData, set.sampleId, set.useMWMode)
+                        : set.chartData;
+                    if (!drawn || !drawn.length) return 0;
+                    const values = NormalizationUtils.normalizeProfile(drawn.map(d => d.y), mode);
+                    return d3.max(values) || 0;
+                }));
+            } else if (this.state.scaleMode === 'normalized') {
                 yMax = 1.1;
             }
 
@@ -433,20 +472,7 @@
             this.xScaleOriginal = this.xScale.copy();
             this.yScaleOriginal = this.yScale.copy();
 
-            this.currentTransform = d3.zoomIdentity;
-            if (this.zoomRect && this.zoom) {
-                this.zoomRect.call(this.zoom.transform, d3.zoomIdentity);
-            }
-
-            if (useMWMode && hasMWData) {
-                this.xAxisGroup.call(
-                    d3.axisBottom(this.xScale)
-                        .ticks(8, '.0f')
-                        .tickFormat(d => `${d}`)
-                );
-            } else {
-                this.xAxisGroup.call(d3.axisBottom(this.xScale));
-            }
+            this._drawXAxis(this.xScale);
             this.yAxisGroup.call(d3.axisLeft(this.yScale));
             this._styleAxes();
 
@@ -549,6 +575,8 @@
             });
 
             this._renderLegend(this.profileDataSets);
+            // Redraw at the zoom window kept across this render (or the full view).
+            this._applyZoom();
         }
 
         /**
@@ -689,6 +717,7 @@
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;
+                case 'CALIBRATION': return this.colors.calibration;
                 default: return this.colors.other;
             }
         }
@@ -719,36 +748,6 @@
 
             const toggleBtn = this.legendContainer.querySelector('.dm-legend-toggle');
             toggleBtn.addEventListener('click', () => this._toggleLegend());
-        }
-
-        _createZoomControls() {
-            if (this.zoomControls) {
-                this.zoomControls.remove();
-            }
-
-            const controls = document.createElement('div');
-            controls.className = 'dm-zoom-controls';
-            controls.innerHTML = `
-                <button class="dm-zoom-btn dm-zoom-reset" title="Reset zoom (1:1)">
-                    <i class="bi bi-arrows-angle-contract"></i>
-                </button>
-            `;
-
-            this.contentElement.appendChild(controls);
-
-            controls.querySelector('.dm-zoom-reset').addEventListener('click', () => {
-                this._resetZoom();
-            });
-
-            this.zoomControls = controls;
-        }
-
-        _resetZoom() {
-            if (this.zoomRect && this.zoom) {
-                this.zoomRect.transition()
-                    .duration(300)
-                    .call(this.zoom.transform, d3.zoomIdentity);
-            }
         }
 
         _toggleLegend() {
@@ -808,7 +807,7 @@
                         <i class="bi bi-eye${isVisible ? '-fill' : '-slash'}"></i>
                     </button>
                     <span class="dm-legend-swatch" style="background-color: ${p.color}"></span>
-                    <span class="dm-legend-label">${p.sampleName || `Sample ${p.sampleId}`}</span>
+                    <span class="dm-legend-label">${escapeHtml(p.sampleName || `Sample ${p.sampleId}`)}</span>
                 `;
 
                 const visToggle = item.querySelector('.dm-visibility-toggle');
@@ -843,8 +842,8 @@
         _onPeakHover(event, band, sampleData) {
             const tooltip = this._getTooltip();
 
-            let content = `<strong style="color:${sampleData.color}">${sampleData.label}</strong><br>`;
-            content += `<span class="peak-type">${band.band_type}</span><br>`;
+            let content = `<strong style="color:${sampleData.color}">${escapeHtml(sampleData.label)}</strong><br>`;
+            content += `<span class="peak-type">${escapeHtml(band.band_type)}</span><br>`;
 
             if (band.estimated_mw_kda) {
                 content += `MW: ${band.estimated_mw_kda.toFixed(1)} kDa<br>`;
@@ -871,12 +870,14 @@
         }
 
         _getTooltip() {
-            let tooltip = document.getElementById('dm-chart-tooltip');
+            // Scope the lookup to the panel's tooltipLayer (Task 7) so two
+            // mounted components on one page don't share a single tooltip.
+            const host = this.tooltipLayer || document.body;
+            let tooltip = host.querySelector('.dm-chart-tooltip');
             if (!tooltip) {
                 tooltip = document.createElement('div');
-                tooltip.id = 'dm-chart-tooltip';
-                tooltip.className = 'dm-tooltip';
-                document.body.appendChild(tooltip);
+                tooltip.className = 'dm-tooltip dm-chart-tooltip';
+                host.appendChild(tooltip);
             }
             return tooltip;
         }
@@ -954,17 +955,14 @@
         }
 
         _setupResizeObserver() {
-            if (this.resizeObserver) {
-                this.resizeObserver.disconnect();
-            }
-
-            this.resizeObserver = new ResizeObserver(() => {
+            // Cancel-previous debounce: keep local id, register one teardown disposer.
+            this._observe(this.contentElement, () => {
                 if (this.resizeTimeout) {
                     cancelAnimationFrame(this.resizeTimeout);
                 }
                 this.resizeTimeout = requestAnimationFrame(() => this._handleResize());
             });
-            this.resizeObserver.observe(this.contentElement);
+            this._disposers.push(() => cancelAnimationFrame(this.resizeTimeout));
         }
 
         _handleResize() {
@@ -983,21 +981,13 @@
         }
 
         destroy() {
-            if (this.resizeObserver) {
-                this.resizeObserver.disconnect();
-                this.resizeObserver = null;
-            }
-            if (this.resizeTimeout) {
-                cancelAnimationFrame(this.resizeTimeout);
-                this.resizeTimeout = null;
-            }
+            // Base class destroy() runs all _disposers (eventBus.off, ResizeObserver.disconnect,
+            // cancelAnimationFrame, .brush null).
+            super.destroy();
+            // DOM cleanup not covered by _disposers:
             if (this.legendContainer) {
                 this.legendContainer.remove();
                 this.legendContainer = null;
-            }
-            if (this.zoomControls) {
-                this.zoomControls.remove();
-                this.zoomControls = null;
             }
         }
     }

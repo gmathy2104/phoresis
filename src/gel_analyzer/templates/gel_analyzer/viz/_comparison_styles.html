@@ -1,0 +1,13 @@
+{% load static %}
+{% comment %}
+  Gel Analyzer Viz — Sample Comparison component styles.
+
+  - densitometry.css : shared .dm-* panel / dark-theme chrome the comparison
+    view reuses (header, panels, modals, toolbar buttons).
+  - comparison.css   : comparison-specific layout + sample cards + results table.
+  - containment.css  : .ga-viz-root cascade boundary so a mounted Viz component
+    is isolated from its host page's own stylesheets.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/densitometry.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/comparison.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/containment.css' %}">

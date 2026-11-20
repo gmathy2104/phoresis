@@ -27,7 +27,10 @@
             this.imageElement = options.imageElement;
             this.imageProxyUrl = options.imageProxyUrl;
             this.eventBus = options.eventBus;
-            this.showMessage = options.showMessage || console.log;
+            // Built without one (GelViewerApp): the editor's toasts, read when a message comes (they exist by then).
+            this.showMessage = options.showMessage
+                || ((message) => (global.gelViewer && global.gelViewer.toasts
+                    ? global.gelViewer.toasts.info(message) : console.log(message)));
 
             // State
             this.adjustments = {
@@ -133,6 +136,7 @@
             if (this.panel) {
                 this.panel.style.display = 'block';
                 this._isVisible = true;
+                global.GelViewer.Layers?.open(this.panel, { close: () => this.hide(), isOpen: () => this._isVisible });
             }
             if (this.toggleBtn) {
                 this.toggleBtn.classList.add('active');
@@ -146,6 +150,7 @@
             if (this.panel) {
                 this.panel.style.display = 'none';
                 this._isVisible = false;
+                global.GelViewer.Layers?.close(this.panel);
             }
             if (this.toggleBtn) {
                 this.toggleBtn.classList.remove('active');

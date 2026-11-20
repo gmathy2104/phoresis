@@ -11,6 +11,20 @@
 
     const Events = global.GelViewer.Events;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // The narrow type select shows short names; its title gives the editor's full name (the properties form's).
+    const BAND_TYPE_NAMES = {
+        OTHER: 'Other',
+        POI: 'Protein of Interest',
+        MW_REFERENCE: 'MW Reference',
+        CALIBRATION: 'Calibration Point',
+    };
+
     /**
      * BandTablePanel Class
      */
@@ -21,14 +35,18 @@
          * @param {StateManager} options.stateManager - StateManager instance
          * @param {Function} options.onSelectBand - Callback for band selection
          * @param {Function} options.onUpdateBand - Callback to update band
+         * @param {Function} [options.onSetCalibration] - Asks a band's loaded amount and saves it CALIBRATION with it
          * @param {Function} options.onDeleteBand - Callback to delete band
+         * @param {LadderTemplateApply} [options.ladderTemplateApply] - The ladder's Apply (the lane form's path too)
          */
         constructor(options) {
             this.eventBus = options.eventBus;
             this.stateManager = options.stateManager;
             this.onSelectBand = options.onSelectBand;
             this.onUpdateBand = options.onUpdateBand;
+            this.onSetCalibration = options.onSetCalibration || null;
             this.onDeleteBand = options.onDeleteBand;
+            this.ladderTemplateApply = options.ladderTemplateApply || null;
 
             // Current lane context
             this.currentLaneId = null;
@@ -179,6 +197,13 @@
                 this.panel.style.display = 'flex';  // Override inline hide
                 this.panel.classList.add('open');
                 this.visible = true;
+                // Page-level marker — responsive CSS uses
+                // `.gv-main.band-editor-open .gv-sidebar` to slide the
+                // Properties sidebar out of the way on narrow viewports
+                // so the editor isn't clipped by the sidebar column.
+                const main = document.querySelector('.gv-main');
+                if (main) main.classList.add('band-editor-open');
+                global.GelViewer.Layers?.open(this.panel, { close: () => this.hide(), isOpen: () => this.visible });
                 console.log('BandTablePanel: showForLane()', { laneId, laneType: this.currentLaneType });
             }
 
@@ -207,6 +232,9 @@
                 this.panel.style.display = 'none';  // Reset inline style
                 this.panel.classList.remove('open');
                 this.visible = false;
+                const main = document.querySelector('.gv-main');
+                if (main) main.classList.remove('band-editor-open');
+                global.GelViewer.Layers?.close(this.panel);
                 console.log('BandTablePanel: hide()');
             }
 
@@ -250,7 +278,7 @@
                 this.thead.innerHTML = `
                     <tr>
                         <th style="width: 40px;">#</th>
-                        <th style="width: 100px;">MW (kDa)</th>
+                        <th style="width: 100px;">MW (<span class="gv-unit-text">kDa</span>)</th>
                         <th style="width: 120px;">Label</th>
                         <th>Notes</th>
                         <th style="width: 50px;"></th>
@@ -334,11 +362,11 @@
                     </td>
                     <td>
                         <input type="text" data-field="label"
-                               value="${band.label || ''}" placeholder="Label" class="band-input-label">
+                               value="${escapeHtml(band.label || '')}" placeholder="Label" class="band-input-label">
                     </td>
                     <td>
                         <input type="text" data-field="notes"
-                               value="${band.notes || ''}" placeholder="Notes" class="band-input-notes">
+                               value="${escapeHtml(band.notes || '')}" placeholder="Notes" class="band-input-notes">
                     </td>
                     <td class="band-actions">
                         <button class="band-delete-btn" title="Delete band">
@@ -361,10 +389,12 @@
                 row.innerHTML = `
                     <td class="band-index">${index}</td>
                     <td>
-                        <select data-field="band_type" class="band-select-type" ${disabledAttr}>
-                            <option value="OTHER" ${band.band_type === 'OTHER' ? 'selected' : ''}>Other</option>
-                            <option value="POI" ${band.band_type === 'POI' ? 'selected' : ''}>POI</option>
-                            <option value="MW_REFERENCE" ${band.band_type === 'MW_REFERENCE' ? 'selected' : ''}>MW Ref</option>
+                        <select data-field="band_type" class="band-select-type" ${disabledAttr}
+                                title="${BAND_TYPE_NAMES[band.band_type] || ''}">
+                            <option value="OTHER" title="Other" ${band.band_type === 'OTHER' ? 'selected' : ''}>Other</option>
+                            <option value="POI" title="Protein of Interest" ${band.band_type === 'POI' ? 'selected' : ''}>POI</option>
+                            <option value="MW_REFERENCE" title="MW Reference" ${band.band_type === 'MW_REFERENCE' ? 'selected' : ''}>MW Ref</option>
+                            <option value="CALIBRATION" title="Calibration Point" ${band.band_type === 'CALIBRATION' ? 'selected' : ''}>Calib.</option>
                         </select>
                         ${savingBadge}
                     </td>
@@ -372,15 +402,15 @@
                         <input type="number" data-field="estimated_mw_kda"
                                value="${mwDisplay}" step="0.1" min="0"
                                placeholder="—" class="${mwClass}"
-                               title="${mwValue != null ? mwValue.toFixed(2) + ' kDa' : 'Not calibrated'}">
+                               title="${mwValue != null ? mwValue.toFixed(1) + ' kDa' : 'Not calibrated'}">
                     </td>
                     <td>
                         <input type="text" data-field="label"
-                               value="${band.label || ''}" placeholder="Label" class="band-input-label">
+                               value="${escapeHtml(band.label || '')}" placeholder="Label" class="band-input-label">
                     </td>
                     <td>
                         <input type="text" data-field="notes"
-                               value="${band.notes || ''}" placeholder="Notes" class="band-input-notes">
+                               value="${escapeHtml(band.notes || '')}" placeholder="Notes" class="band-input-notes">
                     </td>
                     <td class="band-actions">
                         <button class="band-delete-btn" title="Delete band">
@@ -405,6 +435,7 @@
             // Select fields - immediate update
             row.querySelectorAll('select').forEach(select => {
                 select.addEventListener('change', (e) => {
+                    if (e.target.dataset.field === 'band_type') e.target.title = BAND_TYPE_NAMES[e.target.value] || '';
                     this._handleCellChange(bandId, e.target);
                 });
             });
@@ -424,14 +455,12 @@
                 });
             });
 
-            // Delete button
+            // Delete button: GelViewerApp._deleteBand asks for confirmation, as on every other path.
             const deleteBtn = row.querySelector('.band-delete-btn');
             if (deleteBtn && this.onDeleteBand) {
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    if (confirm('Delete this band?')) {
-                        this.onDeleteBand(bandId);
-                    }
+                    this.onDeleteBand(bandId);
                 });
             }
 
@@ -462,6 +491,16 @@
         _handleCellChange(bandId, input) {
             const field = input.dataset.field;
             let value = input.value;
+
+            // CALIBRATION is saved with its loaded amount or not at all (owner, 2026-10-13; the band PUT refuses it
+            // alone): the cell shows the band's type again and the amount is asked; the save redraws the table.
+            if (field === 'band_type' && value === 'CALIBRATION') {
+                const band = this.stateManager.getBand(bandId);
+                input.value = (band && band.band_type) || 'OTHER';
+                input.title = BAND_TYPE_NAMES[input.value] || '';
+                if (this.onSetCalibration) this.onSetCalibration(bandId);
+                return;
+            }
 
             // Parse value based on field type
             if (field === 'estimated_mw_kda') {
@@ -494,6 +533,7 @@
                 } else {
                     input.value = value || '';
                 }
+                if (field === 'band_type') input.title = BAND_TYPE_NAMES[value] || '';
             }
         }
 
@@ -640,16 +680,15 @@
         }
 
         /**
-         * Apply the selected ladder template to fill band MW values.
+         * Apply the selected ladder template to fill band MW values: LadderTemplateApply, the lane form's Apply's
+         * path too (the refusals, the request, the warnings, the events). The table follows on its events.
          */
         async _applyLadderTemplate() {
             const select = this.templateSelectorContainer?.querySelector('#ladder-template-select');
             const applyBtn = this.templateSelectorContainer?.querySelector('#apply-template-btn');
             const warningEl = this.templateSelectorContainer?.querySelector('#template-warning');
 
-            if (!select?.value || !this.currentLaneId) return;
-
-            const templateId = select.value;
+            if (!select?.value || !this.currentLaneId || !this.ladderTemplateApply) return;
 
             // Disable button during request
             if (applyBtn) {
@@ -657,57 +696,10 @@
                 applyBtn.textContent = 'Applying...';
             }
 
+            let outcome;
             try {
-                const response = await fetch(`/api/lanes/${this.currentLaneId}/apply-ladder-template/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this._getCSRFToken(),
-                    },
-                    body: JSON.stringify({ template_id: templateId }),
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to apply template');
-                }
-
-                // Show warnings if any
-                if (warningEl) {
-                    if (data.warnings && data.warnings.length > 0) {
-                        warningEl.innerHTML = data.warnings.map(w => `<span class="warning-icon">⚠</span> ${w}`).join('<br>');
-                        warningEl.style.display = 'block';
-                    } else {
-                        warningEl.style.display = 'none';
-                    }
-                }
-
-                // Update state with new band data
-                if (data.bands) {
-                    data.bands.forEach(bandData => {
-                        this.stateManager.setBand(bandData.id, bandData);
-                    });
-                }
-
-                // Refresh table to show new MW values
-                this.refresh();
-
-                // Emit event for other components (renderer, etc.)
-                this.eventBus.emit(Events.MW_BANDS_UPDATED, {
-                    laneId: this.currentLaneId,
-                    templateName: data.template_name,
-                    bandsUpdated: data.bands_updated,
-                });
-
-                console.log('BandTablePanel: Applied template', data.template_name, '- updated', data.bands_updated, 'bands');
-
-            } catch (error) {
-                console.error('BandTablePanel: Error applying template:', error);
-                if (warningEl) {
-                    warningEl.innerHTML = `<span class="warning-icon">❌</span> ${error.message}`;
-                    warningEl.style.display = 'block';
-                }
+                // No question before replacing values here (owner, 2026-10-13): this table shows the ones replaced.
+                outcome = await this.ladderTemplateApply.apply(this.currentLaneId, select.value);
             } finally {
                 // Re-enable button
                 if (applyBtn) {
@@ -715,20 +707,12 @@
                     applyBtn.textContent = 'Apply';
                 }
             }
-        }
 
-        /**
-         * Get CSRF token from cookie.
-         * @returns {string}
-         */
-        _getCSRFToken() {
-            const name = 'csrftoken';
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [key, value] = cookie.trim().split('=');
-                if (key === name) return value;
+            if (warningEl) {
+                const html = global.GelViewer.LadderTemplateApply.noticeHtml(outcome);
+                warningEl.innerHTML = html;
+                warningEl.style.display = html ? 'block' : 'none';
             }
-            return '';
         }
     }
 

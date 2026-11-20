@@ -18,141 +18,152 @@
     const Panels = global.SampleComparison?.Panels || {};
 
     /**
-     * PanelMagnifier Class
+     * Per-panel inner markup (headers / content / panel-local controls).
      *
-     * Handles expanding panels to fullscreen modal view.
-     * Moves panel content to modal (preserving event handlers) and back on close.
+     * This is the CORRECT per-panel inner DOM (Task 5/7 refactor): each panel
+     * drills into these hooks via this.container.querySelector(...):
+     *  - gelOverview / bandDetail / resultsTable drill to `.dm-panel-content`
+     *  - chromatogram drills to `#chromatogram-container`
+     *  - poiPurity renders directly into its own `#poi-purity-container`
+     *    (`.dm-graphical-view-pane`) which lives INSIDE the chromatogram panel
+     *    alongside `#chromatogram-container`, hidden by default — NOT a 5th grid
+     *    cell (matches the `main` baseline scaffold).
+     *  - sampleCards renders directly into its own `.dm-sample-cards` stripe
+     *
+     * Panel-relevant controls (gel toolbar, electropherogram POI-only) live in
+     * this markup so the component is self-contained; the panels wire them via
+     * this.container.querySelector(...) with tracked listeners.
      */
-    class PanelMagnifier {
-        constructor() {
-            this.activePanel = null;
-            this.activePanelContent = null;
-            this.modalOverlay = null;
-            this.modalTitle = null;
-            this.modalContent = null;
+    // The readout tab of the graphical view, by the kind's readout (the comparison page mounts one kind at a
+    // time): PURITY "Purity", a western "Variants" / "HCP vs reference", NONE none. No readout given (the dev
+    // showcase): today's "POI Purity". The Profiles button keeps data-view="electropherogram" (the page chrome
+    // and its tests key on it); any other view shows the readout pane.
+    const READOUT_TABS = {
+        PURITY: { view: 'poi-purity', label: 'Purity', icon: 'bi-bar-chart-fill', title: 'Purity of each lane, as the gel pages publish it' },
+        MOLECULE_VARIANTS: { view: 'readout', label: 'Variants', icon: 'bi-bar-chart-steps', title: 'HMWS (high molecular weight species), main band and LMWS (low molecular weight species) of each lane' },
+        HOST_CELL_PROTEINS: { view: 'readout', label: 'HCP vs reference', icon: 'bi-bar-chart-line', title: "HCP signal of each lane in % of its blot's reference lane" },
+        NONE: null,
+    };
 
-            this._initElements();
-            this._setupEventHandlers();
-        }
-
-        _initElements() {
-            this.modalOverlay = document.getElementById('panel-magnify-overlay');
-            this.modalTitle = document.getElementById('magnify-title');
-            this.modalContent = document.getElementById('magnify-content');
-            this.closeBtn = document.getElementById('magnify-close');
-        }
-
-        _setupEventHandlers() {
-            // Close button
-            if (this.closeBtn) {
-                this.closeBtn.addEventListener('click', () => this.collapse());
-            }
-
-            // Backdrop click
-            if (this.modalOverlay) {
-                this.modalOverlay.addEventListener('click', (e) => {
-                    if (e.target === this.modalOverlay) {
-                        this.collapse();
-                    }
-                });
-            }
-
-            // ESC key
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && this.activePanel) {
-                    this.collapse();
-                }
-            });
-        }
-
-        expand(panelElement) {
-            if (!panelElement || !this.modalOverlay || !this.modalContent) {
-                console.warn('[PanelMagnifier] Missing panel or modal elements');
-                return;
-            }
-
-            // Already expanded?
-            if (this.activePanel) {
-                this.collapse();
-            }
-
-            // Get panel content and title
-            const content = panelElement.querySelector('.dm-panel-content');
-            const titleEl = panelElement.querySelector('.dm-panel-title');
-            const title = titleEl?.textContent?.trim() || 'Panel View';
-
-            if (!content) {
-                console.warn('[PanelMagnifier] Panel has no .dm-panel-content');
-                return;
-            }
-
-            // Store references
-            this.activePanel = panelElement;
-            this.activePanelContent = content;
-
-            // Update modal title
-            if (this.modalTitle) {
-                this.modalTitle.textContent = title;
-            }
-
-            // Move content to modal
-            this.modalContent.appendChild(content);
-
-            // Mark panel as expanded
-            panelElement.classList.add('dm-panel-expanded');
-
-            // Show modal
-            this.modalOverlay.classList.add('active');
-
-            // Trigger resize for D3/canvas components
-            setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-            }, 50);
-
-            console.log('[PanelMagnifier] Expanded:', panelElement.id);
-        }
-
-        collapse() {
-            if (!this.activePanel || !this.activePanelContent) {
-                return;
-            }
-
-            // Move content back to original panel
-            this.activePanel.appendChild(this.activePanelContent);
-
-            // Remove expanded state
-            this.activePanel.classList.remove('dm-panel-expanded');
-
-            // Hide modal
-            if (this.modalOverlay) {
-                this.modalOverlay.classList.remove('active');
-            }
-
-            const panelId = this.activePanel.id;
-
-            // Clear references
-            this.activePanel = null;
-            this.activePanelContent = null;
-
-            // Trigger resize for D3/canvas components
-            setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-            }, 50);
-
-            console.log('[PanelMagnifier] Collapsed:', panelId);
-        }
-
-        isExpanded() {
-            return this.activePanel !== null;
-        }
+    function viewToggleMarkup(readout) {
+        const tab = readout ? READOUT_TABS[readout] : { view: 'poi-purity', label: 'POI Purity', icon: 'bi-bar-chart-fill', title: 'POI Purity across samples' };
+        const first = readout ? 'Profiles' : 'Electropherogram';
+        const second = tab
+            ? `<button class="dm-view-btn" data-view="${tab.view}" title="${tab.title}"><i class="bi ${tab.icon}"></i> ${tab.label}</button>`
+            : '';
+        return `<div class="dm-view-toggle me-2">
+                        <button class="dm-view-btn active" data-view="electropherogram" title="Electropherogram overlay"><i class="bi bi-activity"></i> ${first}</button>
+                        ${second}
+                    </div>`;
     }
+
+    const PANEL_MARKUP = {
+        gelOverview: `
+            <div class="dm-panel-header">
+                <span class="dm-panel-title">
+                    <i class="bi bi-image me-2"></i>Gel Overview
+                </span>
+                <div class="dm-panel-actions">
+                    <button class="dm-gel-enhance-btn" data-ga-control="gel-auto-enhance" title="Auto-enhance all images">
+                        <i class="bi bi-magic"></i>
+                    </button>
+                    <button class="dm-gel-invert-btn" data-ga-control="gel-invert-toggle" title="Invert image colors">
+                        <i class="bi bi-circle-half"></i>
+                    </button>
+                    <button class="dm-gel-bands-toggle active" data-ga-control="gel-bands-toggle" title="Toggle band overlays">
+                        <i class="bi bi-layers"></i>
+                    </button>
+                    <button class="dm-panel-expand-btn" data-panel="gel-overview-panel" title="Expand to fullscreen">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="dm-panel-content"></div>
+        `,
+        // Chromatogram panel hosts BOTH graphical-view panes: the chromatogram
+        // pane (#chromatogram-container) and the POI-purity pane
+        // (#poi-purity-container — the poiPurity panel's slot, hidden by default).
+        chromatogram: `
+            <div class="dm-panel-header">
+                <span class="dm-panel-title">
+                    <i class="bi bi-graph-up me-2"></i>Graphical View
+                </span>
+                <div class="dm-panel-actions">
+                    __VIEW_TOGGLE__
+                    <div id="electropherogram-controls" class="dm-ephero-controls">
+                        <div class="dm-mode-toggle me-2">
+                            <button class="dm-mode-btn active" data-mode="mw" title="MW axis (log scale)"><i class="bi bi-bar-chart"></i> MW</button>
+                            <button class="dm-mode-btn" data-mode="position" title="Y position (pixels)"><i class="bi bi-rulers"></i> Pos</button>
+                        </div>
+                        <label class="dm-sync-toggle me-2" title="Show only Protein of Interest bands">
+                            <input type="checkbox" data-ga-control="poi-only-mode"> POI Only
+                        </label>
+                    </div>
+                    <button class="dm-panel-expand-btn" data-panel="chromatogram-panel" title="Expand to fullscreen">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="dm-panel-content">
+                <div id="chromatogram-container" class="dm-graphical-view-pane"></div>
+                <div id="poi-purity-container" class="dm-graphical-view-pane" data-ga-panel="poiPurity" style="display: none;"></div>
+            </div>
+        `,
+        bandDetail: `
+            <div class="dm-panel-header">
+                <span class="dm-panel-title">
+                    <i class="bi bi-zoom-in me-2"></i>Band Detail
+                </span>
+                <div class="dm-panel-actions">
+                    <button class="dm-panel-expand-btn" data-panel="band-zoom-panel" title="Expand to fullscreen">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="dm-panel-content"></div>
+        `,
+        resultsTable: `
+            <div class="dm-panel-header">
+                <span class="dm-panel-title">
+                    <i class="bi bi-table me-2"></i>Band Comparison
+                </span>
+                <div class="dm-panel-actions">
+                    <button class="dm-panel-expand-btn" data-panel="results-panel" title="Expand to fullscreen">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="dm-panel-content"></div>
+        `,
+    };
 
     /**
      * SampleComparisonApp Class
+     *
+     * Container-scoped (Task 7): builds its OWN skeleton inside containerEl. The
+     * comparison view needs the baseline 2×2 grid scaffold (.dm-main with two
+     * .dm-panel-row rows + .dm-splitter handles) so PanelSplitter can wire the
+     * resize splitters — so the App constructs the .ga-viz-root scaffold itself
+     * and mounts each panel into its slot (the generic GelAnalyzer.Viz.mount flat
+     * loop is intentionally NOT used here; it stays available for simpler hosts).
+     *
+     * Page chrome (header toolbar, wizard / save / report modals, splitter,
+     * magnifier) stays in the consumer template and talks to the public handle.
      */
     class SampleComparisonApp {
+        /**
+         * @param {Object} options
+         * @param {HTMLElement} options.containerEl - Empty host div to mount into
+         * @param {string} options.csrfToken
+         * @param {Object} options.apiUrls
+         * @param {AbortSignal} [options.signal] - Threaded into the API client
+         * @param {Object} [options.options] - View-option overrides + extras
+         */
         constructor(options) {
-            this.options = options;
+            this.options = options || {};
+
+            // Host container
+            this.containerEl = options.containerEl;
 
             // Initialize core dependencies
             this.eventBus = new EventBus();
@@ -160,131 +171,258 @@
             this.api = new ComparisonApi({
                 csrfToken: options.csrfToken,
                 apiUrls: options.apiUrls,
+                signal: options.signal || null,
             });
 
-            // Panels
+            // Panels (populated by _buildScaffold)
             this.panels = {};
 
-            // DOM references
-            this.container = options.container || document.getElementById('sample-comparison-app');
-
-            // Loading state
-            this.isLoading = false;
-
-            // Panel magnifier for fullscreen expansion
-            this.magnifier = null;
+            // Skeleton handles (owned by this App; teardown contract preserved).
+            this._root = null;
+            this._tooltipLayer = null;
         }
 
-        async init() {
-            if (!this.container) {
-                console.error('[SampleComparisonApp] Container not found');
-                return;
+        init() {
+            if (!this.containerEl) {
+                throw new Error('[SampleComparisonApp] containerEl is required to mount');
             }
 
-            console.log('[SampleComparisonApp] Initializing...');
+            console.log('[SampleComparisonApp] Initializing (container-scoped)...');
 
-            this._initPanels();
-            this._initMagnifier();
+            // Build the .ga-viz-root scaffold (2×2 grid + splitters) and
+            // instantiate/init all panels into their slots.
+            this._buildScaffold();
+
+            // Apply any initial view-option overrides via the state setters.
+            if (this.options.options) {
+                this.setOptions(this.options.options);
+            }
+
+            // Component logic: profile-fetch orchestration on SAMPLE_ADDED.
             this._setupEventHandlers();
-            this._setupControls();
-            await this._loadInitialData();
 
-            console.log('[SampleComparisonApp] Initialized with', this.state.samples.size, 'samples');
-        }
+            // Legacy path: if the consumer passed initialSamples in options,
+            // hydrate them now. The Comparison.mount factory hydrates via
+            // state.addSample after init() instead (dual-mode).
+            const initPromise = (this.options.initialSamples && this.options.initialSamples.length)
+                ? this._loadInitialData()
+                : Promise.resolve();
 
-        _initMagnifier() {
-            this.magnifier = new PanelMagnifier();
-
-            // Wire up expand buttons for all panels
-            document.querySelectorAll('.dm-panel-expand-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const panelId = btn.dataset.panel;
-                    const panel = document.getElementById(panelId);
-                    if (panel) {
-                        this.magnifier.expand(panel);
-                    }
-                });
+            return initPromise.then(() => {
+                console.log('[SampleComparisonApp] Initialized with', this.state.samples.size, 'samples');
             });
-
-            console.log('[SampleComparisonApp] Magnifier initialized');
         }
 
-        _initPanels() {
-            // Get panel classes from namespace
-            const SampleCardsPanel = Panels.SampleCards;
-            const GelOverviewPanel = Panels.GelOverview;
-            const ComparisonChromatogramPanel = Panels.Chromatogram;
-            const BandDetailPanel = Panels.BandDetail;
-            const ComparisonResultsTablePanel = Panels.ResultsTable;
+        /**
+         * Build the .ga-viz-root scaffold and construct each panel into its slot.
+         *
+         * Reproduces the `main` baseline panel-area DOM so the comparison view's
+         * 2×2 grid + resize splitters work:
+         *
+         *   .ga-viz-root  (containment boundary — all:initial in containment.css;
+         *                  flex-column inline so .dm-sample-cards + .dm-main stack
+         *                  and .dm-main's flex:1 fills the host)
+         *     .ga-viz-tooltip-layer
+         *     .dm-sample-cards                       → sampleCards slot
+         *     <main class="dm-main">
+         *       .dm-panel-row.dm-row-top
+         *         .dm-panel.dm-panel-gel-overview    → gelOverview slot
+         *         .dm-splitter.dm-splitter-v [top-row]
+         *         .dm-panel.dm-panel-chromatogram    → chromatogram slot
+         *             (#chromatogram-container + #poi-purity-container=poiPurity)
+         *       .dm-splitter.dm-splitter-h [main]
+         *       .dm-panel-row.dm-row-bottom
+         *         .dm-panel.dm-panel-band-detail     → bandDetail slot
+         *         .dm-splitter.dm-splitter-v [bottom-row]
+         *         .dm-panel.dm-panel-results         → resultsTable slot
+         *
+         * PanelSplitter (wired by page chrome against the mounted root) needs
+         * .dm-main + .dm-splitter[data-splitter=top-row|main|bottom-row]; those
+         * exact hooks are emitted here.
+         */
+        _buildScaffold() {
+            const containerEl = this.containerEl;
+            if (containerEl.dataset.gaVizMounted) {
+                throw new Error('[SampleComparisonApp] container already has a mounted Viz component.');
+            }
+            if (!global.d3) {
+                throw new Error('[SampleComparisonApp] d3 must be loaded before mounting.');
+            }
+            containerEl.dataset.gaVizMounted = '1';
 
-            // Sample cards panel
-            if (SampleCardsPanel) {
-                this.panels.sampleCards = new SampleCardsPanel({
-                    container: document.getElementById('samples-container'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                    app: this,
+            // CSS-contained root (same contract as GelAnalyzer.Viz.mount). The
+            // inline flex-column wins over containment.css `display:block` (which
+            // follows `all:initial`) so the scaffold fills the host height.
+            const root = document.createElement('div');
+            root.className = 'ga-viz-root';
+            root.style.display = 'flex';
+            root.style.flexDirection = 'column';
+
+            const tooltipLayer = document.createElement('div');
+            tooltipLayer.className = 'ga-viz-tooltip-layer';
+            root.appendChild(tooltipLayer);
+
+            // --- Scaffold DOM -------------------------------------------------
+            const sampleCardsSlot = document.createElement('div');
+            sampleCardsSlot.className = 'dm-sample-cards';
+            sampleCardsSlot.dataset.gaPanel = 'sampleCards';
+            sampleCardsSlot.innerHTML =
+                '<div class="dm-sample-cards-empty">' +
+                '<i class="bi bi-plus-circle me-2"></i> Click "Add Sample" to start comparing' +
+                '</div>';
+            root.appendChild(sampleCardsSlot);
+
+            const main = document.createElement('main');
+            main.className = 'dm-main';
+
+            // Top row: gel overview | v-splitter | chromatogram(+poiPurity).
+            const rowTop = document.createElement('div');
+            rowTop.className = 'dm-panel-row dm-row-top';
+
+            const gelOverviewSlot = this._makePanelSlot(
+                'dm-panel dm-panel-gel-overview', 'gelOverview', PANEL_MARKUP.gelOverview, 'gel-overview-panel');
+            const readout = (this.options.options && this.options.options.readout) || null;
+            const chromatogramSlot = this._makePanelSlot(
+                'dm-panel dm-panel-chromatogram', 'chromatogram',
+                PANEL_MARKUP.chromatogram.replace('__VIEW_TOGGLE__', viewToggleMarkup(readout)), 'chromatogram-panel');
+
+            rowTop.appendChild(gelOverviewSlot);
+            rowTop.appendChild(this._makeSplitter('v', 'top-row'));
+            rowTop.appendChild(chromatogramSlot);
+
+            // Bottom row: band detail | v-splitter | results.
+            const rowBottom = document.createElement('div');
+            rowBottom.className = 'dm-panel-row dm-row-bottom';
+
+            const bandDetailSlot = this._makePanelSlot(
+                'dm-panel dm-panel-band-detail', 'bandDetail', PANEL_MARKUP.bandDetail, 'band-zoom-panel');
+            const resultsSlot = this._makePanelSlot(
+                'dm-panel dm-panel-results', 'resultsTable', PANEL_MARKUP.resultsTable, 'results-panel');
+
+            rowBottom.appendChild(bandDetailSlot);
+            rowBottom.appendChild(this._makeSplitter('v', 'bottom-row'));
+            rowBottom.appendChild(resultsSlot);
+
+            main.appendChild(rowTop);
+            main.appendChild(this._makeSplitter('h', 'main'));
+            main.appendChild(rowBottom);
+            root.appendChild(main);
+
+            // poiPurity slot lives INSIDE the chromatogram panel content.
+            const poiPuritySlot = chromatogramSlot.querySelector('#poi-purity-container');
+
+            // --- Construct panels into their slots ----------------------------
+            const panelOptions = Object.assign({ app: this }, this.options.options || {});
+            const slotMap = [
+                ['sampleCards', Panels.SampleCards, sampleCardsSlot],
+                ['gelOverview', Panels.GelOverview, gelOverviewSlot],
+                ['chromatogram', Panels.Chromatogram, chromatogramSlot],
+                ['poiPurity', Panels.PoiPurity, poiPuritySlot],
+                ['bandDetail', Panels.BandDetail, bandDetailSlot],
+                ['resultsTable', Panels.ResultsTable, resultsSlot],
+            ];
+
+            const panels = {};
+            try {
+                slotMap.forEach(([name, PanelClass, slotEl]) => {
+                    if (!PanelClass || !slotEl) return;
+                    const panel = new PanelClass({
+                        container: slotEl,
+                        eventBus: this.eventBus,
+                        state: this.state,
+                        options: panelOptions,
+                        tooltipLayer,
+                    });
+                    panel.init();
+                    panels[name] = panel;
                 });
+                containerEl.appendChild(root);
+            } catch (e) {
+                // Transactional mount: undo the partial skeleton + sentinel.
+                Object.values(panels).forEach((p) => { try { p.destroy(); } catch (_) { /* ignore */ } });
+                root.remove();
+                delete containerEl.dataset.gaVizMounted;
+                throw e;
             }
 
-            // Gel Overview panel (with canvas)
-            if (GelOverviewPanel) {
-                this.panels.gelOverview = new GelOverviewPanel({
-                    container: document.getElementById('gel-overview-panel'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                });
-            }
+            this._root = root;
+            this._tooltipLayer = tooltipLayer;
+            this.panels = panels;
+        }
 
-            // Chromatogram comparison panel (D3.js multi-profile)
-            if (ComparisonChromatogramPanel) {
-                this.panels.chromatogram = new ComparisonChromatogramPanel({
-                    container: document.getElementById('chromatogram-panel'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                });
-            }
+        /**
+         * Build a .dm-panel slot with its [data-ga-panel] tag + inner markup.
+         * The baseline panel id (gel-overview-panel / chromatogram-panel /
+         * band-zoom-panel / results-panel) is restored so id-keyed CSS keeps
+         * working — notably `#chromatogram-panel .dm-panel-content { position:
+         * relative }`, which contains the absolutely-positioned graphical-view
+         * panes (#chromatogram-container / #poi-purity-container).
+         */
+        _makePanelSlot(className, name, markup, id) {
+            const el = document.createElement('div');
+            el.className = className;
+            el.dataset.gaPanel = name;
+            if (id) el.id = id;
+            if (markup) el.innerHTML = markup;
+            return el;
+        }
 
-            // Band Detail panel with digital lane
-            if (BandDetailPanel) {
-                this.panels.bandDetail = new BandDetailPanel({
-                    container: document.getElementById('band-zoom-panel'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                });
-            }
+        /**
+         * Build a .dm-splitter handle. PanelSplitter keys off the .dm-splitter-h
+         * / .dm-splitter-v class and the data-splitter value (main|top-row|bottom-row).
+         */
+        _makeSplitter(orientation, kind) {
+            const el = document.createElement('div');
+            const orientClass = orientation === 'h' ? 'dm-splitter-h' : 'dm-splitter-v';
+            el.className = 'dm-splitter ' + orientClass;
+            el.dataset.splitter = kind;
+            el.setAttribute('role', 'separator');
+            el.setAttribute('aria-orientation', orientation === 'h' ? 'horizontal' : 'vertical');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('title', 'Drag to resize · double-click to reset');
+            return el;
+        }
 
-            // Results table panel
-            if (ComparisonResultsTablePanel) {
-                this.panels.resultsTable = new ComparisonResultsTablePanel({
-                    container: document.getElementById('results-panel'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                });
-            }
+        /**
+         * Apply known view options through the state setters (single source of
+         * truth — never duplicate the logic here). Unknown keys are ignored.
+         * @param {Object} partial
+         */
+        setOptions(partial) {
+            if (!partial) return;
+            if (partial.poiOnlyMode !== undefined) this.state.setPoiOnlyMode(partial.poiOnlyMode);
+            if (partial.scaleMode !== undefined) this.state.setScaleMode(partial.scaleMode);
+            if (partial.xAxisMode !== undefined) this.state.setXAxisMode(partial.xAxisMode);
+            if (partial.normalizationMode !== undefined) this.state.setNormalizationMode(partial.normalizationMode);
+            if (partial.mwTolerance !== undefined) this.state.setMwTolerance(partial.mwTolerance);
+            if (partial.digitalLaneMode !== undefined) this.state.setDigitalLaneMode(partial.digitalLaneMode);
+        }
 
-            // POI Purity panel
-            const PoiPurityPanel = Panels.PoiPurity;
-            if (PoiPurityPanel) {
-                this.panels.poiPurity = new PoiPurityPanel({
-                    container: document.getElementById('poi-purity-container'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                });
+        /**
+         * Tear down the mounted component: destroys every panel, removes the
+         * .ga-viz-root (which owns the tooltipLayer), clears the App-owned
+         * eventBus, and clears the mount sentinel — same teardown contract the
+         * generic GelAnalyzer.Viz.mount handle provides.
+         */
+        destroy() {
+            Object.values(this.panels).forEach((p) => {
+                try { p.destroy(); } catch (e) {
+                    console.warn('[SampleComparisonApp] panel destroy threw:', e);
+                }
+            });
+            this.panels = {};
+            if (this._root) {
+                this._root.remove();  // removes the contained tooltipLayer too
+                this._root = null;
             }
-
-            // Content (estimated amount) chart — only renders bars when
-            // a sample has quantified POI bands (server-side back-fill of
-            // estimated_amount). The host page's view-toggle listens to
-            // a `content-chart:availability` event the panel emits to
-            // show / hide the Content view button.
-            const ContentChartPanel = Panels.ContentChart;
-            if (ContentChartPanel) {
-                this.panels.contentChart = new ContentChartPanel({
-                    container: document.getElementById('content-chart-container'),
-                    eventBus: this.eventBus,
-                    state: this.state,
-                });
+            this._tooltipLayer = null;
+            // App owns the eventBus → App tears it down (removes the
+            // SAMPLE_ADDED orchestration handler registered in _setupEventHandlers).
+            if (this.eventBus && this.eventBus.clear) {
+                this.eventBus.clear();
+            }
+            if (this.containerEl && this.containerEl.dataset && this.containerEl.dataset.gaVizMounted) {
+                delete this.containerEl.dataset.gaVizMounted;
             }
         }
 
@@ -299,67 +437,12 @@
                         const profile = await this.api.getLaneProfile(sampleData.lane.id);
                         this.state.setProfile(sampleData.lane.id, profile);
                     } catch (e) {
+                        if (e.name === 'AbortError') return;
                         console.warn('[SampleComparisonApp] Failed to load profile:', e);
                     }
                 }
             });
 
-        }
-
-        _setupControls() {
-            // Add sample button
-            const addBtn = document.getElementById('add-sample-btn');
-            if (addBtn) {
-                addBtn.addEventListener('click', () => this._showSampleSelector());
-            }
-
-            // Export button
-            const exportBtn = document.getElementById('export-btn');
-            if (exportBtn) {
-                exportBtn.addEventListener('click', () => this._exportCSV());
-            }
-
-            // POI-only mode checkbox
-            const poiOnlyCheckbox = document.getElementById('poi-only-mode');
-            if (poiOnlyCheckbox) {
-                poiOnlyCheckbox.addEventListener('change', (e) => {
-                    this.state.setPoiOnlyMode(e.target.checked);
-                });
-            }
-
-            // Sample selector modal
-            const modalCloseBtn = document.getElementById('modal-close-btn');
-            if (modalCloseBtn) {
-                modalCloseBtn.addEventListener('click', () => this._hideSampleSelector());
-            }
-
-            const modalOverlay = document.getElementById('sample-selector-modal');
-            if (modalOverlay) {
-                modalOverlay.addEventListener('click', (e) => {
-                    if (e.target === modalOverlay) {
-                        this._hideSampleSelector();
-                    }
-                });
-            }
-
-            const searchInput = document.getElementById('sample-search');
-            if (searchInput) {
-                searchInput.addEventListener('input', (e) => {
-                    this._filterAvailableSamples(e.target.value);
-                });
-            }
-
-            const sampleList = document.getElementById('available-samples');
-            if (sampleList) {
-                sampleList.addEventListener('click', (e) => {
-                    const option = e.target.closest('.dm-sample-option');
-                    if (option) {
-                        const sampleId = option.dataset.sampleId;
-                        this._addSampleById(sampleId);
-                        this._hideSampleSelector();
-                    }
-                });
-            }
         }
 
         async _loadInitialData() {
@@ -385,6 +468,7 @@
                         const profile = await this.api.getLaneProfile(sampleData.lane.id);
                         this.state.setProfile(sampleData.lane.id, profile);
                     } catch (e) {
+                        if (e.name === 'AbortError') return;
                         console.warn('[SampleComparisonApp] Failed to load profile for lane', sampleData.lane.id);
                     }
                 }
@@ -395,104 +479,13 @@
             });
         }
 
-        async addSample(sampleId) {
-            if (!this.state.canAddMore()) {
-                this._showMessage('Maximum 4 samples allowed', 'warning');
-                return;
-            }
-
-            this._setLoading(true);
-
-            try {
-                const data = await this.api.getSampleDensitometry(sampleId);
-                const success = this.state.addSample(data);
-
-                if (!success) {
-                    this._showMessage('Sample already added or max reached', 'warning');
-                } else {
-                    if (data.profile && data.lane?.id) {
-                        this.state.setProfile(data.lane.id, data.profile);
-                    }
-                }
-            } catch (e) {
-                console.error('[SampleComparisonApp] Failed to add sample:', e);
-                this._showMessage(e.message || 'Failed to load sample', 'error');
-            } finally {
-                this._setLoading(false);
-            }
-        }
-
-        async _addSampleById(sampleId) {
-            await this.addSample(sampleId);
-        }
-
+        /**
+         * Remove a sample by its sampleId. Kept (not dead): the sample-cards
+         * panel's per-card remove button calls this.app.removeSample(id).
+         * Page chrome (wizard/header) drives adds via the handle → state.addSample.
+         */
         removeSample(sampleId) {
             this.state.removeSample(sampleId);
-        }
-
-        _showSampleSelector() {
-            const modal = document.getElementById('sample-selector-modal');
-            if (modal) {
-                modal.style.display = 'flex';
-            }
-        }
-
-        _hideSampleSelector() {
-            const modal = document.getElementById('sample-selector-modal');
-            if (modal) {
-                modal.style.display = 'none';
-            }
-        }
-
-        _filterAvailableSamples(query) {
-            const list = document.getElementById('available-samples');
-            if (!list) return;
-
-            const options = list.querySelectorAll('.dm-sample-option');
-            const lowerQuery = query.toLowerCase();
-
-            options.forEach(option => {
-                const text = option.textContent.toLowerCase();
-                option.style.display = text.includes(lowerQuery) ? '' : 'none';
-            });
-        }
-
-        async _exportCSV() {
-            const samples = this.state.getSamples();
-            if (samples.length === 0) {
-                this._showMessage('No samples to export', 'warning');
-                return;
-            }
-
-            try {
-                const blob = await this.api.exportToCSV(samples);
-
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `sample_comparison_${new Date().toISOString().slice(0, 10)}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                this._showMessage('Export successful', 'success');
-            } catch (e) {
-                console.error('[SampleComparisonApp] Export failed:', e);
-                // Was 'Export failed' generic — surface the actual cause
-                // so a 500 / network / permission error reads as such.
-                this._showMessage(`❌ Export failed: ${(e && e.message) || e}`, 'error');
-            }
-        }
-
-        _setLoading(loading) {
-            this.isLoading = loading;
-        }
-
-        _showMessage(message, type = 'info') {
-            console[type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log'](
-                `[SampleComparison] ${message}`
-            );
         }
 
         getState() {
@@ -503,5 +496,86 @@
     // Export to namespace
     global.SampleComparison = global.SampleComparison || {};
     global.SampleComparison.App = SampleComparisonApp;
+
+    // =====================================================================
+    // Public factory: GelAnalyzer.Viz.Comparison.mount(containerEl, cfg)
+    //
+    // Mounts the whole comparison component inline into ANY empty host div.
+    // Data load: cfg.samples: [sampleData, ...] (already-resolved lane rows).
+    // Phoresis compares lanes only: ds-hub's "resolve" mode (cfg.keys +
+    // cfg.resolveUrl, Process Development samples) does not exist here.
+    //
+    // Returns a host-owned handle. The host calls handle.destroy() to abort
+    // any in-flight fetch and tear down the component.
+    // =====================================================================
+    function mountComparison(containerEl, cfg) {
+        cfg = cfg || {};
+
+        const controller = new AbortController();
+
+        const app = new SampleComparisonApp({
+            containerEl,
+            csrfToken: cfg.csrfToken,
+            apiUrls: cfg.apiUrls,
+            signal: controller.signal,
+            options: cfg.options || {},
+        });
+
+        // init() returns a promise (skeleton is synchronous; legacy initial
+        // data load is awaited). Hydrate AFTER init so panels are subscribed.
+        // Guard against synchronous throws (missing containerEl, double-mount,
+        // GelAnalyzer.Viz undefined) so callers get an inert handle, not a crash.
+        let initResult;
+        try {
+            initResult = app.init();
+        } catch (e) {
+            controller.abort();
+            (cfg.onError || console.error)(e);
+            // Inert handle so the caller's code does not crash on a failed mount.
+            return {
+                destroy() {},
+                getState: () => null,
+                getPanel: () => null,
+                setOptions: () => {},
+                addSample: () => {},
+                removeSample: () => {},
+                on: () => {},
+            };
+        }
+
+        Promise.resolve(initResult).then(() => {
+            if (Array.isArray(cfg.samples) && cfg.samples.length) {
+                // Hydrated rows.
+                cfg.samples.forEach((s) => app.state.addSample(s));
+                if (cfg.onLoaded) cfg.onLoaded();
+            } else if (cfg.onLoaded) {
+                cfg.onLoaded();
+            }
+        });
+
+        return {
+            destroy() {
+                controller.abort();
+                app.destroy();
+            },
+            getState: () => app.state,
+            getPanel: (n) => app.panels[n],
+            setOptions: (p) => app.setOptions(p),
+            addSample: (s) => app.state.addSample(s),
+            removeSample: (id) => app.state.removeSample(id),
+            on: (evt, cb) => app.eventBus.on(evt, cb),
+            // PDD interaction adapter hook (T3 — color injection repaint)
+            // Emits DATA_LOADED so all panels re-read colors via sample.color.
+            redraw: () => app.eventBus.emit(
+                ComparisonEvents.DATA_LOADED,
+                { samples: app.state.getSamples() }
+            ),
+        };
+    }
+
+    global.GelAnalyzer = global.GelAnalyzer || {};
+    global.GelAnalyzer.Viz = global.GelAnalyzer.Viz || {};
+    global.GelAnalyzer.Viz.Comparison = global.GelAnalyzer.Viz.Comparison || {};
+    global.GelAnalyzer.Viz.Comparison.mount = mountComparison;
 
 })(window);

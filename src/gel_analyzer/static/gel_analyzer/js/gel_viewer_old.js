@@ -10,6 +10,12 @@
 (function(global) {
     'use strict';
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * GelViewer Class
      *
@@ -2619,12 +2625,12 @@
                 item.dataset.type = 'lane';
                 item.dataset.id = id;
                 item.innerHTML = `
-                    <div class="gv-annotation-icon lane ${laneTypeClass}">
+                    <div class="gv-annotation-icon lane ${escapeHtml(laneTypeClass)}">
                         <i class="bi bi-layout-three-columns"></i>
                     </div>
                     <div class="gv-annotation-info">
                         <div class="gv-annotation-name">Lane ${lane.lane_number}</div>
-                        <div class="gv-annotation-meta">${lane.sample_name || lane.lane_type_display}</div>
+                        <div class="gv-annotation-meta">${escapeHtml(lane.sample_name || lane.lane_type_display)}</div>
                     </div>
                 `;
                 item.addEventListener('click', () => this._selectAnnotation('lane', id));
@@ -2639,11 +2645,11 @@
                     bandItem.dataset.id = band.id;
                     bandItem.style.paddingLeft = '32px';
                     bandItem.innerHTML = `
-                        <div class="gv-annotation-icon band ${bandTypeClass}">
+                        <div class="gv-annotation-icon band ${escapeHtml(bandTypeClass)}">
                             <i class="bi bi-grip-horizontal"></i>
                         </div>
                         <div class="gv-annotation-info">
-                            <div class="gv-annotation-name">${band.label || 'Band'}</div>
+                            <div class="gv-annotation-name">${escapeHtml(band.label || 'Band')}</div>
                             <div class="gv-annotation-meta">${band.estimated_mw_kda ? band.estimated_mw_kda + ' kDa' : ''}</div>
                         </div>
                     `;
@@ -2726,7 +2732,7 @@
                         <label class="form-label">Sample</label>
                         <div class="input-group input-group-sm">
                             <input type="text" class="form-control" id="prop-sample-name"
-                                   value="${lane.sample_name || ''}" placeholder="Click to search..." readonly>
+                                   value="${escapeHtml(lane.sample_name || '')}" placeholder="Click to search..." readonly>
                             <button class="btn btn-outline-primary" type="button" id="prop-sample-search-btn">
                                 <i class="bi bi-search"></i>
                             </button>
@@ -2735,7 +2741,7 @@
 
                     <div class="mb-2">
                         <label class="form-label">Notes</label>
-                        <textarea class="form-control form-control-sm" id="prop-notes" data-field="notes" rows="2">${lane.notes || ''}</textarea>
+                        <textarea class="form-control form-control-sm" id="prop-notes" data-field="notes" rows="2">${escapeHtml(lane.notes || '')}</textarea>
                     </div>
 
                     <div class="gv-quick-form-actions mt-3">
@@ -2877,7 +2883,7 @@
                     <div class="mb-2">
                         <label class="form-label">Label</label>
                         <input type="text" class="form-control form-control-sm" id="prop-label"
-                               value="${band.label || ''}" placeholder="e.g., Main product">
+                               value="${escapeHtml(band.label || '')}" placeholder="e.g., Main product">
                     </div>
                     <div class="mb-2">
                         <label class="form-label">Estimated MW (kDa)</label>
@@ -2886,7 +2892,7 @@
                     </div>
                     <div class="mb-2">
                         <label class="form-label">Notes</label>
-                        <textarea class="form-control form-control-sm" id="prop-band-notes" rows="2">${band.notes || ''}</textarea>
+                        <textarea class="form-control form-control-sm" id="prop-band-notes" rows="2">${escapeHtml(band.notes || '')}</textarea>
                     </div>
                     <div class="gv-quick-form-actions">
                         <button class="btn btn-sm btn-primary" onclick="window.gelViewer._saveBandProperties('${band.id}')">
@@ -3445,7 +3451,7 @@
                         <div class="sample-link ${!lane.sample_name ? 'sample-link-empty' : ''}"
                              onclick="window.gelViewer._openSampleSelector(${lane.id})">
                             <i class="bi bi-${lane.sample_name ? 'link-45deg' : 'plus-circle'}"></i>
-                            <span>${lane.sample_name || 'Link sample...'}</span>
+                            <span>${escapeHtml(lane.sample_name || 'Link sample...')}</span>
                         </div>
                     </td>
                 `;
@@ -3628,7 +3634,7 @@
                     data.drug_substances.forEach(ds => {
                         // API returns shortname and fullname, use shortname (fallback to fullname)
                         const displayName = ds.shortname || ds.fullname || `DS ${ds.id}`;
-                        dsFilter.innerHTML += `<option value="${ds.id}">${displayName}</option>`;
+                        dsFilter.innerHTML += `<option value="${ds.id}">${escapeHtml(displayName)}</option>`;
                     });
                 }
 
@@ -3641,7 +3647,7 @@
                         const displayName = sheet.drug_substance
                             ? `${sheet.name} (${sheet.drug_substance})`
                             : sheet.name;
-                        sheetFilter.innerHTML += `<option value="${sheet.id}">${displayName}</option>`;
+                        sheetFilter.innerHTML += `<option value="${sheet.id}">${escapeHtml(displayName)}</option>`;
                     });
                 }
             } catch (error) {
@@ -3702,8 +3708,8 @@
                     item.innerHTML = `
                         <div class="gv-sample-item-radio"></div>
                         <div class="gv-sample-item-content">
-                            <div class="gv-sample-item-id">${sample.sample_id}</div>
-                            <div class="gv-sample-item-meta">${sample.display}</div>
+                            <div class="gv-sample-item-id">${escapeHtml(sample.sample_id)}</div>
+                            <div class="gv-sample-item-meta">${escapeHtml(sample.display)}</div>
                         </div>
                     `;
                     item.addEventListener('click', () => {
@@ -3766,7 +3772,7 @@
             if (sampleLink) {
                 sampleLink.innerHTML = `
                     <i class="bi bi-link-45deg"></i>
-                    <span>${sampleName}</span>
+                    <span>${escapeHtml(sampleName)}</span>
                 `;
                 sampleLink.classList.remove('sample-link-empty');
             }

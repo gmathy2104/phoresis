@@ -150,41 +150,6 @@
             if (!yPositions || !laneGeometry || !calibration) return [];
             return yPositions.map(y => this.positionToMW(y, laneGeometry, calibration));
         }
-
-        /**
-         * Get common MW range across multiple samples.
-         *
-         * @param {Array<Object>} samples - Array of sample data with calibration
-         * @returns {Object} { minMW, maxMW } common range
-         */
-        static getCommonMWRange(samples) {
-            let minMW = Infinity;
-            let maxMW = 0;
-
-            samples.forEach(sample => {
-                if (sample.calibration?.mw_range) {
-                    const range = sample.calibration.mw_range;
-                    if (range.min && range.min < minMW) minMW = range.min;
-                    if (range.max && range.max > maxMW) maxMW = range.max;
-                }
-
-                // Also check band MW values
-                if (sample.bands) {
-                    sample.bands.forEach(band => {
-                        if (band.estimated_mw_kda) {
-                            if (band.estimated_mw_kda < minMW) minMW = band.estimated_mw_kda;
-                            if (band.estimated_mw_kda > maxMW) maxMW = band.estimated_mw_kda;
-                        }
-                    });
-                }
-            });
-
-            // Default range if nothing found
-            if (minMW === Infinity) minMW = 10;
-            if (maxMW === 0) maxMW = 250;
-
-            return { minMW, maxMW };
-        }
     }
 
     /**

@@ -1,0 +1,14 @@
+{% comment %}
+The annotation editor's "..." menu, on a phone only (<= 700 px, where the workbench header hides its views): the
+analysis, the densitometry (a button that presses the hidden view link, so the editor's "no band yet" refusal still
+applies). Wired by annotate_standalone.html's script; a GelViewer layer.
+{% endcomment %}
+<div class="ga-wb-more ga-wb-phone-only" id="gv-more">
+    <button type="button" class="ga-wb-iconbtn" id="gv-more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More" title="More">
+        <i class="bi bi-three-dots" aria-hidden="true"></i>
+    </button>
+    <div class="ga-wb-more-pop" role="menu" aria-labelledby="gv-more-btn">
+        <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}" role="menuitem"><i class="bi bi-card-text" aria-hidden="true"></i>Analysis</a>
+        <button type="button" role="menuitem" data-proxy="ga-wb-view-densitometry"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>Densitometry</button>
+    </div>
+</div>

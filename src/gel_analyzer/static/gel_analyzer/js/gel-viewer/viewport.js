@@ -42,7 +42,38 @@
             this.isPanning = false;
             this.panStart = null;
 
+            // Showing the whole gel (fitToView, with its options), until a zoom or a pan (slice 3c)
+            this._fitted = false;
+            this._fitOptions = {};
+
             this._setupZoomControls();
+            this._watchViewerSize();
+        }
+
+        /**
+         * The gel area changes size without a window resize: the profile docked under it opens or closes, d1/d2
+         * borrows it and gives it back, the sidebar slides out. A gel shown whole is fitted again, with the options
+         * of its last fit (the lane review's room for its tags); a zoom on a lane is kept.
+         */
+        _watchViewerSize() {
+            if (!this.viewer || !global.ResizeObserver) return;
+            let frame = null;
+            this._resizeObserver = new ResizeObserver(() => {
+                if (frame) cancelAnimationFrame(frame);
+                frame = requestAnimationFrame(() => {
+                    frame = null;
+                    if (this._fitted) this.fitToView(this._fitOptions);
+                });
+            });
+            this._resizeObserver.observe(this.viewer);
+        }
+
+        /**
+         * Whether the viewer shows the whole gel as fitToView left it (no zoom, no pan since).
+         * @returns {boolean}
+         */
+        isFitted() {
+            return this._fitted;
         }
 
         /**
@@ -89,6 +120,7 @@
 
             this.panX = e.clientX - this.panStart.x;
             this.panY = e.clientY - this.panStart.y;
+            this._fitted = false;
             this._updateTransform();
 
             this.eventBus.emit(Events.PAN_CHANGED, {
@@ -128,6 +160,7 @@
             const newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * factor));
 
             if (newScale === this.scale) return;
+            this._fitted = false;
 
             if (center) {
                 // Zoom towards point
@@ -191,22 +224,31 @@
 
         /**
          * Fit the image to the viewport.
+         *
+         * The gel fills the viewer (90 % of the fitting scale). The cap was 60 % until 2026-10-17: a gel image smaller
+         * than the viewer (a large screen, a cropped gel) stopped at 60 % and sat small in the middle, which read as
+         * "Fit does nothing" (owner). 3 is the lane review's cap: a tiny image is enlarged, never absurdly.
+         * @param {Object} [options]
+         * @param {number} [options.maxScale=3] - zoom cap
+         * @param {number} [options.fill=0.9] - share of the fitting scale used
+         * @param {number} [options.padX=0] - screen pixels kept free left and right
+         * @param {number} [options.padY=0] - screen pixels kept free above and below (the lane review's tags)
          */
-        fitToView() {
+        fitToView(options = {}) {
             if (!this.viewer) {
                 console.warn('Viewport: viewer element not available');
                 return;
             }
             const rect = this.viewer.getBoundingClientRect();
+            const { maxScale = 3, fill = 0.9, padX = 0, padY = 0 } = options;
 
             // Calculate scale to fit within viewport
             const fitScale = Math.min(
-                rect.width / this.imageWidth,
-                rect.height / this.imageHeight
+                (rect.width - 2 * padX) / this.imageWidth,
+                (rect.height - 2 * padY) / this.imageHeight
             );
 
-            // Cap at 60% for comfortable viewing, use 90% of fit scale
-            this.scale = Math.min(fitScale * 0.9, 0.6);
+            this.scale = Math.min(fitScale * fill, maxScale);
 
             // Calculate scaled dimensions
             const scaledWidth = this.imageWidth * this.scale;
@@ -215,6 +257,8 @@
             // Center in viewport
             this.panX = (rect.width - scaledWidth) / 2;
             this.panY = (rect.height - scaledHeight) / 2;
+            this._fitted = true;
+            this._fitOptions = options;
 
             this._updateTransform();
             this._updateZoomDisplay();

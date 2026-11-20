@@ -159,6 +159,17 @@
         // State events
         STATE_DIRTY: 'state:dirty',
         STATE_CLEAN: 'state:clean',
+        // The pending changes moved (a change tracked, one saved or forgotten outside Save, all of them saved):
+        // StateManager emits it from markDirty / afterImmediateSave / markClean, the editor's unsaved count reads it.
+        PENDING_CHANGED: 'state:pending-changed',
+        // A write reached the server (api-client.js); the reading the server makes of the annotations changed
+        // (GelViewerApp: page_summary and band roles, after a load, a reload or a refresh) -- slice 3c.
+        SERVER_WRITTEN: 'server:written',
+        // The server sent the login page (or a 401, or a page instead of data) back (api-client.js, once until an
+        // answer comes through again, SESSION_RESTORED): {message}, what to do, shown by GelViewerApp.
+        SESSION_EXPIRED: 'session:expired',
+        SESSION_RESTORED: 'session:restored',
+        READING_CHANGED: 'reading:changed',
         STATE_SAVING: 'state:saving',
         STATE_SAVED: 'state:saved',
         STATE_ERROR: 'state:error',
@@ -215,13 +226,6 @@
         BAND_DETECTION_COMPLETED: 'band:detection:completed',
         BAND_DETECTION_ERROR: 'band:detection:error',
 
-        // Profile Peak Detection events
-        PROFILE_DETECTION_PANEL_SHOWN: 'profile:detection:panel:shown',
-        PROFILE_DETECTION_PANEL_HIDDEN: 'profile:detection:panel:hidden',
-        PROFILE_DETECTION_STARTED: 'profile:detection:started',
-        PROFILE_DETECTION_COMPLETED: 'profile:detection:completed',
-        PROFILE_DETECTION_ERROR: 'profile:detection:error',
-
         // MW Calibration events (Phase 3 - ladder calibration)
         CALIBRATION_PANEL_SHOWN: 'calibration:panel:shown',
         CALIBRATION_PANEL_HIDDEN: 'calibration:panel:hidden',
@@ -231,6 +235,10 @@
         CALIBRATION_MULTI_APPLIED: 'calibration:multi:applied',
         MW_UPDATED: 'mw:updated',
         MW_BANDS_UPDATED: 'mw:bands:updated',
+
+        // AutoSave events (Phase 4 - shared error UX)
+        AUTOSAVE_OK: 'autosave:ok',
+        AUTOSAVE_FAILED: 'autosave:failed',
 
         // General data events
         DATA_RELOAD_REQUESTED: 'data:reload:requested',
@@ -270,20 +278,9 @@
         CV2_DETECTION_COMPLETED: 'cv2:detection:completed',
         CV2_DETECTION_ERROR: 'cv2:detection:error',
 
-        // Hybrid Detection (blend of CV2 and derivative methods)
-        HYBRID_DETECTION_PANEL_SHOWN: 'hybrid:detection:panel:shown',
-        HYBRID_DETECTION_PANEL_HIDDEN: 'hybrid:detection:panel:hidden',
-
-        // Cross-Lane Consensus panel
-        CROSS_LANE_PANEL_SHOWN: 'cross-lane:panel:shown',
-        CROSS_LANE_PANEL_HIDDEN: 'cross-lane:panel:hidden',
-
-        // Auto-save lifecycle (broader scope than BAND_SAVE_*; emitted by
-        // the shared AutoSave helper for any background API write so
-        // panels can react uniformly — green flash on the source input,
-        // inline Retry on failure, etc.)
-        AUTOSAVE_OK: 'autosave:ok',
-        AUTOSAVE_FAILED: 'autosave:failed',
+        // Band model panel (the YOLO band model run in the browser, after the lane model)
+        BAND_MODEL_PANEL_SHOWN: 'band-model:panel:shown',
+        BAND_MODEL_PANEL_HIDDEN: 'band-model:panel:hidden',
     };
 
     // Export to namespace

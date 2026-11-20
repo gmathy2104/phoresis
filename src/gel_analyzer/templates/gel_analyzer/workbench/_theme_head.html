@@ -1,0 +1,22 @@
+{% comment %}
+Day / night, part 1 of 2: goes in <head>, BEFORE the stylesheets. Resolves the user's Phoresis theme
+and sets data-theme="light" on <html> before the first paint, so a day page never flashes dark.
+Inline on purpose: a script file would load after the first paint.
+
+The workbench stylesheets (ported from ds-hub-django) know two states: data-theme="light" is Day,
+no attribute is Night. The choice is Phoresis's own -- the same localStorage key and the same
+profile value as the rest of the application (phoresis_ui/templates/components/base.html), "auto"
+following the system. Keep the key in step with gel_analyzer/js/shared/theme.js.
+Part 2 is _theme_toggle.html.
+{% endcomment %}
+<script>
+(function () {
+    var stored = null;
+    try { stored = localStorage.getItem('phoresis_theme'); } catch (e) { /* storage blocked: the profile decides */ }
+    var chosen = stored || '{% if request.user.is_authenticated %}{{ request.user.profile.theme|default:"auto"|escapejs }}{% else %}auto{% endif %}';
+    if (chosen !== 'light' && chosen !== 'dark') {
+        chosen = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    if (chosen === 'light') document.documentElement.setAttribute('data-theme', 'light');
+})();
+</script>

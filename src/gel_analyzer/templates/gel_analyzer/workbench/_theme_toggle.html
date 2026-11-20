@@ -1,0 +1,19 @@
+{% load static %}{% comment %}
+Day / night, part 2 of 2: the Night | Day switch, placed at the right end of the workbench header.
+Brings its own stylesheet and script, so a page needs only this include and _theme_head.html.
+Which segment looks active comes from the <html> attribute in CSS, not from aria-pressed, so the
+switch is right from the first paint; the script keeps aria-pressed in step for screen readers.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/ga-theme-toggle.css' %}">
+<div class="dsh-theme-toggle" role="group" aria-label="Colour theme"
+     data-theme-set-url="{% url 'accounts:theme_set' %}">
+    <button type="button" class="dsh-theme-toggle__btn" data-dsh-theme-value="dark"
+            aria-pressed="true" title="Night mode: dark background">
+        <i class="bi bi-moon-stars" aria-hidden="true"></i> Night
+    </button>
+    <button type="button" class="dsh-theme-toggle__btn" data-dsh-theme-value="light"
+            aria-pressed="false" title="Day mode: light background">
+        <i class="bi bi-sun" aria-hidden="true"></i> Day
+    </button>
+</div>
+<script src="{% static 'gel_analyzer/js/shared/theme.js' %}"></script>

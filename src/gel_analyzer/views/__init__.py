@@ -56,9 +56,6 @@ from .api import (
     api_detect_bands_cv2_lane,
     api_detect_bands_cv2_lane_save,
     api_detect_bands_diagnostic,
-    api_detect_bands_hybrid_async,
-    api_detect_bands_hybrid_lane,
-    api_detect_bands_hybrid_lane_save,
     api_detect_bands_lane,
     api_detect_bands_lane_save,
     api_detection_params_defaults,
@@ -75,7 +72,6 @@ from .api import (
     api_readout_reference,
     api_sam_embeddings,
     api_task_status,
-    cross_lane_consensus_view,  # Band Detection API; Async Band Detection API; Ladder Templates API; Calibration API (single-ladder); Multi-Ladder Calibration API; SAM Embeddings API; Band Detection Teaching/Calibration API; CV2 Vision Band Detection API; Comparison API; Status Workflow API
 )
 from .band_model_api import api_band_model_context, api_band_model_preview, api_band_model_save
 from .comparison import comparison_list_view, sample_comparison_view
@@ -114,12 +110,6 @@ from .training import (
 )
 
 __all__ = [
-    # Hybrid detection and cross-lane consensus (Phoresis-only panels)
-    "api_detect_bands_hybrid_async",
-    "api_detect_bands_hybrid_lane",
-    "api_detect_bands_hybrid_lane_save",
-    "cross_lane_consensus_view",
-    # Image views
     "image_list_view",
     "image_upload_view",
     "image_detail_view",

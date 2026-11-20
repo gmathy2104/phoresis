@@ -6,13 +6,19 @@
  *
  * @requires GelViewer.EventBus
  * @requires GelViewer.APIClient
- * @requires Plotly (external CDN)
+ * @requires Plotly (base/js/plotly/plotly.min.js, loaded by annotate_standalone.html)
  */
 
 (function(global) {
     'use strict';
 
     const Events = global.GelViewer.Events;
+
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
 
     /**
      * Calibration methods available.
@@ -30,6 +36,12 @@
         EXCELLENT: 0.99,
         GOOD: 0.95,
     };
+
+    /**
+     * A ladder's colour, by its place in the calibration result: the same on the curve, the markers table, the R²
+     * chips and the ladder list (_ladderColumns).
+     */
+    const LADDER_COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
 
     /**
      * CalibrationPanel Class
@@ -89,16 +101,17 @@
          * Bind event listeners.
          */
         _bindEvents() {
+            // Night | Day: the chart is drawn by script, its colours follow on a relayout.
+            window.addEventListener('dsh:themechange', () => this._applyChartTheme());
+
             // Close button
             const closeBtn = document.getElementById('calibration-close');
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => this.hide());
             }
 
-            // Backdrop click to close modal
-            if (this.backdrop) {
-                this.backdrop.addEventListener('click', () => this.hide());
-            }
+            // A click on the backdrop closes nothing (owner, 2026-10-13): a stray click lost a fit not yet applied.
+            // The x button and Esc close.
 
             // Template select
             const templateSelect = document.getElementById('calibration-template');
@@ -138,13 +151,7 @@
             }
 
             // Keyboard shortcuts
-            document.addEventListener('keydown', (e) => {
-                if (!this.isVisible) return;
-
-                if (e.key === 'Escape') {
-                    this.hide();
-                }
-            });
+            // Esc: GelViewer.Layers (show) closes the panel; a confirm opened over it closes first.
 
             // Listen for lane changes
             this.eventBus.on(Events.LANE_CREATED, () => this._updateLadderLanes());
@@ -168,6 +175,28 @@
             // Listen for MW values applied (e.g., from Band Editor template)
             // This refreshes the ladder lanes view when MW values are assigned
             this.eventBus.on(Events.MW_BANDS_UPDATED, (data) => this._onMWBandsUpdated(data));
+
+            // Markers table -> curve: a row hovered rings that MW on every ladder, one band hovered rings its point.
+            // Delegated: the table is drawn again at every fit.
+            const markersBody = document.getElementById('calibration-markers-body');
+            if (markersBody) {
+                markersBody.addEventListener('mouseover', (e) => {
+                    const scope = e.target.closest('.gv-marker-entry') || e.target.closest('tr[data-mw]');
+                    if (scope === this._hoverScope) return;
+                    this._hoverScope = scope;
+                    if (!scope) {
+                        this._highlightMarkers([]);
+                    } else if (scope.matches('.gv-marker-entry')) {
+                        this._highlightMarkers([scope]);
+                    } else {
+                        this._highlightMarkers([...scope.querySelectorAll('.gv-marker-entry')]);
+                    }
+                });
+                markersBody.addEventListener('mouseleave', () => {
+                    this._hoverScope = null;
+                    this._highlightMarkers([]);
+                });
+            }
         }
 
         /**
@@ -201,6 +230,13 @@
             }
 
             this.isVisible = true;
+            if (this.panel) {
+                global.GelViewer.Layers?.open(this.panel, {
+                    modal: true,
+                    close: () => this.hide(),
+                    isOpen: () => this.isVisible,
+                });
+            }
 
             this.eventBus.emit(Events.CALIBRATION_PANEL_SHOWN);
         }
@@ -211,6 +247,7 @@
         hide() {
             if (this.panel) {
                 this.panel.classList.remove('open');
+                global.GelViewer.Layers?.close(this.panel);
             }
             if (this.backdrop) {
                 this.backdrop.classList.remove('open');
@@ -584,7 +621,7 @@
                 <i class="bi bi-exclamation-triangle-fill text-warning"></i>
                 <div>
                     <strong>Recalibration recommended</strong>
-                    <span>${reason || 'Ladder data has changed since last calibration'}</span>
+                    <span>${escapeHtml(reason || 'Ladder data has changed since last calibration')}</span>
                 </div>
             `;
             warning.style.display = 'flex';
@@ -651,10 +688,16 @@
                     mwStatus = `<span class="mw-status mw-none">No MW</span>`;
                 }
 
+                // Once calibrated, the lane's colour on the curve and in the markers table.
+                const color = this._laneColor(lane.id);
+                const dot = color
+                    ? `<span class="gv-lane-dot" style="background:${color}" title="Its colour on the curve and in the markers table"></span>`
+                    : '';
+
                 return `
                     <div class="gv-calibration-ladder-item ${statusClass}" data-lane-id="${lane.id}">
                         <div class="gv-calibration-ladder-info">
-                            <span class="lane-number">#${lane.lane_number || '?'}</span>
+                            ${dot}<span class="lane-number">#${lane.lane_number || '?'}</span>
                             <span class="band-count">${bandCount} bands</span>
                             ${mwStatus}
                         </div>
@@ -759,7 +802,8 @@
 
             // Prepare data for all ladder lanes
             const traces = [];
-            const colors = ['#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+            const colors = LADDER_COLORS;
+            this._highlightTraceIndex = null;  // no hover ring on the preview
 
             for (let i = 0; i < this.matchResults.length; i++) {
                 const result = this.matchResults[i];
@@ -810,38 +854,39 @@
                 });
             }
 
+            const theme = this._chartTheme();
             const layout = {
                 margin: { l: 50, r: 20, t: 20, b: 45 },
                 xaxis: {
-                    title: { text: 'Rf (Relative Migration)', font: { size: 12, color: '#5b21b6' } },
-                    tickfont: { size: 10, color: '#4b5563' },
+                    title: { text: 'Rf (Relative Migration)', font: { size: 12, color: theme.text } },
+                    tickfont: { size: 10, color: theme.muted },
                     range: [0, 1],
-                    gridcolor: '#e5e7eb',
-                    linecolor: '#8b5cf6',
-                    linewidth: 2,
+                    gridcolor: theme.grid,
+                    linecolor: theme.line,
+                    linewidth: 1,
                     showgrid: true,
                     zeroline: true,
-                    zerolinecolor: '#d1d5db',
+                    zerolinecolor: theme.line,
                 },
                 yaxis: {
-                    title: { text: 'log₁₀(MW) kDa', font: { size: 12, color: '#5b21b6' } },
-                    tickfont: { size: 10, color: '#4b5563' },
-                    gridcolor: '#e5e7eb',
-                    linecolor: '#8b5cf6',
-                    linewidth: 2,
+                    title: { text: 'log₁₀(MW) kDa', font: { size: 12, color: theme.text } },
+                    tickfont: { size: 10, color: theme.muted },
+                    gridcolor: theme.grid,
+                    linecolor: theme.line,
+                    linewidth: 1,
                     showgrid: true,
                     zeroline: true,
-                    zerolinecolor: '#d1d5db',
+                    zerolinecolor: theme.line,
                 },
                 showlegend: this.matchResults.length > 1,
                 legend: {
-                    font: { size: 10 },
+                    font: { size: 10, color: theme.text },
                     x: 0.02,
                     y: 0.98,
-                    bgcolor: 'rgba(255,255,255,0.9)',
+                    bgcolor: theme.legendBg,
                 },
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#ffffff',
+                paper_bgcolor: theme.bg,
+                plot_bgcolor: theme.bg,
             };
 
             const config = {
@@ -851,6 +896,50 @@
 
             if (typeof Plotly !== 'undefined') {
                 Plotly.newPlot(this.chartContainer, traces, layout, config);
+            }
+        }
+
+        /**
+         * The chart's colours, read from the window's tokens (night or day, whichever the page shows).
+         */
+        _chartTheme() {
+            const css = getComputedStyle(this.panel || document.documentElement);
+            const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+            return {
+                bg: token('--ga-wb-surface', '#ffffff'),
+                legendBg: token('--ga-wb-surface-2', '#f8fafc'),
+                text: token('--ga-wb-text', '#0f172a'),
+                muted: token('--ga-wb-muted', '#64748b'),
+                grid: token('--ga-wb-border', '#e2e8f0'),
+                line: token('--ga-wb-border-2', '#cbd5e1'),
+            };
+        }
+
+        /**
+         * Recolour a chart already drawn (the theme changed under it); the data stay as they are.
+         */
+        _applyChartTheme() {
+            if (typeof Plotly === 'undefined' || !this.chartContainer || !this.chartContainer.data) return;
+            const theme = this._chartTheme();
+            const update = {
+                paper_bgcolor: theme.bg,
+                plot_bgcolor: theme.bg,
+                'legend.bgcolor': theme.legendBg,
+                'legend.font.color': theme.text,
+                'legend.bordercolor': theme.line,
+            };
+            ['xaxis', 'yaxis'].forEach((axis) => {
+                update[`${axis}.title.font.color`] = theme.text;
+                update[`${axis}.tickfont.color`] = theme.muted;
+                update[`${axis}.gridcolor`] = theme.grid;
+                update[`${axis}.linecolor`] = theme.line;
+                update[`${axis}.zerolinecolor`] = theme.line;
+            });
+            Plotly.relayout(this.chartContainer, update);
+            // The hover ring is drawn in the text colour.
+            const index = this._highlightTraceIndex;
+            if (index != null && this.chartContainer.data[index]) {
+                Plotly.restyle(this.chartContainer, { 'marker.line.color': theme.text }, [index]);
             }
         }
 
@@ -891,48 +980,128 @@
         }
 
         /**
-         * Render the per-marker table (checkbox + name + Y + residual %).
+         * The calibrations of a result, whatever its shape: multi-ladder ({calibrations}), a single run
+         * ({calibration, result}) or a stored single calibration (the object itself).
+         */
+        _calibrationsOf(result) {
+            if (!result) return [];
+            if (Array.isArray(result.calibrations)) return result.calibrations;
+            if (result.result) return [result.result];
+            return [result];
+        }
+
+        /**
+         * The ladders of a calibration result, in its order, each with the lane it fits, that lane's number and its
+         * colour: the one source of a ladder's name and colour for the curve, the markers table, the R² chips and the
+         * ladder list (owner, 2026-10-17: lane numbers everywhere, never "Ladder 2" nor a calibration id).
+         */
+        _ladderColumns(result) {
+            const calibrations = this._calibrationsOf(result);
+            return calibrations.map((cal, i) => {
+                // A single run names no lane: it is the one ladder lane it ran on (_runCalibration).
+                let laneId = cal.lane_id ?? cal.ladder_lane_id ?? null;
+                if (laneId == null && calibrations.length === 1) laneId = this.ladderLanes[0]?.id ?? null;
+                const laneNumber = this._laneNumber(laneId);
+                return {
+                    cal,
+                    laneId,
+                    label: laneNumber != null ? `Lane #${laneNumber}` : `Ladder ${i + 1}`,
+                    color: LADDER_COLORS[i % LADDER_COLORS.length],
+                };
+            });
+        }
+
+        _laneNumber(laneId) {
+            if (laneId == null) return null;
+            const lane = this.stateManager?.getLane(laneId)
+                || this.ladderLanes.find(l => String(l.id) === String(laneId));
+            return lane?.lane_number ?? null;
+        }
+
+        /** A ladder lane's colour in the current calibration, or null when it has no fit. */
+        _laneColor(laneId) {
+            const column = this._ladderColumns(this.calibrationResult)
+                .find(c => c.laneId != null && String(c.laneId) === String(laneId));
+            return column ? column.color : null;
+        }
+
+        /**
+         * Render the markers table: a row per MW, a column per ladder lane (owner, 2026-10-17). The same marker reads
+         * across the ladders, so a band bad on one ladder stands out from a wrong MW in the template, and a marker
+         * missing from one ladder is a visible gap.
          *
-         * Lets the user drop high-residual outlier markers from the fit
-         * without leaving the modal — toggling a checkbox re-runs the
-         * calibration with the updated exclusion list. Multi-ladder results
-         * are split into one section per ladder so a marker bad on one
-         * ladder lane can still be kept on the other.
+         * Each cell holds that lane's band(s) at that MW: a checkbox (unchecked = dropped from that ladder's fit;
+         * toggling re-runs the calibration, _onMarkerToggle), the residual % and the position. Two bands in one cell
+         * are two bands of one lane carrying the same MW, shown as such.
          */
         _renderMarkersTable(result) {
             const body = document.getElementById('calibration-markers-body');
             const wrapper = document.getElementById('calibration-markers');
             if (!body || !wrapper) return;
 
-            // Normalise the API response: single vs multi-ladder shapes differ.
-            let calibrations;
-            if (result.calibrations) {
-                calibrations = result.calibrations;
-            } else if (result.result) {
-                calibrations = [result.result];
-            } else {
-                calibrations = [result];
-            }
+            const columns = this._ladderColumns(result);
 
             // Sync excludedBandIds with what the server persisted (covers reload
             // from existing calibration where the user wasn't the one who set it).
-            const persisted = new Set();
-            for (const cal of calibrations) {
+            // Keep transient session exclusions union with persisted state.
+            for (const { cal } of columns) {
                 for (const id of (cal.excluded_band_ids || [])) {
-                    persisted.add(String(id));
+                    this.excludedBandIds.add(String(id));
                 }
             }
-            // Keep transient session exclusions union with persisted state.
-            for (const id of persisted) this.excludedBandIds.add(id);
 
-            const allMatches = calibrations.flatMap(cal => (cal.band_matches || []).map(m => ({ ...m, _calibration_id: cal.calibration_id })));
-            if (allMatches.length === 0) {
+            // A row per MW, keyed as the server compares MWs (2 decimals); in each row, a list of entries per column.
+            const mwKey = (mw) => Math.round(Number(mw) * 100) / 100;
+            const rows = new Map();
+            const placed = new Set();
+            const place = (mw, columnIndex, entry) => {
+                const key = mwKey(mw);
+                if (!rows.has(key)) rows.set(key, new Map());
+                const cells = rows.get(key);
+                if (!cells.has(columnIndex)) cells.set(columnIndex, []);
+                cells.get(columnIndex).push(entry);
+                placed.add(entry.id);
+            };
+
+            columns.forEach((column, i) => {
+                for (const m of (column.cal.band_matches || [])) {
+                    place(m.mw_kda, i, { id: String(m.band_id), rf: m.rf, y: m.position_y, pct: m.residual_pct, mw: m.mw_kda });
+                }
+            });
+
+            // A marker dropped from the fit is in no band_matches: it goes back to its lane's column, at its MW, from
+            // the band itself (its Rf in that ladder's frame, as the curve's ghost points). A lane left with no fit
+            // gets a column of its own; a marker whose band is gone goes to the last row, where it can be restored.
+            const orphans = [];
+            for (const id of this.excludedBandIds) {
+                if (placed.has(id)) continue;
+                const band = this._lookupLadderBand(id);
+                const laneId = band ? (band.lane_id ?? band._parentLaneId) : null;
+                if (laneId == null || !(band.estimated_mw_kda > 0)) {
+                    orphans.push(id);
+                    continue;
+                }
+                let index = columns.findIndex(c => c.laneId != null && String(c.laneId) === String(laneId));
+                if (index < 0) {
+                    const laneNumber = this._laneNumber(laneId);
+                    columns.push({ cal: null, laneId, label: laneNumber != null ? `Lane #${laneNumber}` : 'Ladder', color: null });
+                    index = columns.length - 1;
+                }
+                const cal = columns[index].cal;
+                const rf = cal && cal.lane_bottom > cal.lane_top && band.position_y != null
+                    ? (band.position_y - cal.lane_top) / (cal.lane_bottom - cal.lane_top)
+                    : null;
+                place(band.estimated_mw_kda, index, { id, rf, y: band.position_y, pct: null, mw: band.estimated_mw_kda });
+            }
+
+            if (rows.size === 0 && orphans.length === 0) {
                 wrapper.style.display = 'none';
                 return;
             }
             wrapper.style.display = '';
 
             const fmt = (v, digits = 2) => (v == null ? '–' : Number(v).toFixed(digits));
+            const fmtMw = (mw) => (Number.isInteger(mw) ? mw.toFixed(0) : mw.toFixed(1));
             const residualClass = (pct) => {
                 if (pct == null) return 'is-na';
                 const a = Math.abs(pct);
@@ -940,68 +1109,102 @@
                 if (a < 15) return 'is-acceptable';
                 return 'is-poor';
             };
+            const dot = (color) => (color ? `<span class="gv-lane-dot" style="background:${color}"></span>` : '');
 
-            const rows = [];
-            const isMulti = calibrations.length > 1;
+            const entryHtml = (e) => {
+                const id = escapeHtml(e.id);
+                const excluded = this.excludedBandIds.has(e.id);
+                const sign = e.pct > 0 ? '+' : '';
+                const chip = excluded
+                    ? '<span class="gv-marker-residual is-na">excluded</span>'
+                    : `<span class="gv-marker-residual ${residualClass(e.pct)}">${e.pct == null ? 'n/a' : `${sign}${e.pct.toFixed(1)}%`}</span>`;
+                // data-rf / data-mw: where the curve rings it on hover (_highlightMarkers).
+                const point = e.rf != null && e.mw > 0 ? ` data-rf="${e.rf}" data-mw="${e.mw}"` : '';
+                return `
+                    <label class="gv-marker-entry${excluded ? ' is-excluded' : ''}" data-band-id="${id}"${point}>
+                        <input type="checkbox" class="gv-marker-checkbox" data-band-id="${id}" ${excluded ? '' : 'checked'}>
+                        ${chip}
+                        <span class="gv-marker-stat">y=${e.y ?? '–'} · Rf=${fmt(e.rf, 4)}</span>
+                    </label>
+                `;
+            };
 
-            for (const cal of calibrations) {
-                const matches = (cal.band_matches || []).slice().sort((a, b) => (b.mw_kda || 0) - (a.mw_kda || 0));
-                if (isMulti) {
-                    rows.push(`<div class="gv-calibration-marker-group-header">Ladder #${cal.calibration_id?.slice(0, 6) || ''} (X=${cal.ladder_x_position ?? '–'})</div>`);
-                }
-                if (matches.length === 0) {
-                    rows.push('<div class="gv-calibration-marker-group-header" style="color:#dc2626">No matched markers (all excluded?)</div>');
-                    continue;
-                }
-                for (const m of matches) {
-                    const id = String(m.band_id);
-                    const excluded = this.excludedBandIds.has(id);
-                    const pct = m.residual_pct;
-                    const sign = pct == null ? '' : (pct > 0 ? '+' : '');
-                    const cls = residualClass(pct);
-                    rows.push(`
-                        <div class="gv-calibration-marker-row${excluded ? ' is-excluded' : ''}" data-band-id="${id}">
-                            <input type="checkbox" class="gv-marker-checkbox" data-band-id="${id}" ${excluded ? '' : 'checked'}>
-                            <span class="gv-marker-name">${fmt(m.mw_kda, 0)} kDa</span>
-                            <span class="gv-marker-stat">y=${m.position_y ?? '–'}</span>
-                            <span class="gv-marker-stat">Rf=${fmt(m.rf, 4)}</span>
-                            <span class="gv-marker-residual ${cls}">${pct == null ? 'n/a' : `${sign}${pct.toFixed(1)}%`}</span>
+            const head = columns.map((column, i) => {
+                const entries = [...rows.values()].flatMap(cells => cells.get(i) || []);
+                const inFit = entries.filter(e => !this.excludedBandIds.has(e.id)).length;
+                const r2 = column.cal?.r_squared;
+                const fit = column.cal
+                    ? `${r2 != null ? `R² ${Number(r2).toFixed(3)} · ` : ''}${inFit}/${entries.length} in fit`
+                    : 'no fit';
+                return `
+                    <th>
+                        <div class="gv-marker-col-head">
+                            ${dot(column.color)}<span>${escapeHtml(column.label)}</span>
+                            <span class="gv-marker-col-fit">${fit}</span>
                         </div>
-                    `);
-                }
+                    </th>
+                `;
+            }).join('');
+
+            const bodyRows = [...rows.keys()].sort((a, b) => b - a).map(key => {
+                const cells = rows.get(key);
+                return `
+                    <tr data-mw="${key}">
+                        <td class="gv-marker-mw">${fmtMw(key)} kDa</td>
+                        ${columns.map((_, i) => {
+                            const entries = cells.get(i) || [];
+                            return `<td>${entries.length
+                                ? entries.map(entryHtml).join('')
+                                : '<span class="gv-marker-missing" title="No band of this MW on this ladder">–</span>'}</td>`;
+                        }).join('')}
+                    </tr>
+                `;
+            });
+
+            if (orphans.length > 0) {
+                bodyRows.push(`
+                    <tr>
+                        <td class="gv-marker-mw">Other</td>
+                        <td colspan="${Math.max(columns.length, 1)}">
+                            ${orphans.map(id => `
+                                <label class="gv-marker-entry is-excluded" data-band-id="${escapeHtml(id)}">
+                                    <input type="checkbox" class="gv-marker-checkbox" data-band-id="${escapeHtml(id)}">
+                                    <span class="gv-marker-residual is-na">excluded</span>
+                                    <span class="gv-marker-other">A marker no longer on a ladder lane</span>
+                                </label>
+                            `).join('')}
+                        </td>
+                    </tr>
+                `);
             }
 
-            // For excluded markers we still want the user to be able to see/restore
-            // them — list ones that aren't in band_matches because they were dropped
-            // from the fit on this run.
-            const matchedIds = new Set(allMatches.map(m => String(m.band_id)));
-            const droppedIds = Array.from(this.excludedBandIds).filter(id => !matchedIds.has(id));
-            if (droppedIds.length > 0) {
-                rows.push('<div class="gv-calibration-marker-group-header">Excluded from fit</div>');
-                for (const id of droppedIds) {
-                    const ladderBand = this._lookupLadderBand(id);
-                    const name = ladderBand?.estimated_mw_kda != null
-                        ? `${ladderBand.estimated_mw_kda.toFixed(0)} kDa`
-                        : 'Marker';
-                    const y = ladderBand?.position_y ?? '–';
-                    rows.push(`
-                        <div class="gv-calibration-marker-row is-excluded" data-band-id="${id}">
-                            <input type="checkbox" class="gv-marker-checkbox" data-band-id="${id}">
-                            <span class="gv-marker-name">${name}</span>
-                            <span class="gv-marker-stat">y=${y}</span>
-                            <span class="gv-marker-stat">excluded</span>
-                            <span class="gv-marker-residual is-na">–</span>
-                        </div>
-                    `);
-                }
-            }
-
-            body.innerHTML = rows.join('');
+            body.innerHTML = `
+                <table class="gv-calibration-marker-grid">
+                    <colgroup><col class="gv-marker-mw-col">${columns.map(() => '<col>').join('')}</colgroup>
+                    <thead><tr><th class="gv-marker-mw-col">Marker</th>${head}</tr></thead>
+                    <tbody>${bodyRows.join('')}</tbody>
+                </table>
+            `;
+            this._hoverScope = null;
 
             // Wire toggle handlers
             body.querySelectorAll('.gv-marker-checkbox').forEach(cb => {
                 cb.addEventListener('change', (e) => this._onMarkerToggle(e.target));
             });
+        }
+
+        /**
+         * Ring the markers table's hovered points on the curve (the last trace, _updateCalibrationChart); [] clears.
+         */
+        _highlightMarkers(entries) {
+            const index = this._highlightTraceIndex;
+            if (typeof Plotly === 'undefined' || !this.chartContainer?.data || index == null
+                || !this.chartContainer.data[index]) return;
+            const points = entries.filter(el => el.dataset.rf !== undefined);
+            Plotly.restyle(this.chartContainer, {
+                x: [points.map(el => Number(el.dataset.rf))],
+                y: [points.map(el => Math.log10(Number(el.dataset.mw)))],
+            }, [index]);
         }
 
         /**
@@ -1048,9 +1251,11 @@
             const step4 = document.getElementById('calibration-step-4');
             const stepApply = document.getElementById('calibration-step-apply');
             const placeholder = document.getElementById('calibration-results-empty');
+            const markersRow = document.getElementById('calibration-markers-row');
             if (step4) step4.style.display = 'block';
             if (stepApply) stepApply.style.display = 'block';
             if (placeholder) placeholder.style.display = 'none';
+            if (markersRow) markersRow.style.display = '';
         }
 
         /**
@@ -1060,9 +1265,11 @@
             const step4 = document.getElementById('calibration-step-4');
             const stepApply = document.getElementById('calibration-step-apply');
             const placeholder = document.getElementById('calibration-results-empty');
+            const markersRow = document.getElementById('calibration-markers-row');
             if (step4) step4.style.display = 'none';
             if (stepApply) stepApply.style.display = 'none';
             if (placeholder) placeholder.style.display = '';
+            if (markersRow) markersRow.style.display = 'none';
         }
 
         /**
@@ -1154,6 +1361,7 @@
                 }
 
                 this.calibrationResult = result;
+                this._renderLadderList();  // each ladder lane takes its colour
 
                 // Clear stale state - calibration is now fresh
                 this._clearStaleState();
@@ -1191,25 +1399,12 @@
         _updateCalibrationChart(result) {
             if (!this.chartContainer) return;
 
-            // Handle different API response structures:
-            // Single calibration: {success, calibration, result: {band_matches, coefficients, ...}}
-            // Multi calibration: {success, calibrations: [{band_matches, coefficients, ...}, ...]}
-            let calibrations;
-            if (result.result) {
-                // Single calibration - extract the nested result
-                calibrations = [result.result];
-            } else if (result.calibrations) {
-                // Multi calibration
-                calibrations = result.calibrations;
-            } else {
-                calibrations = [result];
-            }
-
+            // One ladder per calibration, named by its lane and coloured as in the markers table (_ladderColumns).
+            const ladders = this._ladderColumns(result);
             const traces = [];
-            const colors = ['#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
 
-            for (let i = 0; i < calibrations.length; i++) {
-                const cal = calibrations[i];
+            for (let i = 0; i < ladders.length; i++) {
+                const { cal, laneId, label, color } = ladders[i];
                 // Handle API key "band_matches" and legacy keys "points"/"calibration_points"
                 const points = cal.band_matches || cal.calibration_points || cal.points || [];
 
@@ -1227,9 +1422,9 @@
                     y: yValues,
                     mode: 'markers',
                     type: 'scatter',
-                    name: `Ladder ${i + 1}`,
+                    name: label,
                     marker: {
-                        color: colors[i % colors.length],
+                        color,
                         size: 10,
                     },
                     hovertemplate: 'Rf: %{x:.3f}<br>MW: %{customdata:.1f} kDa<extra></extra>',
@@ -1246,7 +1441,7 @@
                         const band = this._lookupLadderBand(id);
                         if (!band) continue;
                         // Only add to this ladder's trace if the band belongs to this lane
-                        if (band.lane_id !== cal.lane_id && band._parentLaneId !== cal.lane_id) continue;
+                        if (laneId == null || String(band.lane_id ?? band._parentLaneId) !== String(laneId)) continue;
                         if (band.position_y == null || !band.estimated_mw_kda || band.estimated_mw_kda <= 0) continue;
                         const rf = (band.position_y - cal.lane_top) / (cal.lane_bottom - cal.lane_top);
                         if (rf < 0 || rf > 1) continue;
@@ -1263,11 +1458,11 @@
                             name: i === 0 ? 'Excluded' : '',
                             showlegend: i === 0,
                             marker: {
-                                color: colors[i % colors.length],
+                                color,
                                 size: 9,
                                 opacity: 0.25,
                                 symbol: 'circle-open',
-                                line: { color: colors[i % colors.length], width: 1.5 },
+                                line: { color, width: 1.5 },
                             },
                             hovertemplate: 'Excluded · Rf: %{x:.3f}<br>MW: %{customdata:.1f} kDa<extra></extra>',
                             customdata: ghostMW,
@@ -1303,7 +1498,7 @@
                         name: i === 0 ? 'Fit' : '',
                         showlegend: i === 0,
                         line: {
-                            color: colors[i % colors.length],
+                            color,
                             width: 2,
                         },
                         hoverinfo: 'skip',
@@ -1312,44 +1507,59 @@
             }
 
             const hasExcluded = traces.some(t => t.name === 'Excluded');
-            const showLegend = calibrations.length > 1 || hasExcluded;
+            const showLegend = ladders.length > 1 || hasExcluded;
 
+            const theme = this._chartTheme();
+
+            // Last: the markers table's hover rings its points here (_highlightMarkers). Empty until then, never in the
+            // legend, drawn over the markers.
+            traces.push({
+                x: [],
+                y: [],
+                mode: 'markers',
+                type: 'scatter',
+                name: 'Hovered marker',
+                showlegend: false,
+                hoverinfo: 'skip',
+                marker: { size: 18, color: 'rgba(0,0,0,0)', line: { color: theme.text, width: 2 } },
+            });
+            this._highlightTraceIndex = traces.length - 1;
             const layout = {
                 // Right-side legend → leaves the high-MW corner (top-left) clear.
                 margin: { l: 50, r: showLegend ? 110 : 20, t: 20, b: 45 },
                 xaxis: {
-                    title: { text: 'Rf (Relative Migration)', font: { size: 12, color: '#5b21b6' } },
-                    tickfont: { size: 10, color: '#4b5563' },
-                    gridcolor: '#e5e7eb',
-                    linecolor: '#8b5cf6',
-                    linewidth: 2,
+                    title: { text: 'Rf (Relative Migration)', font: { size: 12, color: theme.text } },
+                    tickfont: { size: 10, color: theme.muted },
+                    gridcolor: theme.grid,
+                    linecolor: theme.line,
+                    linewidth: 1,
                     showgrid: true,
                     zeroline: true,
-                    zerolinecolor: '#d1d5db',
+                    zerolinecolor: theme.line,
                 },
                 yaxis: {
-                    title: { text: 'log₁₀(MW) kDa', font: { size: 12, color: '#5b21b6' } },
-                    tickfont: { size: 10, color: '#4b5563' },
-                    gridcolor: '#e5e7eb',
-                    linecolor: '#8b5cf6',
-                    linewidth: 2,
+                    title: { text: 'log₁₀(MW) kDa', font: { size: 12, color: theme.text } },
+                    tickfont: { size: 10, color: theme.muted },
+                    gridcolor: theme.grid,
+                    linecolor: theme.line,
+                    linewidth: 1,
                     showgrid: true,
                     zeroline: true,
-                    zerolinecolor: '#d1d5db',
+                    zerolinecolor: theme.line,
                 },
                 showlegend: showLegend,
                 legend: {
-                    font: { size: 10 },
+                    font: { size: 10, color: theme.text },
                     x: 1.02,
                     xanchor: 'left',
                     y: 1,
                     yanchor: 'top',
-                    bgcolor: 'rgba(255,255,255,0.9)',
-                    bordercolor: '#e9d5ff',
+                    bgcolor: theme.legendBg,
+                    bordercolor: theme.line,
                     borderwidth: 1,
                 },
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#ffffff',
+                paper_bgcolor: theme.bg,
+                plot_bgcolor: theme.bg,
             };
 
             const config = {
@@ -1403,6 +1613,9 @@
             if (avgR2 == null) avgR2 = 0;
 
             r2Value.textContent = avgR2.toFixed(4);
+            const multi = this._renderLadderR2(result);
+            const r2Label = r2Container.querySelector('.gv-calibration-r2-label');
+            if (r2Label) r2Label.innerHTML = multi ? 'R<sup>2</sup> mean' : 'R<sup>2</sup>';
 
             // Set indicator class
             r2Indicator.className = 'gv-calibration-r2-indicator';
@@ -1413,6 +1626,38 @@
             } else {
                 r2Indicator.classList.add('poor');
             }
+        }
+
+        /**
+         * One chip per ladder lane (its colour, its number, its own R²) beside the mean, from 2 ladders: the mean hides
+         * which ladder pulls the fit down. Returns whether the chips are shown.
+         */
+        _renderLadderR2(result) {
+            const el = document.getElementById('calibration-ladder-r2');
+            if (!el) return false;
+            const ladders = this._ladderColumns(result).filter(l => l.cal.r_squared != null);
+            if (ladders.length < 2) {
+                el.innerHTML = '';
+                el.style.display = 'none';
+                return false;
+            }
+            const quality = (r2) => {
+                if (r2 >= R2_THRESHOLDS.EXCELLENT) return 'excellent';
+                if (r2 >= R2_THRESHOLDS.GOOD) return 'good';
+                return 'poor';
+            };
+            el.innerHTML = ladders.map(l => {
+                const r2 = Number(l.cal.r_squared);
+                return `
+                    <span class="gv-calibration-ladder-r2-chip" title="R² of ${escapeHtml(l.label)}'s own fit">
+                        <span class="gv-lane-dot" style="background:${l.color}"></span>
+                        ${escapeHtml(l.label)}
+                        <span class="gv-r2-value ${quality(r2)}">${r2.toFixed(4)}</span>
+                    </span>
+                `;
+            }).join('');
+            el.style.display = 'flex';
+            return true;
         }
 
         /**
@@ -1449,7 +1694,7 @@
                     <span>${warnings.length} warning${warnings.length > 1 ? 's' : ''}</span>
                 </div>
                 <ul class="gv-calibration-warnings-list">
-                    ${warnings.map(w => `<li>${w}</li>`).join('')}
+                    ${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
                 </ul>
             `;
             container.style.display = 'block';
@@ -1580,6 +1825,7 @@
 
                     // Show Results step since calibration exists
                     this._showResultsStep();
+                    this._renderLadderList();  // each ladder lane takes its colour
 
                     this._updateCalibrationChart(multiCal);
                     this._updateR2Display(multiCal);
@@ -1603,6 +1849,7 @@
                     }
                     // Show Results step since calibration exists
                     this._showResultsStep();
+                    this._renderLadderList();  // each ladder lane takes its colour
                     this._updateCalibrationChart(cal);
                     this._updateR2Display(cal);
                     this._updateCalibrationStatus(cal);
@@ -1688,15 +1935,13 @@
             const existing = document.querySelector('.gv-message');
             if (existing) existing.remove();
 
+            // Over the panel's own backdrop: in .gv-viewer it was drawn under it (.gv-main is a stacking context).
             const message = document.createElement('div');
-            message.className = 'gv-message';
+            message.className = 'gv-message gv-message--over';
+            message.setAttribute('role', 'status');
             message.textContent = text;
-
-            const viewer = document.querySelector('.gv-viewer');
-            if (viewer) {
-                viewer.appendChild(message);
-                setTimeout(() => message.remove(), 3000);
-            }
+            document.body.appendChild(message);
+            setTimeout(() => message.remove(), 3000);
         }
 
         /**

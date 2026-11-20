@@ -12,7 +12,7 @@
     gap: 12px;
     padding: 8px 16px;
     background: var(--dm-bg-panel);
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid var(--dm-line-10);
     overflow-x: auto;
     min-height: 60px;
 }
@@ -22,7 +22,7 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     font-size: 0.875rem;
 }
 
@@ -40,7 +40,7 @@
 }
 
 .dm-sample-card:hover {
-    background: rgba(255,255,255,0.05);
+    background: var(--dm-wash-5);
 }
 
 .dm-sample-card.selected {
@@ -50,7 +50,7 @@
 .dm-sample-card-title {
     font-weight: 600;
     font-size: 0.875rem;
-    color: #fff;
+    color: var(--dm-fg-100);
     margin-bottom: 4px;
     white-space: nowrap;
     overflow: hidden;
@@ -59,7 +59,7 @@
 
 .dm-sample-card-meta {
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.6);
+    color: var(--dm-fg-60);
 }
 
 .dm-sample-card-remove {
@@ -68,7 +68,7 @@
     right: 6px;
     background: none;
     border: none;
-    color: rgba(255,255,255,0.4);
+    color: var(--dm-fg-40);
     cursor: pointer;
     padding: 2px;
     line-height: 1;
@@ -117,8 +117,8 @@
     max-width: 500px;
     width: 95%;
     background: linear-gradient(180deg, var(--dm-bg-panel-header) 0%, var(--dm-bg-panel) 100%);
-    border: 1px solid rgba(255,255,255,0.08);
-    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    border: 1px solid var(--dm-line-8);
+    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px var(--dm-line-5) inset;
     animation: slideIn 0.2s ease-out;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     border-radius: 12px;
@@ -128,8 +128,8 @@
 #save-comparison-modal .dm-modal-header {
     position: relative;
     padding: 20px 24px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    background: rgba(0,0,0,0.15);
+    border-bottom: 1px solid var(--dm-line-8);
+    background: var(--dm-shade-15);
     border-radius: 12px 12px 0 0;
 }
 
@@ -137,16 +137,16 @@
     margin: 0;
     font-size: 1.1rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
 }
 
 #save-comparison-modal .dm-modal-close {
     position: absolute;
     top: 16px;
     right: 16px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: rgba(255,255,255,0.6);
+    background: var(--dm-wash-5);
+    border: 1px solid var(--dm-line-10);
+    color: var(--dm-fg-60);
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -160,22 +160,22 @@
 }
 
 #save-comparison-modal .dm-modal-close:hover {
-    background: rgba(255,255,255,0.1);
-    color: #fff;
+    background: var(--dm-wash-10);
+    color: var(--dm-fg-100);
 }
 
 #save-comp-save-as {
     font-size: 0.8rem;
-    color: rgba(255,255,255,0.85);
-    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--dm-fg-85);
+    border: 1px solid var(--dm-line-20);
     border-radius: 6px;
-    background: rgba(255,255,255,0.05);
+    background: var(--dm-wash-5);
 }
 
 #save-comp-save-as:hover {
-    background: rgba(255,255,255,0.1);
-    border-color: rgba(255,255,255,0.3);
-    color: #fff;
+    background: var(--dm-wash-10);
+    border-color: var(--dm-line-30);
+    color: var(--dm-fg-100);
 }
 
 /* --- Report Config Modal --- */
@@ -191,8 +191,8 @@
     max-height: 90vh;
     min-height: auto;
     background: linear-gradient(180deg, var(--dm-bg-panel-header) 0%, var(--dm-bg-panel) 100%);
-    border: 1px solid rgba(255,255,255,0.08);
-    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    border: 1px solid var(--dm-line-8);
+    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px var(--dm-line-5) inset;
     animation: slideIn 0.2s ease-out;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     border-radius: 12px;
@@ -201,8 +201,8 @@
 #report-config-modal .dm-modal-header {
     position: relative;
     padding: 20px 24px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    background: rgba(0,0,0,0.15);
+    border-bottom: 1px solid var(--dm-line-8);
+    background: var(--dm-shade-15);
     border-radius: 12px 12px 0 0;
 }
 
@@ -210,7 +210,7 @@
     margin: 0;
     font-size: 1.1rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -218,9 +218,9 @@
     position: absolute;
     top: 16px;
     right: 16px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: rgba(255,255,255,0.6);
+    background: var(--dm-wash-5);
+    border: 1px solid var(--dm-line-10);
+    color: var(--dm-fg-60);
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -234,8 +234,8 @@
 }
 
 #report-config-modal .dm-modal-close:hover {
-    background: rgba(255,255,255,0.1);
-    color: #fff;
+    background: var(--dm-wash-10);
+    color: var(--dm-fg-100);
 }
 
 #report-config-modal .dm-modal-body {
@@ -243,233 +243,8 @@
     overflow-y: auto;
 }
 
-.dm-report-field-group {
-    margin-bottom: 18px;
-}
-
-.dm-report-field-label {
-    display: block;
-    font-size: 0.8rem;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-weight: 500;
-    color: rgba(255,255,255,0.7);
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.dm-report-format-group {
-    display: flex;
-    gap: 10px;
-}
-
-.dm-report-format-option {
-    flex: 1;
-    cursor: pointer;
-}
-
-.dm-report-format-option input[type="radio"] {
-    display: none;
-}
-
-.dm-report-format-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 14px 10px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    border: 2px solid rgba(255,255,255,0.1);
-    transition: all 0.15s ease;
-    text-align: center;
-    color: rgba(255,255,255,0.7);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 500;
-}
-
-.dm-report-format-card i {
-    font-size: 1.4rem;
-    margin-bottom: 2px;
-}
-
-.dm-report-format-card small {
-    font-size: 0.7rem;
-    font-weight: 400;
-    color: rgba(255,255,255,0.4);
-}
-
-.dm-report-format-option input:checked + .dm-report-format-card {
-    border-color: var(--dm-primary, #3b82f6);
-    background: rgba(59,130,246,0.12);
-    color: #fff;
-}
-
-.dm-report-format-option:hover .dm-report-format-card {
-    border-color: rgba(255,255,255,0.25);
-    background: rgba(255,255,255,0.06);
-}
-
-.dm-report-sections-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-}
-
-.dm-report-sections-header .dm-report-field-label {
-    margin-bottom: 0;
-}
-
-.dm-report-toggle-links {
-    font-size: 0.75rem;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-
-.dm-report-toggle-links a {
-    color: var(--dm-primary, #3b82f6);
-    text-decoration: none;
-    font-weight: 500;
-    transition: color 0.15s;
-}
-
-.dm-report-toggle-links a:hover {
-    color: #60a5fa;
-}
-
-.dm-report-toggle-sep {
-    color: rgba(255,255,255,0.2);
-    margin: 0 4px;
-}
-
-.dm-report-sections-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-height: none;
-    padding: 4px 0;
-}
-
-/* Group structure */
-.dm-report-section-group {
-    border-radius: 8px;
-    margin-bottom: 2px;
-    transition: opacity 0.15s ease;
-}
-
-.dm-report-section-group.disabled-section {
-    opacity: 0.4;
-    pointer-events: none;
-}
-
-.dm-report-group-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    color: rgba(255,255,255,0.95);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 600;
-    transition: background 0.1s ease;
-}
-
-.dm-report-group-header:hover {
-    background: rgba(255,255,255,0.05);
-}
-
-.dm-report-group-header input[type="checkbox"] {
-    accent-color: var(--dm-primary, #3b82f6);
-    width: 16px;
-    height: 16px;
-}
-
-.dm-report-group-chevron {
-    font-size: 0.7rem;
-    color: rgba(255,255,255,0.4);
-    transition: transform 0.15s ease;
-}
-
-.dm-report-group-chevron.collapsed {
-    transform: rotate(-90deg);
-}
-
-.dm-report-group-children {
-    padding-left: 18px;
-    border-left: 2px solid rgba(255,255,255,0.06);
-    margin-left: 18px;
-    transition: opacity 0.15s ease;
-}
-
-.dm-report-group-children.dm-report-group-disabled {
-    opacity: 0.35;
-    pointer-events: none;
-}
-
-/* Section options (children) */
-.dm-report-section-option {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    color: rgba(255,255,255,0.85);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 400;
-    transition: background 0.1s ease;
-}
-
-.dm-report-section-option:hover {
-    background: rgba(255,255,255,0.05);
-}
-
-.dm-report-section-option input[type="checkbox"] {
-    accent-color: var(--dm-primary, #3b82f6);
-    width: 16px;
-    height: 16px;
-}
-
-.dm-report-section-option.disabled-section {
-    opacity: 0.4;
-    pointer-events: none;
-}
-
-/* Sub-option (indented further, e.g. band overlay under gel images) */
-.dm-report-sub-option {
-    padding-left: 36px;
-    font-size: 0.8rem;
-    color: rgba(255,255,255,0.65);
-}
-
-.dm-report-sub-option input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-}
-
-.dm-report-format-note {
-    margin-top: 8px;
-    padding: 8px 12px;
-    background: rgba(249,115,22,0.1);
-    border: 1px solid rgba(249,115,22,0.25);
-    border-radius: 6px;
-    color: rgba(255,255,255,0.7);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.8rem;
-    font-weight: 400;
-}
-
-.dm-report-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 16px 24px;
-    border-top: 1px solid rgba(255,255,255,0.08);
-}
+/* The modal's contents (.dm-report-*) are styled once, in densitometry.css, which
+   _comparison_styles.html loads before this file; the densitometry page loads only that one. */
 
 @keyframes fadeIn {
     from { opacity: 0; }
@@ -485,8 +260,8 @@
     max-width: 640px;
     width: 95%;
     background: linear-gradient(180deg, var(--dm-bg-panel-header) 0%, var(--dm-bg-panel) 100%);
-    border: 1px solid rgba(255,255,255,0.08);
-    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    border: 1px solid var(--dm-line-8);
+    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px var(--dm-line-5) inset;
     animation: slideIn 0.2s ease-out;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
@@ -494,8 +269,8 @@
 #sample-selector-modal .dm-modal-header {
     position: relative;
     padding: 20px 24px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    background: rgba(0,0,0,0.15);
+    border-bottom: 1px solid var(--dm-line-8);
+    background: var(--dm-shade-15);
     text-align: left;
 }
 
@@ -504,7 +279,7 @@
     font-family: 'Inter', sans-serif;
     font-size: 1.15rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
     letter-spacing: -0.02em;
 }
 
@@ -514,10 +289,10 @@
     right: 14px;
     width: 32px;
     height: 32px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--dm-wash-5);
+    border: 1px solid var(--dm-line-10);
     border-radius: 8px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     font-size: 1.25rem;
     cursor: pointer;
     display: flex;
@@ -544,7 +319,7 @@
     display: flex;
     gap: 4px;
     margin-bottom: 16px;
-    background: rgba(0,0,0,0.2);
+    background: var(--dm-shade-20);
     border-radius: 8px;
     padding: 4px;
 }
@@ -555,7 +330,7 @@
     background: none;
     border: none;
     border-radius: 6px;
-    color: rgba(255,255,255,0.6);
+    color: var(--dm-fg-60);
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
     font-weight: 500;
@@ -568,8 +343,8 @@
 }
 
 .dm-source-tab:hover {
-    color: rgba(255,255,255,0.9);
-    background: rgba(255,255,255,0.05);
+    color: var(--dm-fg-90);
+    background: var(--dm-wash-5);
 }
 
 .dm-source-tab.active {
@@ -599,10 +374,10 @@
 .dm-filter-select {
     flex: 1;
     padding: 10px 32px 10px 12px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: var(--dm-shade-30);
+    border: 1px solid var(--dm-line-12);
     border-radius: 8px;
-    color: #fff;
+    color: var(--dm-fg-100);
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
     font-weight: 400;
@@ -618,7 +393,7 @@
 }
 
 .dm-filter-select:hover {
-    border-color: rgba(255,255,255,0.2);
+    border-color: var(--dm-line-20);
 }
 
 .dm-filter-select:focus {
@@ -629,7 +404,7 @@
 
 .dm-filter-select option {
     background: var(--dm-bg-panel);
-    color: #fff;
+    color: var(--dm-fg-100);
     padding: 8px;
     font-family: 'Inter', sans-serif;
 }
@@ -637,10 +412,10 @@
 .dm-input {
     width: 100%;
     padding: 12px 14px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: var(--dm-shade-30);
+    border: 1px solid var(--dm-line-12);
     border-radius: 8px;
-    color: #fff;
+    color: var(--dm-fg-100);
     font-family: 'Inter', sans-serif;
     font-size: 0.9rem;
     margin-bottom: 16px;
@@ -648,14 +423,14 @@
 }
 
 .dm-input::placeholder {
-    color: rgba(255,255,255,0.35);
+    color: var(--dm-fg-35);
     font-family: 'Inter', sans-serif;
 }
 
 .dm-input:focus {
     outline: none;
     border-color: var(--dm-primary);
-    background: rgba(0,0,0,0.4);
+    background: var(--dm-shade-40);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
@@ -674,17 +449,17 @@
 }
 
 .dm-sample-list::-webkit-scrollbar-track {
-    background: rgba(0,0,0,0.2);
+    background: var(--dm-shade-20);
     border-radius: 3px;
 }
 
 .dm-sample-list::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.15);
+    background: var(--dm-wash-15);
     border-radius: 3px;
 }
 
 .dm-sample-list::-webkit-scrollbar-thumb:hover {
-    background: rgba(255,255,255,0.25);
+    background: var(--dm-wash-25);
 }
 
 .dm-sample-option {
@@ -692,13 +467,13 @@
     align-items: center;
     gap: 12px;
     padding: 14px 16px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--dm-line-8);
     border-radius: 10px;
     margin-bottom: 8px;
     cursor: pointer;
     transition: all 0.15s;
-    color: #fff;
-    background: rgba(255,255,255,0.02);
+    color: var(--dm-fg-100);
+    background: var(--dm-wash-2);
     font-family: 'Inter', sans-serif;
 }
 
@@ -722,7 +497,7 @@
 }
 
 .dm-text-muted {
-    color: rgba(255,255,255,0.45);
+    color: var(--dm-fg-45);
     font-size: 0.75rem;
     font-family: 'Inter', sans-serif;
 }
@@ -759,7 +534,7 @@
 .dm-mode-toggle {
     display: flex;
     gap: 2px;
-    background: rgba(0,0,0,0.2);
+    background: var(--dm-shade-20);
     border-radius: 4px;
     padding: 2px;
 }
@@ -767,7 +542,7 @@
 .dm-mode-btn {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.6);
+    color: var(--dm-fg-60);
     padding: 4px 8px;
     font-size: 0.75rem;
     border-radius: 3px;
@@ -779,8 +554,8 @@
 }
 
 .dm-mode-btn:hover {
-    color: rgba(255,255,255,0.9);
-    background: rgba(255,255,255,0.1);
+    color: var(--dm-fg-90);
+    background: var(--dm-wash-10);
 }
 
 .dm-mode-btn.active {
@@ -822,21 +597,21 @@
     min-width: 60px;
     display: flex;
     flex-direction: column;
-    background: rgba(0,0,0,0.3);
+    background: var(--dm-shade-30);
     border-radius: 4px;
     overflow: hidden;
 }
 
 .dm-lane-header {
     padding: 4px 6px;
-    font-size: 0.65rem;
+    font-size: calc(0.65rem * var(--pdd-font-scale, 1));
     font-weight: 600;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    background: rgba(0,0,0,0.2);
-    color: rgba(255,255,255,0.9);
+    background: var(--dm-shade-20);
+    color: var(--dm-fg-90);
 }
 
 .dm-lane-body {
@@ -850,53 +625,8 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: rgba(255,255,255,0.3);
+    color: var(--dm-fg-30);
     font-size: 0.7rem;
-}
-
-/* Shown in lieu of bands when the lane has no MW calibration —
- * positioning by MW would collapse every band to 50% which used to
- * render as a stray bar in the middle of the column. */
-.dm-lane-body .dm-lane-no-mw {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 100%;
-    padding: 8px;
-    text-align: center;
-    color: rgba(255,255,255,0.55);
-}
-
-.dm-lane-body .dm-lane-no-mw i {
-    font-size: 1.4rem;
-    color: rgba(255,193,7,0.7);
-}
-
-.dm-lane-body .dm-lane-no-mw-title {
-    font-size: 0.78rem;
-    color: rgba(255,255,255,0.85);
-    font-weight: 600;
-}
-
-.dm-lane-body .dm-lane-no-mw-hint {
-    font-size: 0.68rem;
-    line-height: 1.3;
-    color: rgba(255,255,255,0.45);
-    max-width: 12em;
-}
-
-.dm-lane-body .dm-lane-no-mw-partial {
-    position: absolute;
-    bottom: 4px;
-    left: 6px;
-    right: 6px;
-    text-align: center;
-    font-size: 0.62rem;
-    color: rgba(255,193,7,0.7);
-    font-style: italic;
-    pointer-events: none;
 }
 
 .dm-lane-body .dm-digital-band {
@@ -916,8 +646,20 @@
 }
 
 .dm-lane-body .dm-digital-band.selected {
-    box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--dm-primary);
+    box-shadow: 0 0 0 2px var(--dm-fg-100), 0 0 0 4px var(--dm-primary);
     z-index: 20;
+}
+
+/* Pseudo-gel mode of the digital lanes (the toggle drew bands either way until 2026-10-12): a dark lane
+   and a soft glow per band, as the densitometry band zoom draws it. Dark in both themes: it imitates a gel. */
+.dm-lane-body.dm-lane-body--pseudo {
+    background: #1a1a1a;
+}
+
+.dm-lane-body .dm-digital-band.dm-digital-band--pseudo {
+    height: 12px;
+    border-radius: 6px;
+    filter: blur(0.6px);
 }
 
 /* Shared MW scale */
@@ -945,14 +687,23 @@
 .dm-mw-tick .dm-mw-line {
     flex: 1;
     height: 1px;
-    background: rgba(255,255,255,0.2);
+    background: var(--dm-line-20);
 }
 
 .dm-mw-tick .dm-mw-value {
-    font-size: 0.65rem;
-    color: rgba(255,255,255,0.6);
+    font-size: calc(0.65rem * var(--pdd-font-scale, 1));
+    color: var(--dm-fg-60);
     padding-left: 4px;
     min-width: 30px;
+}
+
+/* No band carries an MW: the scale names the missing axis instead of drawing ticks */
+.dm-mw-none {
+    padding: 8px 0 0 4px;
+    font-size: calc(0.6rem * var(--pdd-font-scale, 1));
+    line-height: 1.3;
+    color: var(--dm-fg-60);
+    cursor: help;
 }
 
 
@@ -973,7 +724,7 @@
     max-width: 160px;
     display: flex;
     flex-direction: column;
-    background: rgba(0,0,0,0.3);
+    background: var(--dm-shade-30);
     border-radius: 4px;
     overflow: hidden;
     cursor: grab;
@@ -981,7 +732,7 @@
 }
 
 .dm-gel-crop-column:hover {
-    background: rgba(0,0,0,0.45);
+    background: var(--dm-shade-45);
 }
 
 .dm-gel-crop-column.selected {
@@ -995,14 +746,14 @@
 
 .dm-gel-crop-header {
     padding: 4px 6px;
-    font-size: 0.65rem;
+    font-size: calc(0.65rem * var(--pdd-font-scale, 1));
     font-weight: 600;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    background: rgba(0,0,0,0.2);
-    color: rgba(255,255,255,0.9);
+    background: var(--dm-shade-20);
+    color: var(--dm-fg-90);
     cursor: pointer;
 }
 
@@ -1015,10 +766,10 @@
 
 .dm-gel-crop-footer {
     padding: 2px 6px;
-    font-size: 0.6rem;
+    font-size: calc(0.6rem * var(--pdd-font-scale, 1));
     text-align: center;
-    color: rgba(255,255,255,0.5);
-    background: rgba(0,0,0,0.15);
+    color: var(--dm-fg-50);
+    background: var(--dm-shade-15);
 }
 
 
@@ -1042,7 +793,7 @@
     max-height: 100%;
     display: flex;
     flex-direction: column;
-    background: rgba(0,0,0,0.25);
+    background: var(--dm-shade-25);
     border-radius: 6px;
     overflow: hidden;
 }
@@ -1051,8 +802,8 @@
     padding: 8px 12px;
     font-size: 0.8rem;
     font-weight: 600;
-    color: rgba(255,255,255,0.9);
-    background: rgba(0,0,0,0.3);
+    color: var(--dm-fg-90);
+    background: var(--dm-shade-30);
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
@@ -1078,9 +829,9 @@
 .dm-gel-enhance-btn,
 .dm-gel-invert-btn {
     background: none;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     padding: 2px 6px;
     cursor: pointer;
     font-size: 0.8rem;
@@ -1088,38 +839,38 @@
 }
 .dm-gel-enhance-btn:hover,
 .dm-gel-invert-btn:hover {
-    border-color: rgba(255,255,255,0.5);
-    color: rgba(255,255,255,0.8);
+    border-color: var(--dm-line-50);
+    color: var(--dm-fg-80);
 }
 .dm-gel-enhance-btn.active {
-    color: #3b82f6;
-    border-color: #3b82f6;
+    color: var(--dm-primary);
+    border-color: var(--dm-primary);
     background: rgba(59,130,246,0.15);
 }
 .dm-gel-invert-btn.active {
-    color: #f59e0b;
-    border-color: #f59e0b;
+    color: var(--dm-invert);
+    border-color: var(--dm-invert);
     background: rgba(245,158,11,0.15);
 }
 
 /* Band overlay toggle */
 .dm-gel-bands-toggle {
     background: none;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     padding: 2px 6px;
     cursor: pointer;
     font-size: 0.8rem;
     transition: all 0.15s;
 }
 .dm-gel-bands-toggle.active {
-    color: #a855f7;
-    border-color: #a855f7;
+    color: var(--dm-bands);
+    border-color: var(--dm-bands);
     background: rgba(168,85,247,0.15);
 }
 .dm-gel-bands-toggle:hover {
-    border-color: rgba(255,255,255,0.5);
+    border-color: var(--dm-line-50);
 }
 
 
@@ -1134,15 +885,15 @@
 
 .dm-normalization-control label {
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
     white-space: nowrap;
 }
 
 .dm-input-sm {
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: var(--dm-shade-30);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: #fff;
+    color: var(--dm-fg-100);
     font-size: 0.75rem;
     padding: 4px 6px;
     width: 50px;
@@ -1154,14 +905,14 @@
 }
 .dm-tolerance-unit {
     font-size: 0.7rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
 }
 
 .dm-select {
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: var(--dm-shade-30);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: #fff;
+    color: var(--dm-fg-100);
     font-size: 0.75rem;
     padding: 4px 8px;
     cursor: pointer;
@@ -1173,8 +924,8 @@
 }
 
 .dm-select option {
-    background: #2d2d2d;
-    color: #fff;
+    background: var(--dm-option-bg);
+    color: var(--dm-fg-100);
 }
 
 
@@ -1184,33 +935,52 @@
    Bottom row: Band Detail + Band Comparison
    Give top row more space so Electropherogram isn't squeezed. */
 
-.dm-row-top {
-    flex: 3 1 0%;
-    overflow: hidden;
+/* ----------------------------------------------------------------------------
+   Comparison view layout — resizable via panel-splitter.js.
+   Sizing comes from CSS variables (--dm-row-top-pct, --dm-gel-overview-pct,
+   --dm-band-detail-pct) set on .dm-main. Defaults below are tuned for the
+   comparison view (smaller gel, larger chart/table) and differ from the
+   densitometry view defaults set in densitometry.css.
+   ---------------------------------------------------------------------------- */
+
+#sample-comparison-app .dm-main {
+    --dm-row-top-pct: 60%;          /* top row taller — chart needs room */
+    --dm-gel-overview-pct: 22%;     /* gel overview narrower in comparison */
+    --dm-band-detail-pct: 34%;      /* band detail ~1/3, results ~2/3 */
 }
 
-/* Gel Overview: smaller fixed size in comparison view so Electropherogram gets room */
+.dm-row-top {
+    flex: 0 0 var(--dm-row-top-pct);
+    overflow: hidden;
+    min-height: 120px;
+}
+
+/* Gel Overview: configurable width in comparison view so Electropherogram gets room */
 .dm-row-top .dm-panel-gel-overview {
-    flex: 0 0 180px;
+    flex: 0 0 var(--dm-gel-overview-pct);
     min-height: 150px;
+    min-width: 160px;
 }
 
 /* Electropherogram: fill remaining space in top row */
 .dm-row-top .dm-panel-chromatogram {
     flex: 1 1 0%;
     min-height: 180px;
+    min-width: 240px;
     overflow: hidden;
 }
 
 .dm-row-bottom {
-    flex: 2 1 0%;
+    flex: 1 1 0;
     overflow: hidden;
+    min-height: 120px;
 }
 
-/* Band Detail: takes 1/3 of the row — secondary panel with lane thumbnails */
+/* Band Detail: configurable width — secondary panel with lane thumbnails */
 .dm-row-bottom .dm-panel-band-detail {
-    flex: 1 1 0%;
+    flex: 0 0 var(--dm-band-detail-pct);
     min-height: 120px;
+    min-width: 160px;
     overflow: hidden;
 }
 
@@ -1218,10 +988,11 @@
     overflow: auto;
 }
 
-/* Band Comparison: takes 2/3 of the row — primary data table */
+/* Band Comparison: takes the rest of the row — primary data table */
 .dm-row-bottom .dm-panel-results {
-    flex: 2 1 0%;
+    flex: 1 1 0%;
     min-height: 150px;
+    min-width: 240px;
     overflow: hidden;
 }
 
@@ -1235,6 +1006,34 @@
     flex: 1;
     min-height: 0;
     overflow: auto;
+}
+
+/* ----------------------------------------------------------------------------
+   Mounted-component host (Task 8 migration).
+   #sample-comparison-app is now an EMPTY mount target; the comparison
+   component self-builds its .ga-viz-root skeleton inside it. The host fills the
+   remaining flex space under the header + graphical-view toolbar so the
+   generated panels have a box to lay out in.
+   ---------------------------------------------------------------------------- */
+.dm-app .dm-viz-host {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Graphical-view toolbar (page chrome): the view-switch + axis-mode toggles
+   that drive the mounted graphical-view panels via the handle. */
+.dm-graphical-view-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--dm-line-6);
+}
+.dm-graphical-view-toolbar .dm-ephero-controls.hidden {
+    display: none;
 }
 
 
@@ -1272,11 +1071,11 @@
 .dm-comparison-table .sample-meta-row th {
     font-weight: 400;
     font-size: 0.65rem;
-    color: rgba(255,255,255,0.6);
+    color: var(--dm-fg-60);
     padding: 3px 8px;
-    border-bottom: 2px solid rgba(255,255,255,0.15);
+    border-bottom: 2px solid var(--dm-line-15);
     white-space: nowrap;
-    background: rgba(0,0,0,0.3);
+    background: var(--dm-shade-30);
 }
 
 .dm-comparison-table .sample-meta-row .meta-poi {
@@ -1293,7 +1092,7 @@
     display: flex;
     gap: 12px;
     padding: 4px 10px;
-    background: rgba(0,0,0,0.2);
+    background: var(--dm-shade-20);
     border-radius: 4px;
     margin-bottom: 4px;
     flex-shrink: 0;
@@ -1310,12 +1109,12 @@
 .dm-metric-value {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
 }
 
 .dm-metric-label {
     font-size: 0.6rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     text-transform: uppercase;
 }
 
@@ -1336,7 +1135,7 @@
 }
 
 .dm-comparison-table th {
-    background: rgba(0,0,0,0.3);
+    background: var(--dm-shade-30);
     font-weight: 600;
     white-space: nowrap;
 }
@@ -1352,7 +1151,7 @@
 }
 
 .dm-comparison-table .band-cell.empty {
-    color: rgba(255,255,255,0.3);
+    color: var(--dm-fg-30);
 }
 
 .dm-comparison-table .poi-row {
@@ -1388,6 +1187,10 @@
     background: #f97316;
 }
 
+.dm-band-type-dot.calibration {
+    background: #f87171;  /* Red-400 — matches annotation + densito */
+}
+
 .dm-comparison-table .diff-cell {
     font-weight: 500;
 }
@@ -1409,13 +1212,13 @@
 
 /* Band Detail: selected lane column */
 .dm-lane-column.selected {
-    background: rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+    background: var(--dm-wash-8);
+    box-shadow: inset 0 0 0 1px var(--dm-line-20);
 }
 
 .dm-lane-column.selected .dm-lane-header {
-    background: rgba(255, 255, 255, 0.15);
-    color: #fff;
+    background: var(--dm-wash-15);
+    color: var(--dm-fg-100);
 }
 
 .dm-lane-header {
@@ -1423,26 +1226,26 @@
 }
 
 .dm-lane-header:hover {
-    background: rgba(255, 255, 255, 0.12) !important;
+    background: var(--dm-wash-12) !important;
 }
 
 /* Chromatogram: selected legend item */
 .dm-legend-item.selected {
-    background: rgba(255, 255, 255, 0.15);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+    background: var(--dm-wash-15);
+    box-shadow: inset 0 0 0 1px var(--dm-line-25);
 }
 
 /* Results table: selected sample column */
 .dm-comparison-table .selected-column {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--dm-wash-6);
 }
 
 .dm-comparison-table th.selected-column {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--dm-wash-12);
 }
 
 .dm-comparison-table th.sample-col:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--dm-wash-10);
 }
 
 /* Smooth transitions for highlight state */
@@ -1627,21 +1430,21 @@
     justify-content: center;
     gap: 8px;
     padding: 12px 24px;
-    background: rgba(0,0,0,0.15);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-15);
+    border-bottom: 1px solid var(--dm-line-8);
 }
 
 .dm-step {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: rgba(255,255,255,0.4);
+    color: var(--dm-fg-40);
     font-size: 0.85rem;
     font-weight: 500;
 }
 
 .dm-step.active {
-    color: #fff;
+    color: var(--dm-fg-100);
 }
 
 .dm-step.completed {
@@ -1655,7 +1458,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255,255,255,0.1);
+    background: var(--dm-wash-10);
     font-size: 0.8rem;
     font-weight: 600;
 }
@@ -1677,7 +1480,7 @@
 .dm-step-connector {
     width: 40px;
     height: 2px;
-    background: rgba(255,255,255,0.15);
+    background: var(--dm-wash-15);
 }
 
 .dm-step-connector.completed {
@@ -1704,8 +1507,8 @@
     flex-wrap: wrap;
     gap: 10px;
     padding: 16px 24px;
-    background: rgba(0,0,0,0.1);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-10);
+    border-bottom: 1px solid var(--dm-line-8);
 }
 
 .dm-gel-filters .dm-filter-select,
@@ -1748,8 +1551,8 @@
 }
 
 .dm-gel-card {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-wash-3);
+    border: 1px solid var(--dm-line-8);
     border-radius: 10px;
     overflow: hidden;
     cursor: pointer;
@@ -1766,7 +1569,7 @@
 .dm-gel-thumbnail {
     width: 100%;
     aspect-ratio: 1/1;
-    background: rgba(0,0,0,0.3);
+    background: var(--dm-shade-30);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1789,7 +1592,7 @@
 
 .dm-gel-thumbnail .dm-placeholder-icon {
     font-size: 2rem;
-    color: rgba(255,255,255,0.2);
+    color: var(--dm-fg-20);
 }
 
 .dm-gel-info {
@@ -1799,7 +1602,7 @@
 .dm-gel-filename {
     font-size: 0.8rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
     margin-bottom: 4px;
     white-space: nowrap;
     overflow: hidden;
@@ -1811,7 +1614,7 @@
     align-items: center;
     gap: 8px;
     font-size: 0.7rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
 }
 
 .dm-gel-type-badge {
@@ -1828,7 +1631,7 @@
     gap: 10px;
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid rgba(255,255,255,0.08);
+    border-top: 1px solid var(--dm-line-8);
     font-size: 0.7rem;
 }
 
@@ -1836,7 +1639,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
 }
 
 .dm-gel-stat i {
@@ -1859,7 +1662,7 @@
     align-items: center;
     justify-content: center;
     padding: 60px 20px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     text-align: center;
 }
 
@@ -1875,10 +1678,10 @@
     width: 100%;
     padding: 12px;
     margin-top: 16px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--dm-wash-5);
+    border: 1px solid var(--dm-line-10);
     border-radius: 8px;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
     font-size: 0.85rem;
     cursor: pointer;
     transition: all 0.15s;
@@ -1887,7 +1690,7 @@
 .dm-load-more:hover {
     background: rgba(59, 130, 246, 0.15);
     border-color: rgba(59, 130, 246, 0.3);
-    color: #fff;
+    color: var(--dm-fg-100);
 }
 
 
@@ -1905,8 +1708,8 @@
     max-width: 600px;
     display: flex;
     flex-direction: column;
-    background: rgba(0,0,0,0.2);
-    border-right: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-20);
+    border-right: 1px solid var(--dm-line-8);
 }
 
 @media (min-width: 1400px) {
@@ -1917,20 +1720,20 @@
 
 .dm-gel-preview-header {
     padding: 12px 16px;
-    background: rgba(0,0,0,0.15);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-15);
+    border-bottom: 1px solid var(--dm-line-8);
 }
 
 .dm-gel-preview-title {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
     margin-bottom: 4px;
 }
 
 .dm-gel-preview-subtitle {
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
 }
 
 .dm-gel-preview-image {
@@ -1951,14 +1754,14 @@
 
 .dm-gel-preview-meta {
     padding: 12px 16px;
-    background: rgba(0,0,0,0.15);
-    border-top: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-15);
+    border-top: 1px solid var(--dm-line-8);
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.6);
+    color: var(--dm-fg-60);
 }
 
 .dm-gel-preview-meta strong {
-    color: #fff;
+    color: var(--dm-fg-100);
 }
 
 .dm-lane-list-panel {
@@ -1971,8 +1774,8 @@
 
 .dm-lane-list-header {
     padding: 12px 16px;
-    background: rgba(0,0,0,0.15);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-15);
+    border-bottom: 1px solid var(--dm-line-8);
     display: flex;
     align-items: center;
     gap: 12px;
@@ -1989,7 +1792,7 @@
     align-items: center;
     gap: 6px;
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
     cursor: pointer;
 }
 
@@ -2009,8 +1812,8 @@
     gap: 12px;
     padding: 12px 14px;
     margin-bottom: 6px;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-wash-2);
+    border: 1px solid var(--dm-line-8);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.15s;
@@ -2045,7 +1848,7 @@
 .dm-lane-name {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--dm-fg-100);
     margin-bottom: 2px;
 }
 
@@ -2053,7 +1856,7 @@
     display: flex;
     gap: 12px;
     font-size: 0.7rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
 }
 
 .dm-lane-tag {
@@ -2086,8 +1889,8 @@
 
 .dm-lane-list-footer {
     padding: 12px 16px;
-    background: rgba(0,0,0,0.15);
-    border-top: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-15);
+    border-top: 1px solid var(--dm-line-8);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2095,7 +1898,7 @@
 
 .dm-selection-count {
     font-size: 0.85rem;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
 }
 
 .dm-selection-count strong {
@@ -2110,8 +1913,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 24px;
-    background: rgba(0,0,0,0.15);
-    border-top: 1px solid rgba(255,255,255,0.08);
+    background: var(--dm-shade-15);
+    border-top: 1px solid var(--dm-line-8);
 }
 
 .dm-wizard-footer-left {
@@ -2129,18 +1932,18 @@
     align-items: center;
     gap: 6px;
     padding: 10px 16px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.15);
+    background: var(--dm-wash-5);
+    border: 1px solid var(--dm-line-15);
     border-radius: 8px;
-    color: rgba(255,255,255,0.8);
+    color: var(--dm-fg-80);
     font-size: 0.85rem;
     cursor: pointer;
     transition: all 0.15s;
 }
 
 .dm-btn-back:hover {
-    background: rgba(255,255,255,0.1);
-    color: #fff;
+    background: var(--dm-wash-10);
+    color: var(--dm-fg-100);
 }
 
 
@@ -2174,7 +1977,7 @@
 .dm-view-toggle {
     display: flex;
     gap: 2px;
-    background: rgba(0,0,0,0.25);
+    background: var(--dm-shade-25);
     border-radius: 5px;
     padding: 2px;
 }
@@ -2182,7 +1985,7 @@
 .dm-view-btn {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.6);
+    color: var(--dm-fg-60);
     padding: 4px 10px;
     font-size: 0.75rem;
     border-radius: 3px;
@@ -2195,8 +1998,8 @@
 }
 
 .dm-view-btn:hover {
-    color: rgba(255,255,255,0.9);
-    background: rgba(255,255,255,0.1);
+    color: var(--dm-fg-90);
+    background: var(--dm-wash-10);
 }
 
 .dm-view-btn.active {
@@ -2248,7 +2051,7 @@
     font-family: 'Roboto Mono', monospace;
     font-size: 12px;
     font-weight: 600;
-    fill: #fff;
+    fill: var(--dm-fg-100);
     text-anchor: middle;
     pointer-events: none;
 }
@@ -2260,7 +2063,7 @@
 
 .dm-poi-threshold-label {
     font-size: 10px;
-    fill: rgba(255,255,255,0.6);
+    fill: var(--dm-fg-60);
 }
 
 .dm-poi-placeholder {
@@ -2270,160 +2073,200 @@
     justify-content: center;
     width: 100%;
     height: 100%;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     text-align: center;
 }
 
-/* ============================================================
- * Phase 8.1: Lane-level comparison table (cmp-* namespace)
- * ============================================================ */
+/* ============================================================================
+   Back link — pill style, page-level navigation back to comparisons list
+   (densitometry.css supplies the base .dm-back-link rule; this file inherits
+   it because the compare template loads densitometry.css first. We re-affirm
+   pill styling here so any compare-page tweaks live alongside the markup.)
+   ============================================================================ */
 
-.cmp-results-container {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    height: 100%;
-    min-height: 0;
-}
-
-.cmp-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 6px 8px;
-    flex-shrink: 0;
-}
-
-.cmp-toolbar-filter {
+.dm-back-link {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.85rem;
-    color: rgba(255,255,255,0.85);
-    cursor: pointer;
-    user-select: none;
+    padding: 4px 12px;
+    background: var(--dm-wash-6);
+    color: var(--dm-fg-soft);
+    text-decoration: none;
+    font-size: 13px;
+    border: 1px solid var(--dm-line-15);
+    border-radius: 999px;
+    transition: all 0.15s ease;
 }
 
-.cmp-toolbar-filter input[type="checkbox"] {
-    accent-color: var(--dm-primary, #8B5CF6);
-    cursor: pointer;
+.dm-back-link:hover {
+    color: var(--dm-fg-100);
+    background: var(--dm-wash-14);
+    border-color: var(--dm-line-30);
 }
 
-.cmp-toolbar-presets {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.85rem;
-    color: rgba(255,255,255,0.7);
-    margin-left: auto;
+.dm-back-link:focus-visible {
+    outline: 2px solid var(--dm-primary, #3b82f6);
+    outline-offset: 2px;
 }
 
-.cmp-results-table-wrapper {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-}
-
-.cmp-comparison-table {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    font-size: 0.8rem;
-}
-
-.cmp-comparison-table th,
-.cmp-comparison-table td {
-    padding: 6px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    white-space: nowrap;
-    text-align: right;
-}
-
-.cmp-comparison-table th.cmp-sticky-left,
-.cmp-comparison-table td.cmp-sticky-left {
-    text-align: left;
-    position: sticky;
-    left: 0;
-    z-index: 2;
-    background: var(--dm-panel-bg, #1a1d29);
-}
-
-.cmp-comparison-table thead th {
-    position: sticky;
-    top: 0;
-    z-index: 3;
-    background: rgba(255,255,255,0.04);
-    color: rgba(255,255,255,0.85);
-    font-weight: 600;
-    text-align: center;
-}
-
-.cmp-comparison-table thead th.cmp-sticky-left {
-    z-index: 4;
-}
-
-.cmp-comparison-table .cmp-section-row > th {
-    border-bottom: 2px solid rgba(255,255,255,0.12);
-    text-transform: uppercase;
-    font-size: 0.7rem;
-    letter-spacing: 0.05em;
-    padding: 6px 8px;
-}
-
-.cmp-comparison-table .cmp-section-identity { color: #93c5fd; }
-.cmp-comparison-table .cmp-section-densito  { color: #6ee7b7; }
-.cmp-comparison-table .cmp-section-quant    { color: #c4b5fd; }
-.cmp-comparison-table .cmp-section-quality  { color: #fca5a5; }
-
-.cmp-comparison-table tbody tr.cmp-lane-row:hover,
-.cmp-comparison-table tbody tr.cmp-band-row:hover {
-    background: rgba(255,255,255,0.04);
-}
-
-.cmp-comparison-table tbody tr.cmp-lane-row.selected,
-.cmp-comparison-table tbody tr.cmp-band-row.selected {
-    background: rgba(139, 92, 246, 0.18);
-}
-
-/* Reuse the existing tint classes from gel_viewer_standalone.css for
- * CALIBRATION + CONTROL row backgrounds — they're loaded site-wide. */
-.cmp-comparison-table tbody tr.gv-table-row--calibration {
-    background-color: rgba(139,92,246,0.08);
-}
-.cmp-comparison-table tbody tr.gv-table-row--control {
-    background-color: rgba(6,182,212,0.08);
-}
-
-.cmp-comparison-table tbody tr.cmp-lane-row.selected.gv-table-row--calibration,
-.cmp-comparison-table tbody tr.cmp-lane-row.selected.gv-table-row--control,
-.cmp-comparison-table tbody tr.cmp-band-row.selected.gv-table-row--calibration,
-.cmp-comparison-table tbody tr.cmp-band-row.selected.gv-table-row--control {
-    background: rgba(139, 92, 246, 0.22);
-}
-
-/* Subscript MW (kDa) for ladder marker rows in the Band cell. */
-.cmp-comparison-table .cmp-band-mw {
-    color: rgba(255,255,255,0.55);
-    font-size: 0.72rem;
-    margin-left: 4px;
-}
-
-.cmp-status {
-    display: inline-block;
-    font-size: 0.95rem;
+.dm-back-link i.bi {
+    font-size: 14px;
     line-height: 1;
 }
-.cmp-status-ok   { color: #10b981; }
-.cmp-status-warn { color: #f59e0b; }
 
-.cmp-muted { color: rgba(255,255,255,0.4); }
+/* ============================================================================
+   Gel comparison by assay (slice 2, 2026-10-12): the readout rows of the band comparison table and the
+   western readout charts of the graphical view. Scoped to the comparison page (.ga-cmp-app): the PD
+   dashboard gel tiles load this file too and must not move (spec I8).
+   ============================================================================ */
+.ga-cmp-app .dm-readout-row td {
+    background: var(--dm-wash-8);
+}
+.ga-cmp-app .dm-readout-row .dm-readout-label {
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-align: left;
+    color: var(--dm-text-secondary);
+    white-space: nowrap;
+}
+.ga-cmp-app .dm-readout-row .dm-readout-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--dm-text-primary);
+}
+.ga-cmp-app .dm-readout-row .dm-readout-value.dm-readout-tone--ok { color: var(--ga-wb-ok, #4ade80); }
+.ga-cmp-app .dm-readout-row .dm-readout-value.dm-readout-tone--warn { color: var(--ga-wb-warn, #fbbf24); }
+.ga-cmp-app .dm-readout-row .dm-readout-value.dm-readout-tone--bad { color: var(--ga-wb-bad, #f87171); }
+.ga-cmp-app .dm-readout-sep td {
+    padding: 4px 8px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dm-text-muted);
+    border-top: 1px solid var(--dm-border-color);
+}
+.ga-cmp-app .dm-readout-view {
+    height: 100%;
+    overflow: auto;
+    padding: 10px 14px;
+    box-sizing: border-box;
+}
+.ga-cmp-app .dm-readout-view .dm-ro-label {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+}
+.ga-cmp-app .dm-readout-gel {
+    flex-basis: 100%;
+    font-size: 0.68rem;
+    color: var(--dm-text-muted);
+}
+.ga-cmp-app .dm-readout-view .dm-ro-label .ga-wb-sw,
+.ga-cmp-app .dm-readout-view .dm-ro-label .ga-wb-ref {
+    flex: 0 0 auto;
+}
+.ga-cmp-app .dm-readout-view .dm-ro-label .dm-readout-sample {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+}
+/* The lane cards: what the lane reads, and its analysis. */
+.ga-cmp-app .dm-sample-card-read {
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: var(--dm-text-secondary);
+}
+.ga-cmp-app .dm-sample-card-read b {
+    font-variant-numeric: tabular-nums;
+    color: var(--dm-text-primary);
+}
+.ga-cmp-app .dm-sample-card-read .dm-readout-muted {
+    font-style: italic;
+}
+.ga-cmp-app .dm-sample-card-link {
+    margin-left: auto;
+    color: var(--dm-text-muted);
+    text-decoration: none;
+}
+.ga-cmp-app .dm-sample-card-link:hover {
+    color: var(--dm-primary);
+}
 
-/* Column-preset visibility */
-.cmp-comparison-table.cmp-preset-minimal .col-preset-standard,
-.cmp-comparison-table.cmp-preset-minimal .col-preset-full {
+/* The lanes side by side (LaneStrips, js/viz/lane-strips.js) in the top-left panel of the comparison page. */
+.ga-cmp-app .ga-cmp-strips {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 6px 8px;
+    box-sizing: border-box;
+}
+.ga-cmp-app .ga-cmp-strips[hidden] {
     display: none;
 }
-.cmp-comparison-table.cmp-preset-standard .col-preset-full {
-    display: none;
+.ga-cmp-app .ga-cmp-lanesview .dm-mode-btn {
+    width: auto;
+    padding: 0 8px;
+    font-size: 0.72rem;
+    white-space: nowrap;
 }
 
+/* ----------------------------------------------------------------------------
+   Phone (<= 700 px), the comparison page only (spec §5, plan 2c): one column that scrolls -- identity row,
+   assay switch, commands, the lane cards (they scroll sideways), the lanes, the graphical view, the band
+   detail, the table. The page is no longer held to the screen's height and the splitters go: a 2x2 grid of
+   90 px panels read nothing on a phone.
+   ---------------------------------------------------------------------------- */
+@media (max-width: 700px) {
+    .dm-app.ga-cmp-app {
+        height: auto;
+        min-height: 100vh;
+    }
+    .ga-cmp-app .dm-viz-host {
+        flex: none;
+        height: auto;
+    }
+    .ga-cmp-app #sample-comparison-app > .ga-viz-root {
+        height: auto;
+    }
+    .ga-cmp-app .dm-main {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+    }
+    .ga-cmp-app .dm-row-top,
+    .ga-cmp-app .dm-row-bottom {
+        flex: none;
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+    }
+    .ga-cmp-app .dm-splitter {
+        display: none;
+    }
+    .ga-cmp-app .dm-row-top .dm-panel-gel-overview,
+    .ga-cmp-app .dm-row-top .dm-panel-chromatogram,
+    .ga-cmp-app .dm-row-bottom .dm-panel-band-detail,
+    .ga-cmp-app .dm-row-bottom .dm-panel-results {
+        flex: none;
+        width: auto;
+        min-width: 0;
+        height: 380px;
+    }
+    .ga-cmp-app .dm-row-bottom .dm-panel-results {
+        height: 440px;
+    }
+    .ga-cmp-app .dm-panel-header {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .ga-cmp-app .ga-wb-kinds {
+        flex: 1 1 100%;
+    }
+}

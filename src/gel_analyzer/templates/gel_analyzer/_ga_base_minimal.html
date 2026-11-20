@@ -1,0 +1,34 @@
+{% load static %}<!DOCTYPE html>
+{% comment %}
+The base of the three gel workbench screens (annotation editor, densitometry, comparison) and of the
+template studio: a bare page, no application chrome -- each screen brings its own header
+(workbench/_identity.html) and takes the whole window.
+
+Ported from ds-hub-django. No CDN (AGENTS.md §1): the icon font is the copy phoresis_ui vendors, and
+the stylesheets' 'Inter' / 'Roboto' fall back to the system fonts their font-family lists name.
+{% endcomment %}
+<html lang="{{ request.user.profile.language|default:'en' }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Gel Analyzer — Phoresis{% endblock %}</title>
+
+    <link rel="icon" type="image/x-icon" href="{% static 'phoresis_ui/icons/phoresis.ico' %}">
+    <link rel="icon" type="image/svg+xml" href="{% static 'phoresis_ui/icons/phoresis.svg' %}">
+
+    <link rel="stylesheet" href="{% static 'phoresis_ui/css/vendor/bootstrap-icons/bootstrap-icons.css' %}">
+
+    {# Day / night: a page that offers it includes gel_analyzer/workbench/_theme_head.html here, #}
+    {# BEFORE its stylesheets (no dark flash). Empty by default: the template studio keeps its look. #}
+    {% block theme_head %}{% endblock %}
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="ga-minimal">
+    {% block content %}{% endblock %}
+
+    {# window.gaToast: the gel pages' one notice helper. #}
+    <script src="{% static 'gel_analyzer/js/ga-toast.js' %}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -50,6 +50,160 @@
 
     /* Transitions */
     --dm-transition: 0.2s ease;
+
+    /* Washes, hairlines, shades and floating controls drawn over the panels (the
+       comparison tiles reach them). Night: white / black at the alpha the rules had
+       inline. The day values live in the :root[data-theme="light"] block below. */
+    --dm-fg-100: #ffffff;
+    --dm-fg-90: rgba(255,255,255,0.9);
+    --dm-fg-80: rgba(255, 255, 255, 0.8);
+    --dm-fg-60: rgba(255,255,255,0.6);
+    --dm-fg-50: rgba(255,255,255,0.5);
+    --dm-fg-30: rgba(255,255,255,0.3);
+    --dm-wash-8: rgba(255, 255, 255, 0.08);
+    --dm-wash-10: rgba(255, 255, 255, 0.1);
+    --dm-wash-12: rgba(255, 255, 255, 0.12);
+    --dm-wash-15: rgba(255, 255, 255, 0.15);
+    --dm-line-10: rgba(255, 255, 255, 0.1);
+    --dm-line-20: rgba(255, 255, 255, 0.2);
+    --dm-line-25: rgba(255, 255, 255, 0.25);
+    --dm-line-40: rgba(255, 255, 255, 0.4);
+    --dm-line-50: rgba(255,255,255,0.5);
+    --dm-shade-15: rgba(0,0,0,0.15);
+    --dm-shade-20: rgba(0, 0, 0, 0.2);
+    --dm-shade-25: rgba(0,0,0,0.25);
+    --dm-shade-30: rgba(0, 0, 0, 0.3);
+    --dm-shade-45: rgba(0,0,0,0.45);
+    --dm-float-bg: rgba(0, 0, 0, 0.6);
+    --dm-float-bg-hover: rgba(0, 0, 0, 0.8);
+    --dm-float-panel: rgba(0, 0, 0, 0.75);
+    /* comparison.css's alphas (2026-10-12, its Night | Day): night = the literal they replace. */
+    --dm-fg-20: rgba(255,255,255,0.2);
+    --dm-fg-35: rgba(255,255,255,0.35);
+    --dm-fg-40: rgba(255,255,255,0.4);
+    --dm-fg-45: rgba(255,255,255,0.45);
+    --dm-fg-65: rgba(255,255,255,0.65);
+    --dm-fg-70: rgba(255,255,255,0.7);
+    --dm-fg-85: rgba(255,255,255,0.85);
+    --dm-fg-95: rgba(255,255,255,0.95);
+    --dm-line-12: rgba(255,255,255,0.12);
+    --dm-line-15: rgba(255,255,255,0.15);
+    --dm-line-30: rgba(255,255,255,0.3);
+    --dm-line-5: rgba(255,255,255,0.05);
+    --dm-line-6: rgba(255,255,255,0.06);
+    --dm-line-8: rgba(255,255,255,0.08);
+    --dm-shade-10: rgba(0,0,0,0.1);
+    --dm-shade-40: rgba(0,0,0,0.4);
+    --dm-wash-14: rgba(255, 255, 255, 0.14);
+    --dm-wash-2: rgba(255,255,255,0.02);
+    --dm-wash-25: rgba(255,255,255,0.25);
+    --dm-wash-3: rgba(255,255,255,0.03);
+    --dm-wash-4: rgba(255,255,255,0.04);
+    --dm-wash-5: rgba(255,255,255,0.05);
+    --dm-wash-6: rgba(255,255,255,0.06);
+    --dm-option-bg: #2d2d2d;
+    --dm-fg-soft: #e2e8f0;
+    --dm-invert: #f59e0b;
+    --dm-bands: #a855f7;
+    /* The Measurements > Bands table (2026-10-13): its column names, the toolbar, the
+       section row's tints. Night = the literal each replaces. */
+    --dm-fg-55: rgba(255,255,255,0.55);
+    --dm-fg-75: rgba(255,255,255,0.75);
+    --dm-section-identity: #93C5FD;
+    --dm-section-densito: #FBBF24;
+    --dm-section-quant: #C4B5FD;
+    --dm-section-quality: #6EE7B7;
+    /* A link's hover (the report modal's Select All / None, 2026-10-16): lighter at night, darker by day. */
+    --dm-link-hover: #60a5fa;
+}
+
+/* Day mode: `data-theme="light"` on <html> (process_development/js/lib/dsh-theme.js),
+   set only by hosts that offer it (the PD dashboard); every other page keeps the dark
+   look above. Same roles, light surfaces, slate ink, darker accents that hold on white. */
+:root[data-theme="light"] {
+    --dm-primary: #2563eb;
+    --dm-primary-dark: #1d4ed8;
+    --dm-secondary: #475569;
+    --dm-success: #15803d;
+    --dm-warning: #a16207;
+    --dm-danger: #dc2626;
+    --dm-danger-dark: #b91c1c;
+
+    --dm-poi-color: #15803d;
+    --dm-other-color: #6b7280;
+    --dm-mw-ref-color: #a16207;
+
+    --dm-bg-dark: #f8fafc;
+    --dm-bg-panel: #ffffff;
+    --dm-bg-panel-header: #f1f5f9;
+    --dm-bg-input: #ffffff;
+
+    --dm-text-primary: #0f172a;
+    --dm-text-secondary: #475569;
+    --dm-text-muted: #64748b;
+
+    --dm-border-color: #e2e8f0;
+    --dm-border-light: #cbd5e1;
+
+    --dm-shadow-xl: 0 20px 40px -4px rgba(15, 23, 42, 0.18);
+
+    --dm-fg-100: #0f172a;
+    --dm-fg-90: #1e293b;
+    --dm-fg-80: #334155;
+    --dm-fg-60: #334155;
+    --dm-fg-50: #475569;
+    --dm-fg-30: #94a3b8;
+    --dm-wash-8: rgba(15, 23, 42, 0.05);
+    --dm-wash-10: rgba(15, 23, 42, 0.06);
+    --dm-wash-12: rgba(15, 23, 42, 0.07);
+    --dm-wash-15: rgba(15, 23, 42, 0.08);
+    --dm-line-10: rgba(15, 23, 42, 0.08);
+    --dm-line-20: rgba(15, 23, 42, 0.16);
+    --dm-line-25: rgba(15, 23, 42, 0.2);
+    --dm-line-40: rgba(15, 23, 42, 0.3);
+    --dm-line-50: rgba(15, 23, 42, 0.35);
+    --dm-shade-15: rgba(15, 23, 42, 0.03);
+    --dm-shade-20: rgba(15, 23, 42, 0.04);
+    --dm-shade-25: rgba(15, 23, 42, 0.05);
+    --dm-shade-30: rgba(15, 23, 42, 0.05);
+    --dm-shade-45: rgba(15, 23, 42, 0.08);
+    --dm-float-bg: rgba(255, 255, 255, 0.9);
+    --dm-float-bg-hover: #ffffff;
+    --dm-float-panel: rgba(255, 255, 255, 0.94);
+    --dm-fg-20: #94a3b8;
+    --dm-fg-35: #64748b;
+    --dm-fg-40: #64748b;
+    --dm-fg-45: #475569;
+    --dm-fg-65: #334155;
+    --dm-fg-70: #334155;
+    --dm-fg-85: #1e293b;
+    --dm-fg-95: #0f172a;
+    --dm-line-12: rgba(15, 23, 42, 0.096);
+    --dm-line-15: rgba(15, 23, 42, 0.12);
+    --dm-line-30: rgba(15, 23, 42, 0.24);
+    --dm-line-5: rgba(15, 23, 42, 0.04);
+    --dm-line-6: rgba(15, 23, 42, 0.048);
+    --dm-line-8: rgba(15, 23, 42, 0.064);
+    --dm-shade-10: rgba(15, 23, 42, 0.017);
+    --dm-shade-40: rgba(15, 23, 42, 0.068);
+    --dm-wash-14: rgba(15, 23, 42, 0.084);
+    --dm-wash-2: rgba(15, 23, 42, 0.012);
+    --dm-wash-25: rgba(15, 23, 42, 0.15);
+    --dm-wash-3: rgba(15, 23, 42, 0.018);
+    --dm-wash-4: rgba(15, 23, 42, 0.024);
+    --dm-wash-5: rgba(15, 23, 42, 0.03);
+    --dm-wash-6: rgba(15, 23, 42, 0.036);
+    --dm-option-bg: #ffffff;
+    --dm-fg-soft: #1e293b;
+    --dm-invert: #b45309;
+    --dm-bands: #9333ea;
+    --dm-fg-55: #475569;
+    --dm-fg-75: #334155;
+    --dm-section-identity: #1d4ed8;
+    --dm-section-densito: #b45309;
+    --dm-section-quant: #6d28d9;
+    --dm-section-quality: #047857;
+    --dm-link-hover: #1d4ed8;
 }
 
 /* ============================================================================
@@ -103,33 +257,30 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 12px 5px 10px;
-    /* Use a brighter foreground than text-secondary — the previous slate
-     * was washed out against the panel header background, making the
-     * button visually disappear. */
-    color: rgba(255, 255, 255, 0.92);
+    padding: 4px 12px;
+    background: var(--dm-bg-panel-header, #334155);
+    color: var(--dm-text-primary, #e2e8f0);
     text-decoration: none;
     font-size: 13px;
-    font-weight: 500;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--dm-border-light, #475569);
+    border-radius: 999px;
     transition: all var(--dm-transition);
 }
 
 .dm-back-link:hover {
-    color: #fff;
-    background: rgba(59, 130, 246, 0.2);
-    border-color: rgba(59, 130, 246, 0.5);
+    color: var(--dm-primary);
+    background-color: rgba(59, 130, 246, 0.12);
+    border-color: var(--dm-primary, #3b82f6);
 }
 
-/* The {% icon %} tag emits an <svg><use href="…lucide#…"/></svg> — the
- * <use> element needs an explicit stroke off the parent's currentColor
- * to actually render in some browsers, hence the explicit override. */
-.dm-back-link svg {
-    stroke: currentColor;
-    fill: none;
-    flex-shrink: 0;
+.dm-back-link:focus-visible {
+    outline: 2px solid var(--dm-primary, #3b82f6);
+    outline-offset: 2px;
+}
+
+.dm-back-link i.bi {
+    font-size: 14px;
+    line-height: 1;
 }
 
 .dm-title {
@@ -310,6 +461,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     padding: 8px 16px;
     font-size: 0.875rem;
     font-weight: 500;
@@ -465,6 +617,11 @@
     border-color: var(--dm-primary);
 }
 
+.dm-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* ============================================================================
    Progress Bar
    ============================================================================ */
@@ -589,23 +746,32 @@
     display: flex;
     flex-direction: column;
     padding: var(--dm-panel-gap);
-    gap: var(--dm-panel-gap);
+    /* Splitter elements (.dm-splitter-h) sit between rows in place of a gap. */
+    gap: 0;
     overflow: hidden;
+
+    /* Resizable layout — JS updates these via .style.setProperty() on .dm-app */
+    --dm-row-top-pct: 50%;
+    --dm-gel-overview-pct: 35%;
+    --dm-band-detail-pct: 35%;
 }
 
 .dm-panel-row {
     display: flex;
-    gap: var(--dm-panel-gap);
+    /* Vertical splitters (.dm-splitter-v) replace the gap between panels. */
+    gap: 0;
     flex: 1;
     min-height: 0;
 }
 
 .dm-row-top {
-    flex: 1;
+    flex: 0 0 var(--dm-row-top-pct);
+    min-height: 120px;
 }
 
 .dm-row-bottom {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 120px;
 }
 
 /* ============================================================================
@@ -619,22 +785,118 @@
     border: 1px solid var(--dm-border-color);
     border-radius: var(--dm-panel-radius);
     overflow: visible;  /* Allow tooltips to overflow */
+    min-width: 0;
 }
 
 .dm-panel-gel-overview {
-    flex: 0 0 35%;
+    flex: 0 0 var(--dm-gel-overview-pct);
+    min-width: 180px;
 }
 
 .dm-panel-chromatogram {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 240px;
 }
 
 .dm-panel-band-detail {
-    flex: 0 0 35%;
+    flex: 0 0 var(--dm-band-detail-pct);
+    min-width: 180px;
 }
 
 .dm-panel-results {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 240px;
+}
+
+/* ============================================================================
+   Resizable Splitters
+   Drag handles between the 4 main panels. Visual is a 1px line centered
+   inside a wider hit area for easier mouse targeting. Drag is handled by
+   panel-splitter.js; double-click resets the corresponding axis.
+   ============================================================================ */
+
+.dm-splitter {
+    position: relative;
+    flex-shrink: 0;
+    background: transparent;
+    transition: background-color 0.12s ease;
+    z-index: 5;
+}
+
+.dm-splitter::before {
+    content: '';
+    position: absolute;
+    background: var(--dm-border-color);
+    transition: background-color 0.12s ease;
+    pointer-events: none;
+}
+
+.dm-splitter-h {
+    width: 100%;
+    height: var(--dm-panel-gap, 8px);
+    cursor: row-resize;
+    margin: 0;
+}
+
+.dm-splitter-h::before {
+    top: 50%;
+    left: 16px;
+    right: 16px;
+    height: 1px;
+    transform: translateY(-50%);
+}
+
+.dm-splitter-v {
+    width: var(--dm-panel-gap, 8px);
+    align-self: stretch;
+    cursor: col-resize;
+    margin: 0;
+}
+
+.dm-splitter-v::before {
+    left: 50%;
+    top: 16px;
+    bottom: 16px;
+    width: 1px;
+    transform: translateX(-50%);
+}
+
+.dm-splitter:hover,
+.dm-splitter:focus-visible,
+.dm-splitter.is-dragging {
+    background: rgba(59, 130, 246, 0.12);
+    outline: none;
+}
+
+.dm-splitter:hover::before,
+.dm-splitter:focus-visible::before,
+.dm-splitter.is-dragging::before {
+    background: var(--dm-primary, #3b82f6);
+}
+
+.dm-splitter-h:hover::before,
+.dm-splitter-h:focus-visible::before,
+.dm-splitter-h.is-dragging::before {
+    height: 2px;
+}
+
+.dm-splitter-v:hover::before,
+.dm-splitter-v:focus-visible::before,
+.dm-splitter-v.is-dragging::before {
+    width: 2px;
+}
+
+/* While dragging, force cursor + disable text selection across the whole page. */
+body.dm-splitter-dragging-h,
+body.dm-splitter-dragging-h * {
+    cursor: row-resize !important;
+    user-select: none !important;
+}
+
+body.dm-splitter-dragging-v,
+body.dm-splitter-dragging-v * {
+    cursor: col-resize !important;
+    user-select: none !important;
 }
 
 .dm-panel-header {
@@ -650,7 +912,7 @@
 }
 
 .dm-panel-title {
-    font-size: 13px;
+    font-size: calc(13px * var(--pdd-font-scale, 1));
     font-weight: 500;
 }
 
@@ -820,7 +1082,7 @@
     padding: 8px 12px;
     background-color: rgba(0, 0, 0, 0.9);
     color: white;
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--pdd-font-scale, 1));
     border-radius: 4px;
     pointer-events: none;
     max-width: 200px;
@@ -917,7 +1179,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--dm-shade-20);
     border-radius: 8px;
     border: 1px solid var(--dm-border-color);
     padding: 8px;
@@ -1004,7 +1266,7 @@
     align-items: center;
     justify-content: center;
     position: relative;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--dm-shade-20);
     border-radius: 8px;
     border: 1px solid var(--dm-border-color);
     overflow: hidden;
@@ -1119,7 +1381,7 @@
 
 .dm-mw-value {
     margin-left: 4px;
-    font-size: 0.6rem;
+    font-size: calc(0.6rem * var(--pdd-font-scale, 1));
     color: var(--dm-text-secondary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -1142,7 +1404,7 @@
 .dm-mode-toggle {
     display: flex;
     gap: 2px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--dm-shade-20);
     border-radius: 4px;
     padding: 2px;
 }
@@ -1173,7 +1435,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 6px 8px;
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: var(--dm-shade-20);
     font-size: 0.75rem;
     color: var(--dm-text-secondary);
 }
@@ -1233,7 +1495,7 @@
     align-items: center;
     gap: 16px;
     padding: 8px 12px;
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: var(--dm-shade-20);
     border-bottom: 1px solid var(--dm-border-color);
 }
 
@@ -1372,7 +1634,7 @@
     gap: 8px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--dm-border-color);
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: var(--dm-shade-20);
 }
 
 .dm-chip {
@@ -1549,7 +1811,7 @@
 .dm-results-footer {
     padding: 10px 12px;
     border-top: 1px solid var(--dm-border-color);
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: var(--dm-shade-20);
 }
 
 .dm-summary-stats {
@@ -1697,6 +1959,65 @@
    Responsive
    ============================================================================ */
 
+/* Header compact mode — mirrors the gel-viewer toolbar approach.
+   The densitometry header has 6 wide action buttons (Annotate, Compare
+   Lanes, Run Analysis, Quantification, Export CSV, Report) + back-link
+   + title + normalization dropdown. At ~1280px the natural row width
+   bumps against the right edge; at ~1050px the action buttons need to
+   collapse to icon-only or they'd push the normalization dropdown into
+   wrap mode unnecessarily. The 768px breakpoint below already wraps
+   the row — these intermediate rungs keep everything on one line longer. */
+@media (max-width: 1280px) {
+    .dm-header {
+        padding: 0 12px;
+    }
+    .dm-header-right {
+        gap: 6px;
+    }
+    .dm-btn {
+        padding: 6px 10px;
+        font-size: 0.8125rem;
+    }
+}
+
+@media (max-width: 1050px) {
+    /* Collapse all action buttons to icon-only. The dm-btn-label span
+       wraps the visible text (added in the template alongside this CSS).
+       The data-tooltip="..." attribute on each button restores the full
+       label on hover, so functionality is preserved. */
+    .dm-header-right .dm-btn-label {
+        display: none;
+    }
+    .dm-header-right .dm-btn {
+        padding: 6px 8px;
+        min-width: 32px;
+        gap: 0;
+    }
+    .dm-header-right .dm-btn i.bi {
+        font-size: 16px;
+    }
+    /* Back-link to icon-only on narrow viewports — matches gel-viewer. */
+    .dm-back-link span {
+        display: none;
+    }
+    .dm-back-link {
+        padding: 4px 8px;
+        gap: 0;
+    }
+    /* Subtitle "Densitometry Analysis" can disappear — context is clear
+       from the URL and the header chrome. */
+    .dm-subtitle {
+        display: none;
+    }
+    .dm-title {
+        font-size: 0.95rem;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
 /* Tablet landscape */
 @media (max-width: 1024px) {
     .dm-panel-row {
@@ -1833,7 +2154,7 @@
     }
 
     .dm-panel-title {
-        font-size: 0.8rem;
+        font-size: calc(0.8rem * var(--pdd-font-scale, 1));
     }
 
     .dm-section-header {
@@ -1979,7 +2300,7 @@
     display: flex;
     gap: 12px;
     justify-content: flex-end;
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--dm-shade-15);
     border-top: 1px solid var(--dm-border-color);
 }
 
@@ -2051,7 +2372,7 @@
     align-items: flex-start;
     gap: 12px;
     padding: 16px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--dm-shade-20);
     border: 2px solid var(--dm-border-color);
     border-radius: 8px;
     cursor: pointer;
@@ -2310,7 +2631,7 @@
     display: inline-block;
     padding: 2px 6px;
     border-radius: 3px;
-    font-size: 0.65rem;
+    font-size: calc(0.65rem * var(--pdd-font-scale, 1));
     font-weight: 600;
     text-transform: uppercase;
     margin-bottom: 4px;
@@ -2581,18 +2902,18 @@
     width: 28px;
     height: 28px;
     padding: 0;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--dm-float-bg);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--dm-fg-80);
     cursor: pointer;
     transition: all 0.15s ease;
 }
 
 .dm-zoom-btn:hover {
-    background: rgba(0, 0, 0, 0.8);
+    background: var(--dm-float-bg-hover);
     border-color: var(--dm-primary);
-    color: white;
+    color: var(--dm-fg-100);
 }
 
 .dm-zoom-btn:active {
@@ -2611,8 +2932,8 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    background: rgba(0, 0, 0, 0.75);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--dm-float-panel);
+    border: 1px solid var(--dm-line-20);
     border-radius: 6px;
     backdrop-filter: blur(4px);
     z-index: 10;
@@ -2636,8 +2957,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid var(--dm-line-10);
+    background: var(--dm-shade-30);
 }
 
 .dm-chart-legend-panel.collapsed .dm-legend-header {
@@ -2647,7 +2968,7 @@
 }
 
 .dm-legend-title {
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--pdd-font-scale, 1));
     font-weight: 600;
     color: var(--dm-text-secondary);
     text-transform: uppercase;
@@ -2670,7 +2991,7 @@
 }
 
 .dm-legend-toggle:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--dm-wash-10);
     color: var(--dm-text-primary);
 }
 
@@ -2696,7 +3017,7 @@
 }
 
 .dm-legend-item:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--dm-wash-10);
 }
 
 .dm-legend-item.hidden-trace {
@@ -2711,7 +3032,7 @@
     height: 22px;
     padding: 0;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--dm-line-20);
     color: var(--dm-text-secondary);
     cursor: pointer;
     border-radius: 3px;
@@ -2720,8 +3041,8 @@
 }
 
 .dm-visibility-toggle:hover {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.4);
+    background: var(--dm-wash-15);
+    border-color: var(--dm-line-40);
     color: var(--dm-text-primary);
 }
 
@@ -2730,7 +3051,7 @@
 }
 
 .dm-legend-item.hidden-trace .dm-visibility-toggle {
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--dm-line-10);
 }
 
 .dm-legend-swatch {
@@ -2741,7 +3062,7 @@
 }
 
 .dm-legend-label {
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--pdd-font-scale, 1));
     color: var(--dm-text-primary);
     white-space: nowrap;
     overflow: hidden;
@@ -2758,9 +3079,9 @@
 .dm-gel-enhance-btn,
 .dm-gel-invert-btn {
     background: none;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     padding: 2px 6px;
     cursor: pointer;
     font-size: 0.8rem;
@@ -2768,38 +3089,38 @@
 }
 .dm-gel-enhance-btn:hover,
 .dm-gel-invert-btn:hover {
-    border-color: rgba(255,255,255,0.5);
-    color: rgba(255,255,255,0.8);
+    border-color: var(--dm-line-50);
+    color: var(--dm-fg-80);
 }
 .dm-gel-enhance-btn.active {
-    color: #3b82f6;
-    border-color: #3b82f6;
+    color: var(--dm-primary);
+    border-color: var(--dm-primary);
     background: rgba(59,130,246,0.15);
 }
 .dm-gel-invert-btn.active {
-    color: #f59e0b;
-    border-color: #f59e0b;
+    color: var(--dm-invert);
+    border-color: var(--dm-invert);
     background: rgba(245,158,11,0.15);
 }
 
 /* Band overlay toggle */
 .dm-gel-bands-toggle {
     background: none;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--dm-line-20);
     border-radius: 4px;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
     padding: 2px 6px;
     cursor: pointer;
     font-size: 0.8rem;
     transition: all 0.15s;
 }
 .dm-gel-bands-toggle.active {
-    color: #a855f7;
-    border-color: #a855f7;
+    color: var(--dm-bands);
+    border-color: var(--dm-bands);
     background: rgba(168,85,247,0.15);
 }
 .dm-gel-bands-toggle:hover {
-    border-color: rgba(255,255,255,0.5);
+    border-color: var(--dm-line-50);
 }
 
 /* Expand button in panel header */
@@ -2815,7 +3136,7 @@
 }
 
 .dm-panel-expand-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--dm-wash-10);
     color: var(--dm-primary);
 }
 
@@ -3264,6 +3585,10 @@
 
 /* ────────────────────────────────────────────────────────────────
    Report Configuration Modal
+   The ONE copy of the .dm-report-* rules: the densitometry page loads only this file, the
+   comparison page loads it before comparison.css (which keeps its #report-config-modal frame).
+   Colours are --dm-* tokens: a second copy, tokenised on 2026-10-12 while this one kept its
+   literal whites, left the densitometry modal white on white by day (2026-10-16).
    ──────────────────────────────────────────────────────────────── */
 
 .dm-report-field-group {
@@ -3275,7 +3600,7 @@
     font-size: 0.8rem;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-weight: 500;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -3302,11 +3627,11 @@
     gap: 4px;
     padding: 14px 10px;
     border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    border: 2px solid rgba(255,255,255,0.1);
+    background: var(--dm-wash-4);
+    border: 2px solid var(--dm-line-10);
     transition: all 0.15s ease;
     text-align: center;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 0.85rem;
     font-weight: 500;
@@ -3320,18 +3645,18 @@
 .dm-report-format-card small {
     font-size: 0.7rem;
     font-weight: 400;
-    color: rgba(255,255,255,0.4);
+    color: var(--dm-fg-40);
 }
 
 .dm-report-format-option input:checked + .dm-report-format-card {
     border-color: var(--dm-primary, #3b82f6);
     background: rgba(59,130,246,0.12);
-    color: #fff;
+    color: var(--dm-fg-100);
 }
 
 .dm-report-format-option:hover .dm-report-format-card {
-    border-color: rgba(255,255,255,0.25);
-    background: rgba(255,255,255,0.06);
+    border-color: var(--dm-line-25);
+    background: var(--dm-wash-6);
 }
 
 .dm-report-sections-header {
@@ -3358,11 +3683,11 @@
 }
 
 .dm-report-toggle-links a:hover {
-    color: #60a5fa;
+    color: var(--dm-link-hover);
 }
 
 .dm-report-toggle-sep {
-    color: rgba(255,255,255,0.2);
+    color: var(--dm-fg-20);
     margin: 0 4px;
 }
 
@@ -3393,7 +3718,7 @@
     padding: 8px 10px;
     border-radius: 6px;
     cursor: pointer;
-    color: rgba(255,255,255,0.95);
+    color: var(--dm-fg-95);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 0.85rem;
     font-weight: 600;
@@ -3401,7 +3726,7 @@
 }
 
 .dm-report-group-header:hover {
-    background: rgba(255,255,255,0.05);
+    background: var(--dm-wash-5);
 }
 
 .dm-report-group-header input[type="checkbox"] {
@@ -3412,7 +3737,7 @@
 
 .dm-report-group-chevron {
     font-size: 0.7rem;
-    color: rgba(255,255,255,0.4);
+    color: var(--dm-fg-40);
     transition: transform 0.15s ease;
 }
 
@@ -3422,7 +3747,7 @@
 
 .dm-report-group-children {
     padding-left: 18px;
-    border-left: 2px solid rgba(255,255,255,0.06);
+    border-left: 2px solid var(--dm-line-6);
     margin-left: 18px;
     transition: opacity 0.15s ease;
 }
@@ -3440,7 +3765,7 @@
     padding: 7px 10px;
     border-radius: 6px;
     cursor: pointer;
-    color: rgba(255,255,255,0.85);
+    color: var(--dm-fg-85);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 0.85rem;
     font-weight: 400;
@@ -3448,7 +3773,7 @@
 }
 
 .dm-report-section-option:hover {
-    background: rgba(255,255,255,0.05);
+    background: var(--dm-wash-5);
 }
 
 .dm-report-section-option input[type="checkbox"] {
@@ -3466,7 +3791,7 @@
 .dm-report-sub-option {
     padding-left: 36px;
     font-size: 0.8rem;
-    color: rgba(255,255,255,0.65);
+    color: var(--dm-fg-65);
 }
 
 .dm-report-sub-option input[type="checkbox"] {
@@ -3480,7 +3805,7 @@
     background: rgba(249,115,22,0.1);
     border: 1px solid rgba(249,115,22,0.25);
     border-radius: 6px;
-    color: rgba(255,255,255,0.7);
+    color: var(--dm-fg-70);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 0.8rem;
     font-weight: 400;
@@ -3491,14 +3816,8 @@
     justify-content: flex-end;
     gap: 8px;
     padding: 16px 24px;
-    border-top: 1px solid rgba(255,255,255,0.08);
+    border-top: 1px solid var(--dm-line-8);
 }
-
-/* =====================================================================
- * Quantification curve sub-view (4th option of the Graphical View toggle,
- * alongside Electropherogram / 3D Mountain / POI Purity). Visibility is
- * managed by switchView() in densitometry.html.
- * =================================================================== */
 .dm-quantification-container {
     /* Overlay the entire .dm-panel-content like .dm-poi-purity-container.
        The previous "flex 1 1 auto" approach left it inheriting normal flow
@@ -3586,6 +3905,13 @@
     height: 100%;
 }
 
+/* The `display: flex` above outranks the UA `[hidden]` rule: without this,
+   the empty-state copy stays under a drawn curve (chromatogram-panel.js
+   toggles `hidden`). */
+.dm-quantification-empty-wrap[hidden] {
+    display: none;
+}
+
 .dm-tab-empty {
     color: rgba(255,255,255,0.5);
     font-size: 0.85rem;
@@ -3604,28 +3930,45 @@
 }
 
 .dm-table--lane-level thead th {
-    background: rgba(255,255,255,0.04);
-    color: rgba(255,255,255,0.75);
+    /* Opaque background — the rgba(255,255,255,0.04) tint stacks on top
+       of the panel bg, but as a STICKY layer it would let the scrolled
+       tbody rows bleed through (the user reported overlap when scrolling
+       past the second header row). Composite the tint over the panel
+       background so the sticky header is fully opaque. */
+    background: linear-gradient(var(--dm-wash-4), var(--dm-wash-4)),
+                var(--dm-bg-panel);
+    color: var(--dm-fg-75);
     font-weight: 600;
     padding: 6px 8px;
     text-align: left;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid var(--dm-line-8);
     position: sticky;
-    top: 0;
     z-index: 2;
 }
 
+/* Two-row sticky header — first row (section groups: IDENTITY / DENSITO
+   / QUANTIFICATION / QUALITY) pins at top: 0. Second row (column names:
+   Lane# / Type / Sample / ...) pins at top equal to the height of the
+   first row (~30px with font-size: 0.72rem + 6px+6px padding). Without
+   this both rows tried to occupy top: 0 and overlapped messily once any
+   tbody content scrolled under them. */
 .dm-table--lane-level thead tr:first-child th {
+    top: 0;
     text-align: center;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     font-size: 0.72rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--dm-fg-50);
+}
+
+.dm-table--lane-level thead tr:nth-child(2) th {
+    top: 30px;
+    z-index: 2;
 }
 
 .dm-table--lane-level tbody td {
     padding: 6px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
+    border-bottom: 1px solid var(--dm-wash-4);
     vertical-align: middle;
 }
 
@@ -3645,9 +3988,26 @@
     background: rgba(139,92,246,0.18);
 }
 
+/* A saturated band (its pixels clipped by the scanner) in the Band cell: the warning colour, day and night. */
+.dm-saturated-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--dm-warning) 55%, transparent);
+    color: var(--dm-warning);
+    background: color-mix(in srgb, var(--dm-warning) 14%, transparent);
+    cursor: help;
+}
+
 /* Subscript MW (kDa) for ladder marker rows in the Band cell. */
 .dm-table--lane-level .dm-band-mw {
-    color: rgba(255,255,255,0.55);
+    color: var(--dm-fg-55);
     font-size: 0.72rem;
     margin-left: 4px;
 }
@@ -3677,10 +4037,10 @@
 .dm-table--lane-level tr.gv-table-row--control     { background-color: rgba(6,182,212,0.08); }
 
 /* Section header tints on the grouped header */
-.dm-table--lane-level .dm-section-identity { color: #93C5FD !important; }
-.dm-table--lane-level .dm-section-densito  { color: #FBBF24 !important; }
-.dm-table--lane-level .dm-section-quant    { color: #C4B5FD !important; }
-.dm-table--lane-level .dm-section-quality  { color: #6EE7B7 !important; }
+.dm-table--lane-level .dm-section-identity { color: var(--dm-section-identity) !important; }
+.dm-table--lane-level .dm-section-densito  { color: var(--dm-section-densito) !important; }
+.dm-table--lane-level .dm-section-quant    { color: var(--dm-section-quant) !important; }
+.dm-table--lane-level .dm-section-quality  { color: var(--dm-section-quality) !important; }
 
 /* Drill-down sub-table */
 .dm-lane-subrow > td {
@@ -3725,6 +4085,34 @@
     font-weight: 700;
 }
 
+/* Calibration range of an estimated amount (results table, quantification modal):
+   outside the standards' areas the amount is extrapolated -- kept, flagged. */
+.dm-range-chip {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.dm-range-chip--in {
+    color: var(--dm-text-muted);
+}
+
+.dm-range-chip--out {
+    color: var(--dm-warning);
+    border-color: var(--dm-warning);
+}
+
+#quantification-modal .dm-range-chip {
+    margin-left: 0; /* alone in its Range cell */
+}
+
 .dm-table-presets {
     display: flex;
     align-items: center;
@@ -3734,14 +4122,14 @@
 }
 
 .dm-table-presets label {
-    color: rgba(255,255,255,0.55);
+    color: var(--dm-fg-55);
     font-size: 0.78rem;
 }
 
 #dm-table-preset {
-    background: rgba(0,0,0,0.25);
-    border: 1px solid rgba(255,255,255,0.08);
-    color: #fff;
+    background: var(--dm-shade-25);
+    border: 1px solid var(--dm-line-8);
+    color: var(--dm-fg-100);
     border-radius: 4px;
     padding: 2px 6px;
     font-size: 0.78rem;
@@ -3753,6 +4141,7 @@
 .dm-table--lane-level.dm-preset-minimal .col-preset-standard,
 .dm-table--lane-level.dm-preset-minimal .col-preset-full { display: none; }
 .dm-table--lane-level.dm-preset-standard .col-preset-full { display: none; }
+
 
 /* ============================================================================
    Quantification Modal (#quantification-modal)
@@ -3781,6 +4170,14 @@
     width: auto;
     max-width: none;
     animation: none;
+    /* The modal lives outside .dm-app (which carries Roboto) — without an
+       explicit font-family the modal would fall back to the browser
+       default (Times-style serif on most platforms). Pin Roboto so the
+       typography matches the rest of the densitometry view. Inheritance
+       takes care of all descendants (h3 / h4 / labels / table / buttons). */
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 0.875rem;
+    color: var(--dm-text-primary);
 }
 
 #quantification-modal[hidden] {
@@ -3859,6 +4256,10 @@
 }
 
 #quantification-modal .dm-modal-close {
+    /* A flex item of the header, after the toolbar: the generic rule's absolute position
+       floated it over "Show controls on curve". */
+    position: static;
+    flex-shrink: 0;
     background: transparent;
     border: none;
     color: var(--dm-text-secondary);
@@ -3970,5 +4371,608 @@
 @media (max-width: 900px) {
     #quantification-modal .dm-modal-grid--2x2 {
         grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ============================================================================
+   Western readout — 5th Graphical View sub-view (panels/readout-panel.js)
+   One row per lane; values computed by the server. Theme tokens only: the
+   :root[data-theme="light"] block re-tints every rule below.
+   ============================================================================ */
+
+.dm-readout-container {
+    /* Opaque overlay of the whole .dm-panel-content, like the quantification
+       sub-view: whatever the chart leaves underneath stays hidden. */
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: none;            /* shown via inline style='flex' in switchView */
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    box-sizing: border-box;
+    overflow: auto;
+    background: var(--dm-bg-panel);
+    color: var(--dm-text-primary);
+}
+
+.dm-readout-header {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.dm-readout-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--dm-text-primary);
+}
+
+.dm-readout-ref-note {
+    font-size: 0.8rem;
+    color: var(--dm-text-secondary);
+}
+
+.dm-readout-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.dm-readout-table th {
+    position: sticky;
+    top: 0;
+    padding: 6px 10px;
+    text-align: right;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--dm-text-secondary);
+    background: var(--dm-bg-panel);
+    border-bottom: 1px solid var(--dm-border-light);
+}
+
+.dm-readout-table td {
+    padding: 6px 10px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--dm-line-10);
+}
+
+.dm-readout-table th:first-child,
+.dm-readout-table td:first-child,
+.dm-readout-table td.dm-readout-missing {
+    text-align: left;
+}
+
+.dm-readout-row.is-reference td {
+    background: var(--dm-wash-8);
+}
+
+.dm-readout-lane {
+    white-space: nowrap;
+}
+
+.dm-readout-lane-num {
+    font-weight: 600;
+}
+
+.dm-readout-sample {
+    color: var(--dm-text-secondary);
+}
+
+.dm-readout-muted {
+    font-size: 0.8rem;
+    color: var(--dm-text-muted);
+}
+
+.dm-readout-note {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--dm-text-muted);
+}
+
+.dm-readout-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--dm-text-muted);
+}
+
+.dm-readout-empty.is-error {
+    color: var(--dm-danger);
+}
+
+/* "REF" on the anti-HCP reference lane's row (built on .dm-badge) */
+.dm-ref-badge {
+    margin-left: 6px;
+    vertical-align: 1px;
+    background-color: var(--dm-warning);
+    color: var(--dm-bg-dark);
+}
+
+/* ==========================================================================
+   Modern header and summary (2026-10-12, spec gel-modern-ui §3-4): the chrome
+   is ga-workbench.css; these rules fit this page's own pieces into it. Scoped
+   to #densitometry-app: the comparison page also has a .dm-app.
+   ========================================================================== */
+#densitometry-app > .ga-wb-bar .dm-help-popover {
+    top: calc(100% + 6px);
+    left: 14px;
+    transform: none;
+}
+#densitometry-app > .ga-wb-bar .dm-wb-help {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+}
+#densitometry-app > .ga-wb-bar .dm-btn-disabled-wrapper {
+    display: inline-flex;
+}
+
+/* Tiles and tabs in the workbench look (mockup 2026-10-12): tokens only, so day mode follows. */
+#densitometry-app .dm-message-container {
+    top: auto;
+    bottom: 16px;
+}
+#densitometry-app .dm-panel-header {
+    min-height: 40px;
+    padding: 4px 10px 4px 12px;
+    background-color: var(--dm-bg-panel);
+}
+#densitometry-app .dm-panel-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: calc(12px * var(--pdd-font-scale, 1));
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--dm-text-primary);
+}
+/* The tabs are the graphical view's heading. */
+#densitometry-app #chromatogram-panel .dm-panel-title {
+    display: none;
+}
+#densitometry-app #chromatogram-panel .dm-panel-header {
+    align-items: flex-end;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+#densitometry-app #chromatogram-panel .dm-panel-actions {
+    flex: 1 1 auto;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px 4px;
+    padding: 4px 0 3px;
+}
+#densitometry-app .dm-view-toggle {
+    margin-right: auto;
+    gap: 0;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+}
+#densitometry-app .dm-view-btn {
+    padding: 7px 9px 6px;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    color: var(--dm-text-secondary);
+    font-size: calc(11.5px * var(--pdd-font-scale, 1));
+}
+#densitometry-app .dm-view-btn:hover {
+    color: var(--dm-text-primary);
+}
+#densitometry-app .dm-view-btn.active {
+    background: transparent;
+    border-bottom-color: var(--dm-primary);
+    border-radius: 0;
+    color: var(--dm-text-primary);
+    font-weight: 600;
+}
+#densitometry-app .dm-panel-btn.active {
+    background-color: var(--ga-wb-accent-soft, rgba(59, 130, 246, 0.14));
+    color: var(--ga-wb-accent-text, #93c5fd);
+    box-shadow: inset 0 0 0 1px var(--dm-primary);
+}
+
+/* The western readout as a chart (readout-panel.js): stacked variants, or HCP % of the reference on a log axis.
+   Colours are tokens (ga-workbench.css), so night and day need no repaint. */
+.dm-ro-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 11px;
+    color: var(--dm-text-secondary);
+}
+.dm-ro-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.dm-ro-warn {
+    color: var(--ga-wb-warn, #fbbf24);
+}
+.dm-ro-chart {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    overflow: auto;
+}
+.dm-ro-chart.has-axis {
+    padding-top: 18px;
+}
+.dm-ro-plot {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 170px;
+    right: 210px;
+    pointer-events: none;
+}
+.dm-ro-axis span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--dm-text-muted);
+    white-space: nowrap;
+}
+.dm-ro-refline {
+    position: absolute;
+    top: 14px;
+    bottom: 0;
+    border-left: 1.5px dashed var(--ga-wb-ref, #f59e0b);
+}
+.dm-ro-row {
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr) 210px;
+    align-items: center;
+    gap: 0;
+    min-height: 26px;
+}
+.dm-ro-row.is-reference .dm-ro-label {
+    font-weight: 600;
+}
+.dm-ro-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding-right: 10px;
+    font-size: 11.5px;
+    color: var(--dm-text-primary);
+    overflow: hidden;
+    white-space: nowrap;
+}
+.dm-ro-label .dm-readout-sample {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--dm-text-secondary);
+}
+.dm-ro-track {
+    position: relative;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    font-size: 11px;
+}
+.dm-ro-track--stack {
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--dm-border-color);
+}
+.dm-ro-bar {
+    display: block;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--ga-wb-b-other, #22c55e);
+    opacity: 0.85;
+}
+.dm-ro-bar.is-reference {
+    background: var(--ga-wb-ref, #f59e0b);
+}
+.dm-ro-seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    overflow: hidden;
+}
+.dm-ro-seg em {
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 700;
+    color: #0b1220;
+}
+.dm-ro-seg--main em {
+    color: #fff;
+}
+.dm-ro-seg--aggregate { background: var(--ga-wb-z-aggregate, #f472b6); }
+.dm-ro-seg--main { background: var(--ga-wb-z-main, #a855f7); }
+.dm-ro-seg--clipping { background: var(--ga-wb-z-clipping, #38bdf8); }
+.dm-ro-value {
+    display: flex;
+    flex-direction: column;
+    padding-left: 10px;
+    font-size: 11.5px;
+    color: var(--dm-text-primary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.dm-ro-value small {
+    font-size: 10.5px;
+    color: var(--dm-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+@media (max-width: 700px) {
+    .dm-ro-row { grid-template-columns: 96px minmax(0, 1fr); }
+    .dm-ro-value { grid-column: 1 / -1; padding-left: 96px; }
+    .dm-ro-plot { left: 96px; right: 0; }
+}
+
+/* Measurements › Lanes | Bands (lanes-view.js): the readout's columns, one row per lane. */
+.dm-lanes-toggle {
+    display: inline-flex;
+    margin-right: auto;
+    border: 1px solid var(--dm-border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.dm-lanes-toggle button {
+    height: 24px;
+    padding: 0 9px;
+    border: 0;
+    background: transparent;
+    color: var(--dm-text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+.dm-lanes-toggle button + button {
+    border-left: 1px solid var(--dm-border-color);
+}
+.dm-lanes-toggle button[aria-pressed="true"] {
+    background: var(--ga-wb-hover, #172033);
+    color: var(--dm-text-primary);
+    font-weight: 600;
+}
+#results-table-panel .dm-panel-actions {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-left: 10px;
+}
+.dm-lanes-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+.dm-lanes-view[hidden] {
+    display: none;
+}
+.dm-lanes-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+.dm-lanes-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.dm-lanes-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--dm-border-color);
+    background: var(--dm-bg-panel);
+    color: var(--dm-text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: help;
+}
+.dm-lanes-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--dm-line-10);
+    color: var(--dm-text-primary);
+    white-space: nowrap;
+}
+.dm-lanes-table .r {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.dm-lanes-row {
+    cursor: pointer;
+}
+.dm-lanes-row:hover td {
+    background: var(--dm-wash-8);
+}
+.dm-lanes-row.is-selected td {
+    background: var(--ga-wb-accent-soft, rgba(59, 130, 246, 0.14));
+}
+.dm-lanes-row.is-reference td {
+    background: var(--ga-wb-ref-bg, rgba(245, 158, 11, 0.14));
+}
+.dm-lanes-row .ga-wb-ref {
+    margin-left: 6px;
+}
+.dm-lanes-sample {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* A Process Development sample's link to its card: the theme's accent ink (ga-workbench.css, night and day),
+   underlined so it reads as a link without its colour (coloured text never alone, day-mode contrast). */
+.dm-lanes-sample-link {
+    color: var(--ga-wb-accent-text);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+.dm-lanes-sample-link:hover {
+    text-decoration-thickness: 2px;
+}
+.dm-lanes-sample-link:focus-visible {
+    outline: 2px solid var(--ga-wb-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+.dm-lanes-why {
+    color: var(--dm-text-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+.dm-lanes-off {
+    color: var(--dm-text-muted);
+}
+.dm-lanes-tone--ok { color: var(--ga-wb-ok, #4ade80); font-weight: 650; }
+.dm-lanes-tone--warn { color: var(--ga-wb-warn, #fbbf24); font-weight: 650; }
+.dm-lanes-tone--bad { color: var(--ga-wb-bad, #f87171); font-weight: 650; }
+.dm-lanes-note,
+.dm-lanes-empty {
+    margin: 0;
+    padding: 6px 10px;
+    border-top: 1px solid var(--dm-border-color);
+    color: var(--dm-text-secondary);
+    font-size: 11px;
+}
+/* Phone: each lane a card (the same cells). */
+@media (max-width: 700px) {
+    .dm-lanes-table thead { display: none; }
+    .dm-lanes-table,
+    .dm-lanes-table tbody { display: block; }
+    .dm-lanes-table tr {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 4px 8px;
+        margin: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--dm-border-color);
+        border-radius: 8px;
+    }
+    .dm-lanes-table td { padding: 0; border: 0; white-space: normal; }
+    .dm-lanes-table td:nth-child(2) { grid-column: 2 / -1; }
+    .dm-lanes-table td.r { text-align: left; }
+    .dm-lanes-table td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 10px;
+        color: var(--dm-text-muted);
+    }
+}
+
+/* POI purity chart: the lanes without a value and their reason, under the bars. */
+.dm-poi-missing {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 6px;
+    color: var(--dm-text-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+
+/* Phone (spec §4): one column — summary, a lane picker, graphical view, measurements as cards, gel, band detail;
+   the normalization, the HCP reference and Run stay in the header. Splitters hidden. */
+.dm-lane-picker {
+    display: none;
+}
+@media (max-width: 700px) {
+    #densitometry-app {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+    }
+    #densitometry-app .dm-lane-picker {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding: 8px 10px 2px;
+        scrollbar-width: none;
+    }
+    #densitometry-app .dm-lane-picker button {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--dm-border-color);
+        border-radius: 999px;
+        background: var(--dm-bg-panel);
+        color: var(--dm-text-primary);
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    #densitometry-app .dm-lane-picker button[aria-pressed="true"] {
+        border-color: var(--dm-primary);
+        background: var(--ga-wb-accent-soft, rgba(59, 130, 246, 0.14));
+    }
+    #densitometry-app .dm-main {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow: visible;
+        padding: 8px 10px 16px;
+    }
+    #densitometry-app .dm-panel-row {
+        display: contents;
+    }
+    #densitometry-app .dm-splitter {
+        display: none;
+    }
+    #densitometry-app .dm-main .dm-panel {
+        flex: none;
+        width: 100%;
+    }
+    #densitometry-app #chromatogram-panel { order: 1; height: 360px; }
+    #densitometry-app #results-table-panel { order: 2; height: auto; }
+    #densitometry-app #gel-overview-panel { order: 3; height: 300px; }
+    #densitometry-app #band-zoom-panel { order: 4; height: 280px; }
+    #densitometry-app #results-table-panel .dm-panel-content {
+        height: auto;
+        max-height: 70vh;
+        overflow: auto;
+    }
+}
+@media (max-width: 700px) {
+    #densitometry-app .dm-panel-header {
+        flex-wrap: wrap;
+    }
+    #densitometry-app #chromatogram-panel .dm-view-toggle {
+        flex: 1 1 100%;
+        flex-wrap: nowrap;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    #densitometry-app .dm-main,
+    #densitometry-app .dm-panel {
+        min-width: 0;
+        max-width: 100%;
+    }
+}
+@media (max-width: 700px) {
+    #densitometry-app #chromatogram-panel .dm-panel-actions,
+    #densitometry-app #chromatogram-panel .dm-view-toggle {
+        min-width: 0;
+        max-width: 100%;
     }
 }

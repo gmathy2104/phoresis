@@ -22,6 +22,12 @@
 
     const Events = global.GelViewer.Events;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * Color palette for different band types and states.
      */
@@ -32,9 +38,11 @@
         backgroundLine: 'rgba(200,200,200,0.6)',
         integrationFill: 'rgba(59,130,246,0.15)',
         integrationLine: 'rgba(59,130,246,0.4)',
-        bandOther: 'rgba(158, 158, 158, 0.25)',
-        bandPOI: 'rgba(76, 175, 80, 0.25)',
-        bandMWReference: 'rgba(255, 193, 7, 0.25)',
+        // Band fills: the gel overlay's band colours (gel_viewer_standalone.css .gv-band.*).
+        bandOther: 'rgba(34, 197, 94, 0.25)',
+        bandPOI: 'rgba(168, 85, 247, 0.25)',
+        bandMWReference: 'rgba(249, 115, 22, 0.25)',
+        bandCalibration: 'rgba(248, 113, 113, 0.3)',
         peakOrphan: '#FF9800',         // Orange - orphan peaks (preview)
         peakMatched: '#4CAF50',         // Green - matched peaks (preview)
         selected: 'rgba(233, 30, 99, 0.35)',
@@ -290,16 +298,9 @@
 
             const lane = this.stateManager.getLane(this.currentLaneId);
             if (!lane) return;
-            const bboxX = lane.x ?? lane.bbox?.x ?? 0;
-            const bboxWidth = lane.width ?? lane.bbox?.width ?? 40;
             const positionY = Math.round((y0 + y1) / 2);
 
-            const polygon = [
-                [bboxX, y0],
-                [bboxX + bboxWidth, y0],
-                [bboxX + bboxWidth, y1],
-                [bboxX, y1],
-            ];
+            const polygon = this._bandShape(lane, y0, y1);
 
             this._showStatusToast(`Creating band y=[${y0}, ${y1}]…`, 'loading');
             try {
@@ -443,15 +444,8 @@
             const DEFAULT_BAND_HEIGHT = 10;
             const bboxY = Math.max(0, positionY - Math.floor(DEFAULT_BAND_HEIGHT / 2));
             const bboxHeight = DEFAULT_BAND_HEIGHT;
-            const bboxX = lane.x ?? lane.bbox?.x ?? 0;
-            const bboxWidth = lane.width ?? lane.bbox?.width ?? 40;
 
-            const polygon = [
-                [bboxX, bboxY],
-                [bboxX + bboxWidth, bboxY],
-                [bboxX + bboxWidth, bboxY + bboxHeight],
-                [bboxX, bboxY + bboxHeight],
-            ];
+            const polygon = this._bandShape(lane, bboxY, bboxY + bboxHeight);
 
             this._showStatusToast(`Creating band at y=${positionY}…`, 'loading');
             try {
@@ -488,13 +482,29 @@
         }
 
         /**
+         * A band's outline between two rows: the lane's outline cut there (shared/lane-geometry.js `slice`, the band
+         * model's rule, yolo_bands.py::_build), so a band made on a tilted lane follows its slant; the lane box's slice
+         * when a row falls off the outline. Corners rounded, as the lanes'.
+         */
+        _bandShape(lane, yTop, yBottom) {
+            const G = GelAnalyzer.LaneGeometry;
+            const slice = G.slice(G.outline(lane), yTop, yBottom);
+            if (slice) return G.clampRound(slice, Infinity, Infinity);
+            const x = lane.x ?? lane.bbox?.x ?? 0;
+            const w = lane.width ?? lane.bbox?.width ?? 40;
+            return [[x, yTop], [x + w, yTop], [x + w, yBottom], [x, yBottom]];
+        }
+
+        /**
          * Split an existing band into two at the given Y position.
          *
          * Behavior (per user spec):
          *   - Upper band: same top edge as original, bottom edge = splitY.
          *   - Lower band: top edge = splitY, bottom edge = original bottom.
          *   - Original band is deleted.
-         *   - bbox_x / bbox_width inherited from original.
+         *   - On a tilted lane each half is the lane's outline cut at its rows (`_bandShape`), as a new band would
+         *     be, so the halves follow its slant; on an upright lane (a rectangle, a Straight accept) each half keeps
+         *     the band's own x extent, as before tilted lanes (a band drawn narrower than its lane stays narrow).
          *
          * After the 3 API calls complete, emit DATA_RELOAD_REQUESTED so both
          * the electropherogram and the main gel viewer re-fetch and display
@@ -509,23 +519,17 @@
                 return;
             }
 
-            const bboxX = band.bbox_x;
-            const bboxWidth = band.bbox_width;
             const bandType = band.band_type || (lane.lane_type === 'LADDER' ? 'MW_REFERENCE' : 'OTHER');
             const parentLaneId = band.lane_id || this.currentLaneId;
 
-            const upperPolygon = [
-                [bboxX, top],
-                [bboxX + bboxWidth, top],
-                [bboxX + bboxWidth, splitY],
-                [bboxX, splitY],
-            ];
-            const lowerPolygon = [
-                [bboxX, splitY],
-                [bboxX + bboxWidth, splitY],
-                [bboxX + bboxWidth, bottom],
-                [bboxX, bottom],
-            ];
+            const G = GelAnalyzer.LaneGeometry;
+            const tilted = !G.isUprightBox(G.outline(lane));
+            const half = (yTop, yBottom) => (tilted
+                ? this._bandShape(lane, yTop, yBottom)
+                : [[band.bbox_x, yTop], [band.bbox_x + band.bbox_width, yTop],
+                    [band.bbox_x + band.bbox_width, yBottom], [band.bbox_x, yBottom]]);
+            const upperPolygon = half(top, splitY);
+            const lowerPolygon = half(splitY, bottom);
             const upperPosY = Math.round((top + splitY) / 2);
             const lowerPosY = Math.round((splitY + bottom) / 2);
 
@@ -589,7 +593,7 @@
             }[type] || '';
 
             toast.className = `gv-epgram-status-toast gv-epgram-status-${type}`;
-            toast.innerHTML = `${icon}<span>${message}</span>`;
+            toast.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
             toast.style.display = 'flex';
 
             // Auto-dismiss non-loading toasts
@@ -630,27 +634,29 @@
             const helpBtn = document.getElementById('electropherogram-help-btn');
             const helpPopover = document.getElementById('electropherogram-help-popover');
             if (helpBtn && helpPopover) {
+                const hideHelp = () => {
+                    helpPopover.setAttribute('hidden', '');
+                    helpBtn.setAttribute('aria-expanded', 'false');
+                    global.GelViewer.Layers?.close(helpPopover);
+                };
                 helpBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     const isShown = !helpPopover.hasAttribute('hidden');
                     if (isShown) {
-                        helpPopover.setAttribute('hidden', '');
-                        helpBtn.setAttribute('aria-expanded', 'false');
+                        hideHelp();
                     } else {
                         helpPopover.removeAttribute('hidden');
                         helpBtn.setAttribute('aria-expanded', 'true');
+                        // Esc closes the help alone, not the panel under it.
+                        global.GelViewer.Layers?.open(helpPopover, {
+                            close: hideHelp,
+                            isOpen: () => !helpPopover.hasAttribute('hidden'),
+                        });
                     }
                 });
                 // Close on outside click
                 document.addEventListener('click', (e) => {
                     if (!helpBtn.contains(e.target) && !helpPopover.contains(e.target)) {
-                        helpPopover.setAttribute('hidden', '');
-                        helpBtn.setAttribute('aria-expanded', 'false');
-                    }
-                });
-                // Close on Escape
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && !helpPopover.hasAttribute('hidden')) {
                         helpPopover.setAttribute('hidden', '');
                         helpBtn.setAttribute('aria-expanded', 'false');
                     }
@@ -670,6 +676,95 @@
 
             // Custom resize handle (bottom-left)
             this._setupResizeHandle();
+
+            // Docked under the gel: the splitter on its top edge
+            this._setupDockSplitter();
+        }
+
+        /**
+         * The docked profile's splitter (owner, 2026-10-17): its top edge, dragged up or down, shares the height
+         * between the gel and the profile; Up/Down move it by 20 px (Shift: 80), a double-click gives back the default
+         * height. The height lives in --gv-profile-dock-height on the panel, which only the docked layout reads (the
+         * floating profile keeps its corner handle), and is remembered by this browser. The gel area shrinks or grows
+         * with it, and a gel shown whole re-fits itself (viewport.js); Plotly follows through _setupResizeObserver.
+         */
+        _setupDockSplitter() {
+            const splitter = document.getElementById('electropherogram-dock-splitter');
+            if (!splitter || !this.panel) return;
+
+            const STORAGE_KEY = 'gv-profile-dock-height';
+            const MIN_PROFILE = 140;  // px: the toolbar and a readable plot
+            const MIN_GEL = 160;      // px left to the gel area above
+            const panel = this.panel;
+
+            const apply = (height, remember) => {
+                const room = panel.parentElement ? panel.parentElement.clientHeight : global.innerHeight;
+                const h = Math.round(Math.max(MIN_PROFILE, Math.min(height, room - MIN_GEL)));
+                panel.style.setProperty('--gv-profile-dock-height', `${h}px`);
+                splitter.setAttribute('aria-valuenow', String(h));
+                if (remember) {
+                    try {
+                        global.localStorage.setItem(STORAGE_KEY, String(h));
+                    } catch (e) {
+                        // Storage refused (private window, blocked site data): the height holds for this page only.
+                    }
+                }
+            };
+
+            // The height this browser kept, bounded at its first drag (the window may be smaller today).
+            try {
+                const kept = Number(global.localStorage.getItem(STORAGE_KEY));
+                if (kept >= MIN_PROFILE) panel.style.setProperty('--gv-profile-dock-height', `${kept}px`);
+            } catch (e) {
+                // Storage unreadable: the default height.
+            }
+
+            let drag = null;
+            splitter.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();  // no text selection, no focus jump
+                drag = { y: e.clientY, height: panel.offsetHeight };
+                try {
+                    // The moves keep coming to the splitter when the pointer leaves its 8 px.
+                    splitter.setPointerCapture(e.pointerId);
+                } catch (err) {
+                    // A pointer no longer active (released before this ran): the drag still follows the moves here.
+                }
+                splitter.classList.add('is-dragging');
+                document.body.classList.add('gv-dock-resizing');
+            });
+            splitter.addEventListener('pointermove', (e) => {
+                if (drag) apply(drag.height + (drag.y - e.clientY), false);
+            });
+            const end = () => {
+                if (!drag) return;
+                drag = null;
+                splitter.classList.remove('is-dragging');
+                document.body.classList.remove('gv-dock-resizing');
+                apply(panel.offsetHeight, true);
+            };
+            splitter.addEventListener('pointerup', end);
+            splitter.addEventListener('pointercancel', end);
+            splitter.addEventListener('lostpointercapture', end);
+
+            splitter.addEventListener('dblclick', () => {
+                panel.style.removeProperty('--gv-profile-dock-height');
+                splitter.removeAttribute('aria-valuenow');
+                try {
+                    global.localStorage.removeItem(STORAGE_KEY);
+                } catch (e) {
+                    // Nothing kept to forget.
+                }
+            });
+
+            splitter.addEventListener('keydown', (e) => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                e.preventDefault();
+                // The editor's keys listen on document: an arrow here must not move the selected lane too.
+                e.stopPropagation();
+                const step = e.shiftKey ? 80 : 20;
+                apply(panel.offsetHeight + (e.key === 'ArrowUp' ? step : -step), true);
+            });
         }
 
         /**
@@ -814,8 +909,28 @@
          * Download the chart as a PNG image.
          */
         _downloadPNG() {
-            if (!this.chartContainer || !this.plotInitialized) return;
-            Plotly.downloadImage(this.chartContainer, {
+            if (!this.chartContainer || !this.plotInitialized || typeof Plotly === 'undefined') return;
+            // The PNG goes into reports: it keeps the light colours it always had, whatever Night | Day the page
+            // shows (a copy of the layout is recoloured; the chart on screen is left as it is).
+            const light = { bg: '#ffffff', legendBg: 'rgba(255,255,255,0.9)', text: '#334155', muted: '#6b7280',
+                grid: '#e5e7eb', zero: '#94a3b8' };
+            const layout = JSON.parse(JSON.stringify(this.chartContainer.layout || {}));
+            layout.paper_bgcolor = 'transparent';
+            layout.plot_bgcolor = light.bg;
+            layout.font = Object.assign({}, layout.font, { color: light.muted });
+            if (layout.legend) {
+                layout.legend.bgcolor = light.legendBg;
+                layout.legend.bordercolor = light.grid;
+                layout.legend.font = Object.assign({}, layout.legend.font, { color: light.muted });
+            }
+            ['xaxis', 'yaxis', 'yaxis2', 'yaxis3'].forEach((name) => {
+                const axis = layout[name];
+                if (!axis) return;
+                axis.gridcolor = light.grid;
+                axis.zerolinecolor = light.zero;
+                if (axis.title) axis.title.font = Object.assign({}, axis.title.font, { color: light.text });
+            });
+            Plotly.downloadImage({ data: this.chartContainer.data, layout }, {
                 format: 'png',
                 filename: `electropherogram_lane_${this.currentLaneId}`,
                 height: 500,
@@ -848,6 +963,9 @@
          * Bind event listeners.
          */
         _bindEvents() {
+            // Night | Day: the chart is drawn by script, its colours follow on a relayout (the zoom stays).
+            window.addEventListener('dsh:themechange', () => this._applyPlotTheme());
+
             // Selection changed - handle lane and band selection
             this.eventBus.on(Events.SELECTION_CHANGED, (data) => {
                 if (!data) return;
@@ -939,11 +1057,6 @@
                     this.loadProfile(this.currentLaneId);
                 }
             });
-            this.eventBus.on(Events.PROFILE_DETECTION_COMPLETED, () => {
-                if (this.isVisible && this.currentLaneId) {
-                    this.loadProfile(this.currentLaneId);
-                }
-            });
 
             // Teacher profile marking mode
             this._teacherMarkState = null;
@@ -956,16 +1069,20 @@
                 this._clearTeacherRegions();
             });
 
-            // Keyboard shortcuts
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && this.isVisible) {
-                    if (this._teacherMarkState) {
-                        this._exitTeacherMarkMode();
-                        return;
-                    }
-                    this.hide();
-                }
-            });
+            // Esc: GelViewer.Layers (show) calls _closeOnEscape.
+        }
+
+        /**
+         * Esc on the panel: the teacher's mark mode is left first (the panel stays), then the panel closes.
+         * @returns {boolean} false when the panel stays open
+         */
+        _closeOnEscape() {
+            if (this._teacherMarkState) {
+                this._exitTeacherMarkMode();
+                return false;
+            }
+            this.hide();
+            return true;
         }
 
         /**
@@ -1195,6 +1312,10 @@
         show() {
             if (this.panel) {
                 this.panel.style.display = 'flex';
+                global.GelViewer.Layers?.open(this.panel, {
+                    close: () => this._closeOnEscape(),
+                    isOpen: () => this.isVisible,
+                });
             }
             this.isVisible = true;
 
@@ -1213,6 +1334,7 @@
             this._hideCursorGuide();
             if (this.panel) {
                 this.panel.style.display = 'none';
+                global.GelViewer.Layers?.close(this.panel);
             }
             this.isVisible = false;
         }
@@ -1574,7 +1696,49 @@
          * Build Plotly layout object with shapes.
          * @returns {Object} Plotly layout
          */
+        /**
+         * The chart's colours, read from the window's tokens (night or day, whichever the page shows).
+         * The data colours (profile, derivatives, band regions) stay as COLORS draws them.
+         */
+        _plotTheme() {
+            const css = getComputedStyle(this.panel || document.documentElement);
+            const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+            return {
+                bg: token('--ga-wb-surface', '#ffffff'),
+                legendBg: token('--ga-wb-surface-2', '#f8fafc'),
+                text: token('--ga-wb-text-2', '#334155'),
+                muted: token('--ga-wb-muted', '#64748b'),
+                grid: token('--ga-wb-border', '#e2e8f0'),
+                zero: token('--ga-wb-border-2', '#cbd5e1'),
+            };
+        }
+
+        /**
+         * Recolour a chart already drawn (the theme changed under it); data, shapes and zoom stay.
+         */
+        _applyPlotTheme() {
+            const el = this.chartContainer;
+            if (typeof Plotly === 'undefined' || !el || !el.layout || !this.plotInitialized) return;
+            const theme = this._plotTheme();
+            const update = {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: theme.bg,
+                'font.color': theme.muted,
+                'legend.bgcolor': theme.legendBg,
+                'legend.bordercolor': theme.grid,
+                'legend.font.color': theme.muted,
+            };
+            ['xaxis', 'yaxis', 'yaxis2', 'yaxis3'].forEach((axis) => {
+                if (!el.layout[axis]) return;
+                update[`${axis}.gridcolor`] = theme.grid;
+                update[`${axis}.zerolinecolor`] = theme.zero;
+                update[`${axis}.title.font.color`] = theme.text;
+            });
+            Plotly.relayout(el, update);
+        }
+
         _buildLayout() {
+            const theme = this._plotTheme();
             const yPos = this.profileData.y_positions;
             const intensities = this.profileData.intensities;
             const shapes = [];
@@ -1658,6 +1822,7 @@
                         let fillColor = COLORS.bandOther;
                         if (band.band_type === 'POI') fillColor = COLORS.bandPOI;
                         else if (band.band_type === 'MW_REFERENCE') fillColor = COLORS.bandMWReference;
+                        else if (band.band_type === 'CALIBRATION') fillColor = COLORS.bandCalibration;
 
                         const isSelected = band.id === this.selectedBandId;
                         if (isSelected) fillColor = COLORS.selected;
@@ -1731,16 +1896,16 @@
 
             const layout = {
                 xaxis: {
-                    title: { text: 'Position (px)', font: { size: 11 } },
+                    title: { text: 'Position (px)', font: { size: 11, color: theme.text } },
                     autorange: true,
-                    gridcolor: '#e5e7eb',
+                    gridcolor: theme.grid,
                     zeroline: false,
                 },
                 yaxis: {
-                    title: { text: 'Intensity', font: { size: 11 } },
+                    title: { text: 'Intensity', font: { size: 11, color: theme.text } },
                     autorange: true,
                     rangemode: 'tozero',
-                    gridcolor: '#e5e7eb',
+                    gridcolor: theme.grid,
                     zeroline: false,
                 },
                 shapes: shapes,
@@ -1758,13 +1923,14 @@
                     orientation: 'h',
                     x: 0, y: 1.02,
                     xanchor: 'left', yanchor: 'bottom',
-                    font: { size: 10, color: '#6b7280' },
-                    bgcolor: 'rgba(255,255,255,0.9)',
-                    bordercolor: '#e5e7eb',
+                    font: { size: 10, color: theme.muted },
+                    bgcolor: theme.legendBg,
+                    bordercolor: theme.grid,
                     borderwidth: 1,
                 },
+                font: { color: theme.muted },
                 paper_bgcolor: 'transparent',
-                plot_bgcolor: '#ffffff',
+                plot_bgcolor: theme.bg,
                 dragmode: 'zoom',
             };
 
@@ -1775,34 +1941,34 @@
                     // 3-way split: main 55%, d1 20%, d2 20%
                     layout.yaxis.domain = [0.45, 1.0];
                     layout.yaxis2 = {
-                        title: { text: 'dy/dx', font: { size: 10 } },
+                        title: { text: 'dy/dx', font: { size: 10, color: theme.text } },
                         domain: [0.22, 0.42],
-                        autorange: true, gridcolor: '#e5e7eb',
-                        zeroline: true, zerolinecolor: '#94a3b8', zerolinewidth: 1,
+                        autorange: true, gridcolor: theme.grid,
+                        zeroline: true, zerolinecolor: theme.zero, zerolinewidth: 1,
                     };
                     layout.yaxis3 = {
-                        title: { text: 'd\u00B2y/dx\u00B2', font: { size: 10 } },
+                        title: { text: 'd\u00B2y/dx\u00B2', font: { size: 10, color: theme.text } },
                         domain: [0.0, 0.19],
-                        autorange: true, gridcolor: '#e5e7eb',
-                        zeroline: true, zerolinecolor: '#94a3b8', zerolinewidth: 1,
+                        autorange: true, gridcolor: theme.grid,
+                        zeroline: true, zerolinecolor: theme.zero, zerolinewidth: 1,
                     };
                 } else if (showD1) {
                     // 2-way split: main 65%, d1 30%
                     layout.yaxis.domain = [0.35, 1.0];
                     layout.yaxis2 = {
-                        title: { text: 'dy/dx', font: { size: 10 } },
+                        title: { text: 'dy/dx', font: { size: 10, color: theme.text } },
                         domain: [0.0, 0.30],
-                        autorange: true, gridcolor: '#e5e7eb',
-                        zeroline: true, zerolinecolor: '#94a3b8', zerolinewidth: 1,
+                        autorange: true, gridcolor: theme.grid,
+                        zeroline: true, zerolinecolor: theme.zero, zerolinewidth: 1,
                     };
                 } else {
                     // 2-way split: main 65%, d2 30%
                     layout.yaxis.domain = [0.35, 1.0];
                     layout.yaxis3 = {
-                        title: { text: 'd\u00B2y/dx\u00B2', font: { size: 10 } },
+                        title: { text: 'd\u00B2y/dx\u00B2', font: { size: 10, color: theme.text } },
                         domain: [0.0, 0.30],
-                        autorange: true, gridcolor: '#e5e7eb',
-                        zeroline: true, zerolinecolor: '#94a3b8', zerolinewidth: 1,
+                        autorange: true, gridcolor: theme.grid,
+                        zeroline: true, zerolinecolor: theme.zero, zerolinewidth: 1,
                     };
                 }
             }

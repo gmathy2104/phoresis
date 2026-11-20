@@ -1,0 +1,729 @@
+/* Gel workbench chrome (.ga-wb-*): the header, summary strip and badges shared by the densitometry page,
+ * then the comparison page and the annotation editor (spec docs/superpowers/specs/2026-10-12-gel-modern-ui-design.md §3).
+ *
+ * Tokens: the Slate values of process_development/css/sample_detail.css and gel_analyzer/css/lane-strips.css, night
+ * on :root, day under :root[data-theme="light"] (process_development/js/lib/dsh-theme.js; the page includes
+ * process_development/includes/_theme_head.html). Custom properties survive `all: initial`, so a viz root inside the
+ * page still reads them.
+ *
+ * The gel palette (I10) is the editor's (gel_viewer_standalone.css): POI violet, OTHER green, MW reference orange,
+ * CALIBRATION red-400 in both modes; lanes SAMPLE blue, LADDER orange, CONTROL green, EMPTY grey dashed, DOT violet;
+ * REF amber. Coloured text always sits beside a swatch or a border, never alone (day-mode contrast).
+ */
+
+:root {
+    --ga-wb-bg: #0f172a;
+    --ga-wb-surface: #1e293b;
+    --ga-wb-surface-2: #172033;
+    --ga-wb-inset: #0b1220;
+    --ga-wb-border: #334155;
+    --ga-wb-border-2: #475569;
+    --ga-wb-accent: #3b82f6;
+    --ga-wb-accent-text: #93c5fd;
+    --ga-wb-on-accent: #f1f5f9;
+    --ga-wb-accent-soft: rgba(59, 130, 246, 0.14);
+    --ga-wb-text: #f1f5f9;
+    --ga-wb-text-2: #e2e8f0;
+    --ga-wb-muted: #94a3b8;
+    --ga-wb-faint: #64748b;
+    --ga-wb-ok: #4ade80;
+    --ga-wb-ok-bg: rgba(74, 222, 128, 0.12);
+    --ga-wb-warn: #fbbf24;
+    --ga-wb-warn-bg: rgba(251, 191, 36, 0.12);
+    --ga-wb-bad: #f87171;
+    --ga-wb-bad-bg: rgba(248, 113, 113, 0.12);
+    --ga-wb-info: #93c5fd;
+    --ga-wb-info-bg: rgba(59, 130, 246, 0.12);
+    --ga-wb-hover: #172033;
+    --ga-wb-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --ga-wb-radius: 6px;
+    --ga-wb-assay: #c4b5fd;
+    --ga-wb-assay-bg: rgba(167, 139, 250, 0.14);
+    --ga-wb-ref: #f59e0b;
+    --ga-wb-ref-ink: #0f172a;
+    --ga-wb-ref-bg: rgba(245, 158, 11, 0.14);
+    /* lane types and band types: the gel palette */
+    --ga-wb-lt-sample: #60a5fa;
+    --ga-wb-lt-ladder: #fb923c;
+    --ga-wb-lt-control: #4ade80;
+    --ga-wb-lt-calibration: #f87171;
+    --ga-wb-lt-dot: #c084fc;
+    --ga-wb-lt-empty: #94a3b8;
+    --ga-wb-b-poi: #a855f7;
+    --ga-wb-b-other: #22c55e;
+    --ga-wb-b-mw: #f97316;
+    --ga-wb-b-calibration: #f87171;
+    /* western readout roles */
+    --ga-wb-z-aggregate: #f472b6;
+    --ga-wb-z-main: #a855f7;
+    --ga-wb-z-clipping: #38bdf8;
+}
+
+:root[data-theme="light"] {
+    --ga-wb-bg: #f8fafc;
+    --ga-wb-surface: #ffffff;
+    --ga-wb-surface-2: #f8fafc;
+    --ga-wb-inset: #f1f5f9;
+    --ga-wb-border: #e2e8f0;
+    --ga-wb-border-2: #cbd5e1;
+    --ga-wb-accent: #2563eb;
+    --ga-wb-accent-text: #1d4ed8;
+    --ga-wb-on-accent: #ffffff;
+    --ga-wb-accent-soft: rgba(37, 99, 235, 0.1);
+    --ga-wb-text: #0f172a;
+    --ga-wb-text-2: #1e293b;
+    --ga-wb-muted: #475569;
+    --ga-wb-faint: #64748b;
+    --ga-wb-ok: #15803d;
+    --ga-wb-ok-bg: rgba(21, 128, 61, 0.1);
+    --ga-wb-warn: #b45309;
+    --ga-wb-warn-bg: rgba(180, 83, 9, 0.1);
+    --ga-wb-bad: #dc2626;
+    --ga-wb-bad-bg: rgba(220, 38, 38, 0.08);
+    --ga-wb-info: #1d4ed8;
+    --ga-wb-info-bg: rgba(37, 99, 235, 0.08);
+    --ga-wb-hover: #f1f5f9;
+    --ga-wb-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+    --ga-wb-assay: #5b3fb0;
+    --ga-wb-assay-bg: #f2eefb;
+    --ga-wb-ref: #b45309;
+    --ga-wb-ref-ink: #ffffff;
+    --ga-wb-ref-bg: #fef3c7;
+    --ga-wb-lt-sample: #1d4ed8;
+    --ga-wb-lt-ladder: #c2410c;
+    --ga-wb-lt-control: #15803d;
+    --ga-wb-lt-dot: #7e22ce;
+    --ga-wb-lt-empty: #64748b;
+    --ga-wb-z-aggregate: #db2777;
+    --ga-wb-z-main: #7e22ce;
+    --ga-wb-z-clipping: #0284c7;
+}
+
+/* The guided tour's popover (guided_tours/static/guided_tours/css/gt-tours.css) is a child of <body> and reads
+   --gt-*, which fall back to the --pp-* these three pages do not define: mapped on the workbench tokens, it follows
+   night / day with them. html:root (0,1,1), not :root (0,1,0): the tour launcher loads gt-tours.css after this
+   sheet, and its own :root block would win a tie on source order. */
+html:root {
+    --gt-surface: var(--ga-wb-surface);
+    --gt-surface-2: var(--ga-wb-surface-2);
+    --gt-border: var(--ga-wb-border-2);
+    --gt-text: var(--ga-wb-text);
+    --gt-text-muted: var(--ga-wb-muted);
+    --gt-accent: var(--ga-wb-accent);
+    --gt-accent-text: var(--ga-wb-accent-text);
+    --gt-on-accent: var(--ga-wb-on-accent);
+    /* gt-tours.css picks these two by light-dark(), that is by the color-scheme, which these pages never set on the
+       page itself (the editor sets it per window): night by hand here, day below */
+    --gt-overlay: rgba(2, 6, 23, 0.72);
+    --gt-shadow-color: rgba(0, 0, 0, 0.45);
+}
+
+html:root[data-theme="light"] {
+    --gt-overlay: rgba(15, 23, 42, 0.52);
+    --gt-shadow-color: rgba(15, 23, 42, 0.22);
+}
+
+/* Units keep their case under uppercased labels (docs/handover/known-traps.md): µg/mL would read MG/ML, kDa KDA.
+   .dsh-unit-text is what the `unit_text` filter emits; this page does not load dshub.css. */
+.ga-wb-unit-text,
+.dsh-unit-text {
+    text-transform: none !important;
+}
+
+/* --- Header: identity row, command row ----------------------------------------------------------------------- */
+.ga-wb-bar {
+    position: relative;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 7px 14px 6px;
+    background: var(--ga-wb-surface);
+    border-bottom: 1px solid var(--ga-wb-border);
+    color: var(--ga-wb-text);
+    font-size: 13px;
+    line-height: 1.4;
+}
+.ga-wb-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    min-width: 0;
+}
+.ga-wb-row--cmd {
+    padding-top: 6px;
+    border-top: 1px solid var(--ga-wb-border);
+}
+.ga-wb-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.ga-wb-iconbtn {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+    background: transparent;
+    color: var(--ga-wb-muted);
+    font-size: 14px;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ga-wb-iconbtn:hover {
+    background: var(--ga-wb-hover);
+    color: var(--ga-wb-text);
+}
+.ga-wb-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--ga-wb-muted);
+    white-space: nowrap;
+}
+.ga-wb-crumbs a {
+    color: var(--ga-wb-muted);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ga-wb-crumbs a:hover {
+    color: var(--ga-wb-text);
+}
+.ga-wb-crumbs .bi {
+    font-size: 10px;
+    color: var(--ga-wb-faint);
+}
+.ga-wb-title {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ga-wb-text-2);
+}
+
+/* Buttons of the command row (the page keeps its ids and handlers on them). */
+.ga-wb-btn {
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+    background: transparent;
+    color: var(--ga-wb-text-2);
+    font: inherit;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ga-wb-btn:hover {
+    background: var(--ga-wb-hover);
+}
+.ga-wb-btn--primary {
+    background: var(--ga-wb-accent);
+    border-color: var(--ga-wb-accent);
+    color: var(--ga-wb-on-accent);
+}
+.ga-wb-btn--primary:hover {
+    background: var(--ga-wb-accent);
+    filter: brightness(0.92);
+}
+.ga-wb-btn:disabled,
+.ga-wb-btn.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+}
+.ga-wb-field {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--ga-wb-muted);
+    white-space: nowrap;
+}
+.ga-wb-select {
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+    background: var(--ga-wb-surface-2);
+    color: var(--ga-wb-text-2);
+    font: inherit;
+    font-size: 12px;
+}
+.ga-wb-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.ga-wb-field--ref .ga-wb-select {
+    border-color: var(--ga-wb-ref);
+}
+
+/* The analysis views: Analysis · Annotate · Densitometry. */
+.ga-wb-views {
+    display: inline-flex;
+    flex: 0 0 auto;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+    overflow: hidden;
+}
+.ga-wb-views a,
+.ga-wb-views span {
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px;
+    color: var(--ga-wb-muted);
+    font-size: 11.5px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.ga-wb-views > * + * {
+    border-left: 1px solid var(--ga-wb-border);
+}
+.ga-wb-views a:hover {
+    background: var(--ga-wb-hover);
+    color: var(--ga-wb-text);
+}
+.ga-wb-views [aria-current="page"] {
+    background: var(--ga-wb-hover);
+    color: var(--ga-wb-text);
+    font-weight: 600;
+}
+.ga-wb-views .is-off {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* "⋯" menu: holds the page's own buttons (their ids and handlers unchanged). */
+.ga-wb-more {
+    position: relative;
+}
+.ga-wb-more-pop {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 34px;
+    z-index: 40;
+    min-width: 230px;
+    padding: 4px;
+    background: var(--ga-wb-surface);
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+    box-shadow: var(--ga-wb-shadow);
+}
+.ga-wb-more.is-open .ga-wb-more-pop {
+    display: flex;
+    flex-direction: column;
+}
+.ga-wb-more-pop > button,
+.ga-wb-more-pop > a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: auto;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--ga-wb-text-2);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ga-wb-more-pop > button:hover:not(:disabled),
+.ga-wb-more-pop > a:hover {
+    background: var(--ga-wb-hover);
+}
+.ga-wb-more-pop > button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.ga-wb-more-pop hr {
+    margin: 4px 0;
+    border: 0;
+    border-top: 1px solid var(--ga-wb-border);
+}
+.ga-wb-phone-only {
+    display: none !important;
+}
+
+/* --- Badges --------------------------------------------------------------------------------------------------- */
+.ga-wb-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    height: 20px;
+    padding: 0 8px;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: 999px;
+    color: var(--ga-wb-muted);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.ga-wb-badge--ok { color: var(--ga-wb-ok); background: var(--ga-wb-ok-bg); border-color: transparent; }
+.ga-wb-badge--warn { color: var(--ga-wb-warn); background: var(--ga-wb-warn-bg); border-color: transparent; }
+.ga-wb-badge--bad { color: var(--ga-wb-bad); background: var(--ga-wb-bad-bg); border-color: transparent; }
+.ga-wb-badge--info { color: var(--ga-wb-info); background: var(--ga-wb-info-bg); border-color: transparent; }
+.ga-wb-badge--assay {
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ga-wb-assay);
+    background: var(--ga-wb-assay-bg);
+    border-color: transparent;
+}
+.ga-wb-dot {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.ga-wb-ref {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--ga-wb-ref);
+    color: var(--ga-wb-ref-ink);
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+}
+.ga-wb-lnum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 4px;
+    border: 1px solid currentColor;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ga-wb-lt-sample);
+}
+.ga-wb-lnum[data-lt="LADDER"] { color: var(--ga-wb-lt-ladder); }
+.ga-wb-lnum[data-lt="CONTROL"] { color: var(--ga-wb-lt-control); }
+.ga-wb-lnum[data-lt="CALIBRATION"] { color: var(--ga-wb-lt-calibration); }
+.ga-wb-lnum[data-lt="DOT"] { color: var(--ga-wb-lt-dot); }
+.ga-wb-lnum[data-lt="EMPTY"] { color: var(--ga-wb-lt-empty); border-style: dashed; }
+.ga-wb-sw {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    vertical-align: -1px;
+}
+.ga-wb-sw--hatch {
+    background: repeating-linear-gradient(45deg, var(--ga-wb-muted) 0 1.5px, transparent 1.5px 4px);
+}
+
+/* --- Lock banner (an approved analysis is final) ---------------------------------------------------------------- */
+.ga-wb-lock {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px 10px 0;
+    padding: 7px 12px;
+    border-radius: var(--ga-wb-radius);
+    background: var(--ga-wb-ok-bg);
+    color: var(--ga-wb-ok);
+    font-size: 12px;
+}
+.ga-wb-lock .bi {
+    font-size: 14px;
+}
+
+/* --- Summary strip: the analysis page's cards, then its checks, then the status hint ---------------------------- */
+.ga-wb-summary {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px 0;
+    color: var(--ga-wb-text);
+    font-size: 13px;
+}
+.ga-wb-card {
+    flex: 0 0 auto;
+    min-width: 108px;
+    padding: 6px 11px;
+    background: var(--ga-wb-surface);
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+}
+.ga-wb-card-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ga-wb-faint);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.ga-wb-card-value {
+    margin-top: 1px;
+    color: var(--ga-wb-text-2);
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.ga-wb-card-sub {
+    margin-top: 1px;
+    max-width: 260px;
+    overflow: hidden;
+    color: var(--ga-wb-muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ga-wb-card--readout {
+    border-color: var(--ga-wb-assay-bg);
+}
+.ga-wb-card--readout .ga-wb-card-label {
+    color: var(--ga-wb-assay);
+}
+.ga-wb-card--ok .ga-wb-card-value { color: var(--ga-wb-ok); }
+.ga-wb-card--warn .ga-wb-card-value { color: var(--ga-wb-warn); }
+.ga-wb-card--bad .ga-wb-card-value { color: var(--ga-wb-bad); }
+.ga-wb-checks {
+    flex: 1 1 360px;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px dashed var(--ga-wb-border-2);
+    border-radius: var(--ga-wb-radius);
+    color: var(--ga-wb-muted);
+    font-size: 12px;
+}
+.ga-wb-checks-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 2px;
+    color: var(--ga-wb-warn);
+    font-weight: 600;
+}
+.ga-wb-checks-title--ok {
+    color: var(--ga-wb-ok);
+}
+.ga-wb-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: 999px;
+    background: var(--ga-wb-surface);
+    color: var(--ga-wb-text-2);
+    font: inherit;
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ga-wb-check:hover,
+.ga-wb-check[aria-expanded="true"] {
+    border-color: var(--ga-wb-border-2);
+    background: var(--ga-wb-hover);
+}
+.ga-wb-check--warn .bi { color: var(--ga-wb-warn); }
+.ga-wb-check--info .bi { color: var(--ga-wb-info); }
+.ga-wb-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    color: var(--ga-wb-muted);
+    font-size: 11.5px;
+    white-space: nowrap;
+}
+.ga-wb-hint b {
+    color: var(--ga-wb-text-2);
+    font-weight: 600;
+}
+.ga-wb-hint--ok,
+.ga-wb-hint--ok b {
+    color: var(--ga-wb-ok);
+}
+.ga-wb-check-detail {
+    flex-basis: 100%;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--ga-wb-radius);
+    background: var(--ga-wb-surface);
+    border: 1px solid var(--ga-wb-border);
+    color: var(--ga-wb-text-2);
+    font-size: 12px;
+}
+.ga-wb-check-detail[hidden] {
+    display: none;
+}
+.ga-wb-check-detail b {
+    display: block;
+    margin-bottom: 1px;
+}
+.ga-wb-check-detail span {
+    color: var(--ga-wb-muted);
+}
+.ga-wb-check-detail a {
+    margin-left: 6px;
+    color: var(--ga-wb-accent-text);
+    white-space: nowrap;
+}
+
+/* --- Phone ------------------------------------------------------------------------------------------------------ */
+@media (max-width: 1180px) {
+    .ga-wb-label { display: none; }
+    .ga-wb-crumbs { display: none; }
+}
+@media (max-width: 700px) {
+    .ga-wb-bar { padding: 8px 10px; }
+    .ga-wb-views,
+    .ga-wb-phone-hide { display: none !important; }
+    .ga-wb-phone-only { display: flex !important; }
+    .ga-wb-title { flex: 1 1 auto; font-size: 14px; }
+    .ga-wb-summary { display: grid; grid-template-columns: 1fr 1fr; }
+    .ga-wb-card { min-width: 0; }
+    .ga-wb-card--readout,
+    .ga-wb-checks { grid-column: 1 / -1; }
+    .ga-wb-hint { margin-left: 0; white-space: normal; }
+    .ga-wb-field { flex: 1 1 100%; }
+    .ga-wb-field .ga-wb-select { flex: 1 1 auto; min-width: 0; }
+}
+
+/* The page itself (the gel pages' minimal base does not reset its body). The font sits on the body, not only on
+   the page's root (.dm-app): what is appended to <body> -- the guided tour's popover (font: inherit), modals,
+   toasts -- inherits it, and fell back to the browser's serif on densitometry and comparison. */
+body.ga-minimal {
+    margin: 0;
+    background: var(--ga-wb-bg);
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   Gel comparison (comparisons/compare.html, slice 2): the assay switch of the identity row and the line of
+   the other assays' lanes. One assay at a time (owner, 2026-10-12), keyed by the assay's name.
+   --------------------------------------------------------------------------------------------------------- */
+.ga-wb-kinds {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+}
+.ga-wb-kinds[hidden] {
+    display: none;
+}
+.ga-wb-kinds button {
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: calc(var(--ga-wb-radius) - 2px);
+    background: transparent;
+    color: var(--ga-wb-muted);
+    font: inherit;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ga-wb-kinds button:hover {
+    color: var(--ga-wb-text);
+    background: var(--ga-wb-hover);
+}
+.ga-wb-kinds button[aria-pressed="true"] {
+    background: var(--ga-wb-accent);
+    color: var(--ga-wb-on-accent);
+}
+.ga-wb-kind-n {
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--ga-wb-hover);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+.ga-wb-kinds button[aria-pressed="true"] .ga-wb-kind-n {
+    background: rgba(255, 255, 255, 0.22);
+}
+.ga-wb-others {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 5px 14px;
+    border-bottom: 1px solid var(--ga-wb-border);
+    background: var(--ga-wb-bg);
+    font-size: 12px;
+    color: var(--ga-wb-muted);
+}
+.ga-wb-others[hidden] {
+    display: none;
+}
+.ga-wb-other-kind {
+    height: 22px;
+    padding: 0 9px;
+    border: 1px dashed var(--ga-wb-border-strong, var(--ga-wb-border));
+    border-radius: 11px;
+    background: transparent;
+    color: var(--ga-wb-text-2);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+.ga-wb-other-kind:hover {
+    background: var(--ga-wb-hover);
+}
+.ga-wb-num {
+    width: 56px;
+    text-align: right;
+}
+.ga-wb-unit {
+    color: var(--ga-wb-faint);
+}

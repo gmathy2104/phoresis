@@ -1,55 +1,39 @@
-<!-- Review Panel for YOLO Detection Results -->
-<div class="gv-review-panel" id="review-panel" style="display: none;">
-    <!-- Header -->
-    <div class="gv-review-header">
-        <div class="gv-review-title">
-            <i class="bi bi-magic"></i>
-            <span>Detection Review</span>
-        </div>
-        <button class="gv-review-close" id="review-close" title="Close (Esc)">
-            <i class="bi bi-x-lg"></i>
+<!-- Lane detection review: a bar above the gel; the lanes, their tags and their confidences are drawn on the gel by review-panel.js -->
+<div class="gv-review-bar" id="review-panel" role="toolbar" aria-label="Review of the detected lanes" hidden>
+    <div class="gv-review-bar-title">
+        <i class="bi bi-magic" aria-hidden="true"></i>
+        <span id="review-count">0 lanes</span>
+        <span id="review-gel-type" class="gv-review-gel-badge"></span>
+    </div>
+
+    <label class="gv-review-threshold" title="Lanes the model is at least this sure of are kept; a click on a lane overrides it">
+        <span>Min. confidence</span>
+        <input type="range" id="review-threshold" min="25" max="95" step="1" value="50">
+        <output id="review-threshold-value" for="review-threshold">50 %</output>
+    </label>
+
+    <div class="gv-review-shape" role="group" aria-label="Lane shape">
+        <button type="button" id="review-shape-straight" aria-pressed="true" title="Upright lanes, as the model's boxes">Straight</button>
+        <button type="button" id="review-shape-follow" aria-pressed="false" disabled title="Measuring the lanes' tilt…">
+            <i class="bi bi-slash-lg" aria-hidden="true"></i> Follow the lanes
         </button>
     </div>
+    <span class="gv-review-cross" id="review-cross" role="status" hidden></span>
 
-    <!-- Summary -->
-    <div class="gv-review-summary">
-        <div class="gv-review-summary-left">
-            <span class="gv-review-summary-label">Detected Type:</span>
-            <span id="review-gel-type">-</span>
-        </div>
-        <div class="gv-review-summary-right">
-            <span id="review-count">0 lanes detected</span>
-        </div>
+    <div class="gv-review-hint">
+        <span><kbd>Click</kbd> a lane: keep / drop</span>
+        <span><kbd>Click</kbd> its tag: type</span>
+        <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> <kbd>Space</kbd></span>
     </div>
 
-    <!-- Detection List -->
-    <div class="gv-review-list" id="review-list">
-        <!-- Items populated by JavaScript -->
-        <div class="gv-review-empty">
-            <i class="bi bi-search"></i>
-            <p>No detections to review</p>
-        </div>
-    </div>
-
-    <!-- Footer Actions -->
-    <div class="gv-review-footer">
-        <div class="gv-review-footer-hint">
-            <i class="bi bi-info-circle"></i>
-            <span>Click lanes to select/deselect</span>
-        </div>
-        <div class="gv-review-footer-actions">
-            <button class="gv-review-btn gv-review-btn-reject" id="review-reject-all" title="Discard all detections">
-                <i class="bi bi-x-lg"></i>
-                <span>Reject All</span>
-            </button>
-            <button class="gv-review-btn gv-review-btn-accept-selected" id="review-accept-selected" title="Accept selected detections (Ctrl+Enter)">
-                <i class="bi bi-check"></i>
-                <span>Accept Selected (0)</span>
-            </button>
-            <button class="gv-review-btn gv-review-btn-accept-all" id="review-accept-all" title="Accept all detections">
-                <i class="bi bi-check-all"></i>
-                <span>Accept All</span>
-            </button>
-        </div>
+    <div class="gv-review-actions">
+        <button type="button" class="gv-review-btn" id="review-reject-all" title="Discard every detected lane" aria-label="Reject all">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+            <span>Reject all</span>
+        </button>
+        <button type="button" class="gv-review-btn gv-review-btn-primary" id="review-accept-selected" title="Create the kept lanes (Ctrl+Enter)">
+            <i class="bi bi-check-lg" aria-hidden="true"></i>
+            <span id="review-accept-label">Accept 0 lanes</span>
+        </button>
     </div>
 </div>

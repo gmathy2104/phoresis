@@ -29,8 +29,6 @@
 
     /**
      * Build an AutoSave instance bound to a specific eventBus + toast.
-     * Returned from a factory so multiple gel-viewer instances on the
-     * same page (rare but possible in the comparison view) don't clash.
      *
      * @param {Object} deps
      * @param {Object} deps.eventBus - GelViewer EventBus instance
@@ -46,21 +44,6 @@
         const OK = Events.AUTOSAVE_OK || 'autosave:ok';
         const FAILED = Events.AUTOSAVE_FAILED || 'autosave:failed';
 
-        /**
-         * Run a single auto-save operation.
-         *
-         * @param {Object} opts
-         * @param {string} opts.operation - human-readable, e.g. "Band update"
-         * @param {Promise} opts.promise - in-flight API call
-         * @param {Object} [opts.context] - filter info for panel listeners,
-         *   typically { kind: 'band'|'lane'|..., id: <pk> }
-         * @param {HTMLElement|null} [opts.source] - input that triggered
-         *   the save (panels use this to decide whether to flash green)
-         * @param {Function} [opts.onSuccess] - inline success callback
-         * @param {Function} [opts.onError] - inline error callback
-         * @returns {Promise} resolves with the API result, rejects with
-         *   the original Error so callers can chain
-         */
         function run({
             operation,
             promise,

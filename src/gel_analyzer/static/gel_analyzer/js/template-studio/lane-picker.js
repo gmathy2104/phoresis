@@ -176,7 +176,7 @@
         );
     }
     function escapeAttr(s) {
-        return String(s || '').replace(/"/g, '&quot;');
+        return escapeHtml(s);
     }
 
     // ─── Boot ─────────────────────────────────────────────────────────

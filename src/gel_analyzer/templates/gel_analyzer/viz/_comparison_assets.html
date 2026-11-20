@@ -1,0 +1,50 @@
+{% load static %}
+{% comment %}
+  Gel Analyzer Viz — Sample Comparison component assets.
+
+  Pulls in the shared foundation (d3 + core/shared + viz runtime), then the
+  sample-comparison state / api / utils / panels / app orchestrator, and finally
+  the page-chrome controller that wires the host template's header, modals,
+  splitters and magnifier to the mounted component handle.
+
+  Also publishes window.GelAnalyzer.Viz.Comparison.defaultApiUrls so any host
+  that mounts the comparison component can fall back to these URLs without
+  re-deriving the {% verbatim %}{laneId}{% endverbatim %} templating.
+{% endcomment %}
+{% include "gel_analyzer/viz/_foundation_assets.html" %}
+
+<!-- Sample Comparison Core Modules -->
+<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-state.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-api.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/mw-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/comparison-metrics.js' %}"></script>
+
+<!-- Sample Comparison Utilities -->
+<script src="{% static 'gel_analyzer/js/sample-comparison/drag-reorder.js' %}"></script>
+
+<!-- Sample Comparison Panels (load before app) -->
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/sample-cards-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/gel-overview-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/chromatogram-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/poi-purity-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/band-detail-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/results-table-panel.js' %}"></script>
+
+<!-- Sample Comparison App (orchestrator + Viz.Comparison.mount factory) -->
+<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-app.js' %}"></script>
+
+<!-- Page-chrome controller (header / modals / splitters / magnifier → handle) -->
+<script src="{% static 'gel_analyzer/js/sample-comparison/comparison-page-chrome.js' %}"></script>
+
+<script>
+  // Default API URLs for the comparison component. Hosts may override per-mount,
+  // but these resolve the lane-param URLs via the standard /0/ → /{laneId}/ swap.
+  window.GelAnalyzer = window.GelAnalyzer || {};
+  window.GelAnalyzer.Viz = window.GelAnalyzer.Viz || {};
+  window.GelAnalyzer.Viz.Comparison = window.GelAnalyzer.Viz.Comparison || {};
+  window.GelAnalyzer.Viz.Comparison.defaultApiUrls = {
+    laneData: '{% url "gel_analyzer:api_lane_comparison_data" pk=0 %}'.replace('/0/', '/{laneId}/'),
+    laneProfile: '{% url "gel_analyzer:api_lane_profile" pk=0 %}'.replace('/0/', '/{laneId}/'),
+    imagesWithDensitometry: '{% url "gel_analyzer:api_images_with_densitometry" %}',
+  };
+</script>

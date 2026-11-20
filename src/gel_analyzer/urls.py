@@ -47,9 +47,6 @@ from gel_analyzer.views import (
     api_detect_bands_cv2_lane,
     api_detect_bands_cv2_lane_save,
     api_detect_bands_diagnostic,
-    api_detect_bands_hybrid_async,
-    api_detect_bands_hybrid_lane,
-    api_detect_bands_hybrid_lane_save,
     api_detect_bands_lane,
     api_detect_bands_lane_save,
     api_detect_peaks,
@@ -86,7 +83,6 @@ from gel_analyzer.views import (
     api_template_train_now,
     api_template_training_status,
     comparison_list_view,
-    cross_lane_consensus_view,
     densitometry_view,
     image_delete_view,
     image_detail_view,
@@ -247,24 +243,6 @@ urlpatterns = [
     path("api/analyses/<uuid:pk>/band-model/save/", api_band_model_save, name="api_band_model_save"),
     # The tilt of the detected lanes, for the review's "Follow the lanes" (computes only)
     path("api/analyses/<uuid:pk>/lanes/tilt/", api_lane_tilt, name="api_lane_tilt"),
-    # Hybrid detection and cross-lane consensus: panels Phoresis still ships (ds-hub retired them
-    # from its editor when the band model arrived)
-    path("api/lanes/<int:pk>/detect-bands-hybrid/", api_detect_bands_hybrid_lane, name="api_detect_bands_hybrid_lane"),
-    path(
-        "api/lanes/<int:pk>/detect-bands-hybrid/save/",
-        api_detect_bands_hybrid_lane_save,
-        name="api_detect_bands_hybrid_lane_save",
-    ),
-    path(
-        "api/analyses/<uuid:pk>/detect-bands-hybrid/async/",
-        api_detect_bands_hybrid_async,
-        name="api_detect_bands_hybrid_async",
-    ),
-    path(
-        "analyses/<uuid:analysis_id>/cross-lane-consensus/",
-        cross_lane_consensus_view,
-        name="cross_lane_consensus",
-    ),
     # Comparison Views
     path("comparisons/", comparison_list_view, name="comparison_list"),
     path("comparisons/compare/", sample_comparison_view, name="sample_comparison"),

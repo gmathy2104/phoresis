@@ -1,8 +1,14 @@
 /**
- * POI Purity Panel
+ * Readout Panel (the comparison's readout tab; was "POI Purity" for every gel)
  *
- * D3.js bar chart showing POI purity percentage per sample.
- * Supports tooltips, click-to-select, threshold lines, and animated transitions.
+ * The tab reads the lanes for their KIND's readout (options.readout; the comparison page mounts one kind at a
+ * time -- services/comparison_items.py, owner 2026-10-12):
+ *   - PURITY: D3 bars of the purity the gel pages publish (sample.readout.purity, the server's published
+ *     rule), with the gel pages' two thresholds (options.purityThresholds = analysis_detail.PURITY_GOOD /
+ *     PURITY_FAIR); a lane with no value names its reason, never "N/A" or a zero.
+ *   - MOLECULE_VARIANTS / HOST_CELL_PROTEINS: the densitometry page's charts (js/shared/readout-charts.js)
+ *     over the lanes' readout values; an a.u. signal is drawn only when every lane comes from one blot.
+ * Without a readout (the dev showcase), the raw POI share of the lane as before.
  */
 
 (function(global) {
@@ -10,11 +16,15 @@
 
     const ComparisonEvents = global.SampleComparison?.Events;
 
-    class ComparisonPoiPurityPanel {
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    class ComparisonPoiPurityPanel extends GelAnalyzer.Viz.Panel {
         constructor(options) {
-            this.container = options.container;
-            this.eventBus = options.eventBus;
-            this.state = options.state;
+            super(options);  // sets this.container/eventBus/state/options/tooltipLayer/_disposers
 
             this.margin = { top: 30, right: 30, bottom: 60, left: 60 };
             this.width = 0;
@@ -26,16 +36,16 @@
             this.xScale = null;
             this.yScale = null;
 
-            // Thresholds
+            // Thresholds: the gel pages' (analysis_detail.PURITY_GOOD / PURITY_FAIR), else the historic 90 / 70.
+            const t = (this.options && this.options.purityThresholds) || {};
             this.thresholds = [
-                { value: 90, label: 'Target', color: '#22c55e' },
-                { value: 70, label: 'Minimum', color: '#ffc107' },
+                { value: t.good ?? 90, label: 'Target', color: '#22c55e' },
+                { value: t.fair ?? 70, label: 'Minimum', color: '#ffc107' },
             ];
-
-            this._init();
+            this.readout = (this.options && this.options.readout) || null;
         }
 
-        _init() {
+        init() {
             if (!this.container) return;
             this._setupEvents();
             this._setupResizeObserver();
@@ -45,46 +55,29 @@
         // Data Extraction
         // =====================================================================
 
-        /**
-         * Build a grouped-bar dataset: one group per sample, one bar per
-         * POI band inside the group. Per-bar purity =
-         * band.corrected_area / lane_total × 100. The previous
-         * lane.densitometry.poi_percentage shape collapsed multi-POI
-         * lanes into a single sum which hid the per-POI math the user
-         * cares about.
-         */
         _getChartData() {
             const samples = this.state.getSamples();
             if (!samples || samples.length === 0) return [];
 
             return samples.map(sample => {
-                const allBands = sample.bands || [];
-                const totalArea = allBands.reduce(
-                    (s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0
-                );
-                const poiBands = allBands
-                    .filter(b => b.band_type === 'POI')
-                    .sort((a, b) => (a.band_number || 0) - (b.band_number || 0));
-                const bars = (totalArea > 0 ? poiBands : []).map((b, idx) => {
-                    const area = (b.densitometry || {}).corrected_area || 0;
-                    return {
-                        bandId: b.id,
-                        bandNumber: b.band_number,
-                        bandKey: `b${b.band_number || idx}`,
-                        mw: b.estimated_mw_kda,
-                        area,
-                        purity: (area / totalArea) * 100,
-                    };
-                });
+                // The server's published purity when the page sent the lane's readout; else the raw POI share.
+                const readout = sample.readout || null;
+                const poiPurity = readout ? (readout.purity ?? null) : (sample.densitometry?.poi_percentage ?? null);
+                const totalBands = sample.bands?.length || 0;
+                const poiBands = sample.bands?.filter(b => b.band_type === 'POI').length || 0;
+                const reason = readout
+                    ? (readout.carries === false ? '—' : (readout.reason || '—'))
+                    : 'N/A';
 
                 return {
                     sampleId: sample.sampleId,
                     label: sample.label || `Sample ${sample.sampleId}`,
                     color: sample.color || '#2196F3',
+                    poiPurity: poiPurity,
+                    reason: reason,
                     gelName: sample.analysis?.name || sample.gel_name || '',
-                    totalBands: allBands.length,
-                    poiCount: poiBands.length,
-                    bars,
+                    totalBands: totalBands,
+                    poiBands: poiBands,
                 };
             });
         }
@@ -95,6 +88,11 @@
 
         _render() {
             if (!this.container) return;
+
+            if (this.readout === 'MOLECULE_VARIANTS' || this.readout === 'HOST_CELL_PROTEINS') {
+                this._renderWestern();
+                return;
+            }
 
             const data = this._getChartData();
 
@@ -111,10 +109,10 @@
             }
 
             // Empty state
-            if (data.length === 0 || !data.some(d => d.bars && d.bars.length > 0)) {
+            if (data.length === 0 || !data.some(d => d.poiPurity !== null)) {
                 this._showEmptyState(data.length === 0
                     ? 'Add samples to view POI purity'
-                    : 'No POI bands across the loaded samples — calibrate or annotate POIs first.');
+                    : 'No purity value for these lanes: ' + data.map(d => `${d.label} (${d.reason})`).join(', '));
                 return;
             }
 
@@ -150,9 +148,10 @@
             // Bars
             this._renderBars(data);
 
-            // Apply current selection — both sample-level dimming and
-            // band-level outline.
-            this._highlightSelection(this.state.selectedSampleId, this.state.selectedBandId);
+            // Apply selection if any
+            if (this.state.selectedSampleId) {
+                this._highlightSelectedSample(this.state.selectedSampleId);
+            }
         }
 
         _renderGrid() {
@@ -167,7 +166,7 @@
                 .attr('x2', this.width)
                 .attr('y1', d => this.yScale(d))
                 .attr('y2', d => this.yScale(d))
-                .attr('stroke', 'rgba(255,255,255,0.08)')
+                .style('stroke', 'var(--dm-line-8)')
                 .attr('stroke-width', 1);
         }
 
@@ -185,7 +184,7 @@
 
             // Rotate labels if needed
             xAxis.selectAll('text')
-                .attr('fill', 'rgba(255,255,255,0.7)')
+                .style('fill', 'var(--dm-fg-70)')
                 .attr('font-family', 'Roboto, sans-serif')
                 .attr('font-size', '11px')
                 .each(function() {
@@ -199,7 +198,7 @@
                 });
 
             xAxis.selectAll('.domain, .tick line')
-                .attr('stroke', 'rgba(255,255,255,0.3)');
+                .style('stroke', 'var(--dm-line-30)');
 
             // Y axis
             const yAxis = this.chartGroup.append('g')
@@ -210,12 +209,12 @@
                 );
 
             yAxis.selectAll('text')
-                .attr('fill', 'rgba(255,255,255,0.7)')
+                .style('fill', 'var(--dm-fg-70)')
                 .attr('font-family', 'Roboto, sans-serif')
                 .attr('font-size', '10px');
 
             yAxis.selectAll('.domain, .tick line')
-                .attr('stroke', 'rgba(255,255,255,0.3)');
+                .style('stroke', 'var(--dm-line-30)');
 
             // Y axis label
             this.chartGroup.append('text')
@@ -223,10 +222,10 @@
                 .attr('x', -this.height / 2)
                 .attr('y', -45)
                 .attr('text-anchor', 'middle')
-                .attr('fill', 'rgba(255,255,255,0.7)')
+                .style('fill', 'var(--dm-fg-70)')
                 .attr('font-size', '12px')
                 .attr('font-family', 'Roboto, sans-serif')
-                .text('POI Purity (%)');
+                .text(this.readout ? 'Purity (%)' : 'POI Purity (%)');
         }
 
         _renderThresholds() {
@@ -261,129 +260,96 @@
 
         _renderBars(data) {
             const self = this;
-            const groupWidth = this.xScale.bandwidth();
-            const barRadius = 4;
-            const selectedBandId = this.state.selectedBandId;
-            const selectedSampleId = this.state.selectedSampleId;
+            const barWidth = this.xScale.bandwidth();
+            const barRadius = Math.min(4, barWidth / 4);
 
             data.forEach((d, i) => {
-                const groupX = this.xScale(d.sampleId);
-                const sampleGroup = this.chartGroup.append('g')
+                const x = this.xScale(d.sampleId);
+                const hasData = d.poiPurity !== null;
+                const barHeight = hasData ? this.height - this.yScale(d.poiPurity) : this.height * 0.3;
+                const barY = hasData ? this.yScale(d.poiPurity) : this.height - barHeight;
+
+                const barGroup = this.chartGroup.append('g')
                     .attr('class', 'dm-poi-bar-group')
-                    .attr('data-sample-id', d.sampleId);
+                    .attr('data-sample-id', d.sampleId)
+                    .style('cursor', 'pointer');
 
-                if (!d.bars || d.bars.length === 0) {
-                    // Sample has no POI band → render a dashed N/A placeholder.
-                    const phHeight = this.height * 0.3;
-                    const phY = this.height - phHeight;
-                    sampleGroup.append('rect')
-                        .attr('class', 'dm-poi-bar dm-poi-bar-nodata')
-                        .attr('x', groupX)
-                        .attr('y', phY)
-                        .attr('width', groupWidth)
-                        .attr('height', phHeight)
-                        .attr('rx', barRadius)
-                        .attr('fill', 'none')
-                        .attr('stroke', 'rgba(255,255,255,0.2)')
-                        .attr('stroke-width', 1.5)
-                        .attr('stroke-dasharray', '4,3');
-
-                    sampleGroup.append('text')
-                        .attr('x', groupX + groupWidth / 2)
-                        .attr('y', phY + phHeight / 2)
-                        .attr('text-anchor', 'middle')
-                        .attr('dominant-baseline', 'middle')
-                        .attr('fill', 'rgba(255,255,255,0.4)')
-                        .attr('font-size', '11px')
-                        .attr('font-family', 'Roboto, sans-serif')
-                        .text('N/A');
-
-                    sampleGroup.style('cursor', 'pointer')
-                        .on('click', () => self.state.selectSample(d.sampleId));
-                    return;
-                }
-
-                // Inner band scale: one bar per POI inside the sample group.
-                const xInner = d3.scaleBand()
-                    .domain(d.bars.map(b => b.bandKey))
-                    .range([0, groupWidth])
-                    .padding(0.12);
-
-                d.bars.forEach((bar, j) => {
-                    const bx = groupX + xInner(bar.bandKey);
-                    const bw = xInner.bandwidth();
-                    const by = this.yScale(bar.purity);
-                    const bh = this.height - by;
-
-                    const initialPath = this._roundedTopRect(bx, this.height, bw, 0, Math.min(barRadius, bw / 2));
-                    const targetPath = this._roundedTopRect(bx, by, bw, bh, Math.min(barRadius, bw / 2, bh));
-                    const isSelected = !!(selectedBandId && bar.bandId === selectedBandId);
-
-                    const barGroup = sampleGroup.append('g')
-                        .attr('class', 'dm-poi-bar-cell')
-                        .attr('data-band-id', bar.bandId)
-                        .attr('data-sample-id', d.sampleId)
-                        .style('cursor', 'pointer');
+                if (hasData) {
+                    // Rounded-top bar using path
+                    const path = this._roundedTopRect(x, this.height, barWidth, 0, barRadius);
+                    const targetPath = this._roundedTopRect(x, barY, barWidth, barHeight, barRadius);
 
                     barGroup.append('path')
-                        .attr('class', 'dm-poi-bar' + (isSelected ? ' selected' : ''))
-                        .attr('d', initialPath)
+                        .attr('class', 'dm-poi-bar')
+                        .attr('d', path)
                         .attr('fill', d.color)
                         .attr('opacity', 0.85)
-                        .attr('stroke', isSelected ? '#fff' : null)
-                        .attr('stroke-width', isSelected ? 1.5 : null)
                         .transition()
-                        .duration(400)
-                        .delay(i * 60 + j * 30)
+                        .duration(500)
+                        .delay(i * 80)
                         .ease(d3.easeCubicOut)
                         .attr('d', targetPath);
 
-                    if (bw >= 22) {
-                        barGroup.append('text')
-                            .attr('class', 'dm-poi-value-label')
-                            .attr('x', bx + bw / 2)
-                            .attr('y', this.height)
-                            .attr('text-anchor', 'middle')
-                            .attr('fill', '#fff')
-                            .attr('font-family', "'Roboto Mono', monospace")
-                            .attr('font-size', bw < 32 ? '10px' : '12px')
-                            .attr('font-weight', '600')
-                            .text(`${bar.purity.toFixed(0)}%`)
-                            .transition()
-                            .duration(400)
-                            .delay(i * 60 + j * 30)
-                            .ease(d3.easeCubicOut)
-                            .attr('y', by - 6);
-                    }
+                    // Value label
+                    barGroup.append('text')
+                        .attr('class', 'dm-poi-value-label')
+                        .attr('x', x + barWidth / 2)
+                        .attr('y', this.height)
+                        .attr('text-anchor', 'middle')
+                        .style('fill', 'var(--dm-fg-100)')
+                        .attr('font-family', "'Roboto Mono', monospace")
+                        .attr('font-size', '12px')
+                        .attr('font-weight', '600')
+                        .text(`${d.poiPurity.toFixed(1)}%`)
+                        .transition()
+                        .duration(500)
+                        .delay(i * 80)
+                        .ease(d3.easeCubicOut)
+                        .attr('y', barY - 8);
+                } else {
+                    // No-data bar: dashed outline
+                    barGroup.append('rect')
+                        .attr('class', 'dm-poi-bar dm-poi-bar-nodata')
+                        .attr('x', x)
+                        .attr('y', barY)
+                        .attr('width', barWidth)
+                        .attr('height', barHeight)
+                        .attr('rx', barRadius)
+                        .attr('fill', 'none')
+                        .style('stroke', 'var(--dm-line-20)')
+                        .attr('stroke-width', 1.5)
+                        .attr('stroke-dasharray', '4,3');
 
-                    barGroup
-                        .on('mouseenter', function(event) {
-                            d3.select(this).select('.dm-poi-bar').attr('filter', 'brightness(1.2)');
-                            self._showTooltip(event, d, bar);
-                        })
-                        .on('mousemove', function(event) {
-                            self._moveTooltip(event);
-                        })
-                        .on('mouseleave', function() {
-                            d3.select(this).select('.dm-poi-bar').attr('filter', null);
-                            self._hideTooltip();
-                        })
-                        .on('click', function() {
-                            // state.selectBand cascades through the comparison
-                            // state: parent sample auto-selected, then band
-                            // detail / results-table / chromatogram all sync.
-                            if (bar.bandId && self.state.selectBand) {
-                                self.state.selectBand(bar.bandId);
-                            } else {
-                                self.state.selectSample(d.sampleId);
-                            }
-                        });
-                });
-
-                // Dim the entire group when another sample is selected.
-                if (selectedSampleId && selectedSampleId !== d.sampleId) {
-                    sampleGroup.attr('opacity', 0.4);
+                    // N/A label
+                    barGroup.append('text')
+                        .attr('x', x + barWidth / 2)
+                        .attr('y', barY + barHeight / 2)
+                        .attr('text-anchor', 'middle')
+                        .attr('dominant-baseline', 'middle')
+                        .style('fill', 'var(--dm-fg-40)')
+                        .attr('font-size', '11px')
+                        .attr('font-family', 'Roboto, sans-serif')
+                        .text(d.reason.length > 14 ? d.reason.slice(0, 13) + '…' : d.reason);
                 }
+
+                // Interaction handlers
+                barGroup
+                    .on('mouseenter', function(event) {
+                        d3.select(this).select('.dm-poi-bar')
+                            .attr('filter', 'brightness(1.2)');
+                        self._showTooltip(event, d);
+                    })
+                    .on('mousemove', function(event) {
+                        self._moveTooltip(event);
+                    })
+                    .on('mouseleave', function() {
+                        d3.select(this).select('.dm-poi-bar')
+                            .attr('filter', null);
+                        self._hideTooltip();
+                    })
+                    .on('click', function() {
+                        self.state.selectSample(d.sampleId);
+                    });
             });
         }
 
@@ -404,26 +370,84 @@
                    `Z`;
         }
 
+
+        /**
+         * A western kind: the densitometry page's chart (js/shared/readout-charts.js) over the lanes' readout
+         * values, one row per lane in the comparison's order and colour. On anti-HCP each lane is read against
+         * ITS blot's reference lane; the a.u. signal is drawn only when every lane comes from one blot.
+         */
+        _renderWestern() {
+            const Charts = global.GelAnalyzer && global.GelAnalyzer.ReadoutCharts;
+            const samples = this.state.getSamples() || [];
+            if (!Charts) {
+                this._showEmptyState('The readout charts are not loaded on this page.');
+                return;
+            }
+            if (!samples.length) {
+                this._showEmptyState('Add lanes to view their readout');
+                return;
+            }
+            const esc = Charts.esc;
+            const entries = samples.map((sample) => {
+                const r = sample.readout || {};
+                return {
+                    sampleId: sample.sampleId,
+                    label: sample.label,
+                    color: sample.color,
+                    gel: sample.analysis?.name || '',
+                    laneNumber: sample.lane?.lane_number,
+                    referenceLaneNumber: r.reference_lane_number,
+                    values: r.values || null,
+                    reason: r.reason || null,
+                    is_reference: !!r.is_reference,
+                    carries: r.carries,
+                };
+            });
+            const hcp = this.readout === 'HOST_CELL_PROTEINS';
+            const label = (entry) => {
+                const ref = entry.is_reference ? '<span class="ga-wb-ref">REF</span>' : '';
+                const against = hcp && !entry.is_reference && entry.referenceLaneNumber != null
+                    ? ` · ref. L${esc(entry.referenceLaneNumber)}` : '';
+                return `<div class="dm-ro-label" data-sample-id="${esc(entry.sampleId)}">
+                    <i class="ga-wb-sw" style="background:${esc(entry.color)}"></i>
+                    <span class="dm-readout-sample">${esc(entry.label)}</span>${ref}
+                    <small class="dm-readout-gel">L${esc(entry.laneNumber)} · ${esc(entry.gel)}${against}</small></div>`;
+            };
+            const blots = new Set(samples.map((sample) => sample.analysis?.id).filter(Boolean));
+            const html = hcp
+                ? Charts.hcp(entries, {
+                    label,
+                    signalComparable: blots.size <= 1,
+                    note: `% of ref. = each lane's HCP signal ÷ its own blot's reference lane, on the same membrane:
+                        it compares across blots. The signal in a.u. depends on the exposure: it is compared within
+                        one blot only. POI bands (cross-reacting molecule) are left out of the HCP signal.`,
+                })
+                : Charts.variants(entries, { label });
+            this.container.innerHTML = `<div class="dm-readout-view">${html}</div>`;
+            this.container.querySelectorAll('.dm-ro-label[data-sample-id]').forEach((el) => {
+                el.style.cursor = 'pointer';
+                el.addEventListener('click', () => this.state.selectSample(el.dataset.sampleId));
+            });
+        }
+
         // =====================================================================
         // Tooltip
         // =====================================================================
 
-        _showTooltip(event, d, bar) {
+        _showTooltip(event, d) {
             const tooltip = this._getTooltip();
+            const hasData = d.poiPurity !== null;
 
-            let html = `<strong style="color:${d.color}">${d.label}</strong><br>`;
-            if (bar) {
-                html += `POI B${bar.bandNumber || '?'}`;
-                if (bar.mw != null) html += ` &middot; ${Math.round(bar.mw)} kDa`;
-                html += `<br>Area: ${Math.round(bar.area)}<br>`;
-                html += `Purity: <strong>${bar.purity.toFixed(1)}%</strong><br>`;
+            let html = `<strong style="color:${d.color}">${escapeHtml(d.label)}</strong><br>`;
+            if (hasData) {
+                html += `Purity: <strong>${d.poiPurity.toFixed(1)}%</strong><br>`;
             } else {
-                html += `POI Purity: <em>N/A</em><br>`;
+                html += `Purity: <em>${escapeHtml(d.reason)}</em><br>`;
             }
             if (d.gelName) {
-                html += `Source: ${d.gelName}<br>`;
+                html += `Source: ${escapeHtml(d.gelName)}<br>`;
             }
-            html += `Bands: ${d.poiCount} POI / ${d.totalBands} total`;
+            html += `Bands: ${d.poiBands} POI / ${d.totalBands} total`;
 
             tooltip.innerHTML = html;
             tooltip.style.left = `${event.pageX + 15}px`;
@@ -443,12 +467,14 @@
         }
 
         _getTooltip() {
-            let tooltip = document.getElementById('dm-chart-tooltip');
+            // Scope the lookup to the panel's tooltipLayer (Task 7) so two
+            // mounted components on one page don't share a single tooltip.
+            const host = this.tooltipLayer || document.body;
+            let tooltip = host.querySelector('.dm-chart-tooltip');
             if (!tooltip) {
                 tooltip = document.createElement('div');
-                tooltip.id = 'dm-chart-tooltip';
-                tooltip.className = 'dm-tooltip';
-                document.body.appendChild(tooltip);
+                tooltip.className = 'dm-tooltip dm-chart-tooltip';
+                host.appendChild(tooltip);
             }
             return tooltip;
         }
@@ -457,28 +483,39 @@
         // Selection Highlighting
         // =====================================================================
 
-        _highlightSelection(sampleId, bandId) {
+        _highlightSelectedSample(sampleId) {
             if (!this.chartGroup) return;
 
-            // Sample-level dimming: full group fades out when another
-            // sample is selected.
-            this.chartGroup.selectAll('.dm-poi-bar-group')
-                .attr('opacity', function() {
-                    const id = d3.select(this).attr('data-sample-id');
-                    if (!sampleId) return 1;
-                    return id === sampleId ? 1 : 0.4;
-                });
+            const barGroups = this.chartGroup.selectAll('.dm-poi-bar-group');
 
-            // Band-level outline: white stroke on the matching bar.
-            this.chartGroup.selectAll('.dm-poi-bar-cell .dm-poi-bar')
-                .attr('stroke', null)
-                .attr('stroke-width', null);
-            if (bandId) {
-                this.chartGroup
-                    .selectAll(`.dm-poi-bar-cell[data-band-id="${bandId}"] .dm-poi-bar`)
-                    .attr('stroke', '#fff')
-                    .attr('stroke-width', 1.5);
+            if (!sampleId) {
+                // Clear selection - restore all bars
+                barGroups.select('.dm-poi-bar').attr('opacity', 0.85);
+                barGroups.select('.dm-poi-bar:not(.dm-poi-bar-nodata)').style('stroke', null).attr('stroke-width', null);
+                return;
             }
+
+            barGroups.each(function() {
+                const group = d3.select(this);
+                const id = group.attr('data-sample-id');
+                const bar = group.select('.dm-poi-bar');
+                const isSelected = id === sampleId;
+
+                if (bar.classed('dm-poi-bar-nodata')) {
+                    bar.attr('stroke-opacity', isSelected ? 1 : 0.3);
+                } else {
+                    bar.attr('opacity', isSelected ? 1 : 0.3);
+                }
+
+                // Theme colours through inline styles (SVG attributes take no CSS variable).
+                if (isSelected && !bar.classed('dm-poi-bar-nodata')) {
+                    bar.style('stroke', 'var(--dm-fg-100)')
+                       .attr('stroke-width', 2);
+                } else {
+                    bar.style('stroke', bar.classed('dm-poi-bar-nodata') ? 'var(--dm-line-20)' : null)
+                       .attr('stroke-width', bar.classed('dm-poi-bar-nodata') ? 1.5 : null);
+                }
+            });
         }
 
         // =====================================================================
@@ -492,8 +529,10 @@
             wrapper.className = 'dm-poi-placeholder';
             wrapper.innerHTML = `
                 <i class="bi bi-bar-chart" style="font-size: 2rem; opacity: 0.3; margin-bottom: 8px;"></i>
-                <span style="color: rgba(255,255,255,0.5); font-size: 0.85rem;">${message}</span>
+                <span style="color: var(--dm-fg-50); font-size: 0.85rem;"></span>
             `;
+            // Text, never HTML: the message names lanes, and a lane's label is user-entered.
+            wrapper.querySelector('span').textContent = message;
             this.container.appendChild(wrapper);
         }
 
@@ -502,15 +541,12 @@
         // =====================================================================
 
         _setupEvents() {
-            this.eventBus.on(ComparisonEvents.DATA_LOADED, () => this._render());
-            this.eventBus.on(ComparisonEvents.SAMPLE_ADDED, () => this._render());
-            this.eventBus.on(ComparisonEvents.SAMPLE_REMOVED, () => this._render());
-            this.eventBus.on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._render());
-            this.eventBus.on(ComparisonEvents.SAMPLE_SELECTED, (data) => {
-                this._highlightSelection(data && data.sampleId, this.state.selectedBandId);
-            });
-            this.eventBus.on(ComparisonEvents.BAND_SELECTED, (data) => {
-                this._highlightSelection(this.state.selectedSampleId, data && data.bandId);
+            this._on(ComparisonEvents.DATA_LOADED, () => this._render());
+            this._on(ComparisonEvents.SAMPLE_ADDED, () => this._render());
+            this._on(ComparisonEvents.SAMPLE_REMOVED, () => this._render());
+            this._on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => this._render());
+            this._on(ComparisonEvents.SAMPLE_SELECTED, (data) => {
+                this._highlightSelectedSample(data.sampleId);
             });
         }
 
@@ -520,14 +556,14 @@
 
         _setupResizeObserver() {
             if (!this.container) return;
-
-            this._resizeObserver = new ResizeObserver(() => {
+            // Cancel-previous debounce: keep local id, register one teardown disposer.
+            this._observe(this.container, () => {
                 if (this._resizeTimeout) {
                     cancelAnimationFrame(this._resizeTimeout);
                 }
                 this._resizeTimeout = requestAnimationFrame(() => this._handleResize());
             });
-            this._resizeObserver.observe(this.container);
+            this._disposers.push(() => cancelAnimationFrame(this._resizeTimeout));
         }
 
         _handleResize() {
@@ -545,17 +581,6 @@
             }
 
             this._render();
-        }
-
-        destroy() {
-            if (this._resizeObserver) {
-                this._resizeObserver.disconnect();
-                this._resizeObserver = null;
-            }
-            if (this._resizeTimeout) {
-                cancelAnimationFrame(this._resizeTimeout);
-                this._resizeTimeout = null;
-            }
         }
     }
 

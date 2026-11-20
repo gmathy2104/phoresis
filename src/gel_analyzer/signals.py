@@ -79,8 +79,7 @@ def invalidate_densitometry_on_band_save(sender, instance: Band, **kwargs) -> No
     Does NOT fire on ``Band.objects.bulk_create()`` /
     ``Band.objects.bulk_update()`` (Django gotcha). Callers using those
     bulk paths must invoke ``invalidate_lane_densitometry`` manually —
-    today that means ``services.band_detection.cross_lane_consensus`` and
-    the densitometry service's own ``intensity_normalized`` write-back
+    today that means the densitometry service's own ``intensity_normalized`` write-back
     (which is intentionally kept out of the invalidation loop, otherwise
     each Run Analysis would erase the rows it just wrote).
     """

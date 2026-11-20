@@ -149,7 +149,7 @@
                     <th class="lts-grid-mwcol">Warn</th>
                     ${lanes.map(l => `
                         <td class="lts-grid-warncount ${(l.warnings || []).length ? 'has-warns' : ''}"
-                            title="${escapeAttr((l.warnings || []).join('\\n'))}">
+                            title="${escapeAttr((l.warnings || []).join('\n'))}">
                             ${(l.warnings || []).length || ''}
                         </td>
                     `).join('')}
@@ -189,7 +189,7 @@
         );
     }
     function escapeAttr(s) {
-        return String(s || '').replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
+        return escapeHtml(s).replace(/\n/g, '&#10;');
     }
 
     // ─── Wiring ───────────────────────────────────────────────────────

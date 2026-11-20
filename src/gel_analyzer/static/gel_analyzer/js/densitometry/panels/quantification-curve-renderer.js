@@ -30,6 +30,12 @@
 (function (global) {
     'use strict';
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     const COLORS = {
         FIT: '#8B5CF6',
         EXCLUDED: 'rgba(139, 92, 246, 0.3)',
@@ -157,15 +163,19 @@
             ctx.moveTo(margin.left, Y);
             ctx.lineTo(margin.left + plotW, Y);
             ctx.stroke();
-            ctx.fillText(_fmtTick(yv), 4, Y + 4);
+            // Right-aligned against the axis, clear of the rotated title at the far left
+            ctx.textAlign = 'right';
+            ctx.fillText(_fmtTick(yv), margin.left - 6, Y + 4);
+            ctx.textAlign = 'left';
         }
 
         ctx.fillStyle = COLORS.AXIS;
         ctx.font = '12px system-ui, sans-serif';
         ctx.fillText(xLabel, margin.left + plotW / 2 - 36, h - 6);
         ctx.save();
-        ctx.translate(12, margin.top + plotH / 2 + 30);
+        ctx.translate(12, margin.top + plotH / 2);
         ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
         ctx.fillText(yLabel, 0, 0);
         ctx.restore();
         ctx.restore();
@@ -201,6 +211,7 @@
      * @param {boolean} [opts.showControls=true]
      */
     function render(canvas, r, opts) {
+        _applyTheme();
         if (!canvas || !r) return;
         opts = opts || {};
         const showCtrls = opts.showControls !== false;
@@ -357,6 +368,41 @@
      *   - sample       → estimated_amount (the projection the user
      *                    cares about).
      */
+    // Night / day (process_development/js/lib/dsh-theme.js): the axes, grid and text of both renderers follow
+    // the page's theme, read at each render; the data colours (fit violet, controls cyan, samples red) read on
+    // both. The modal canvas used the day values on its night card, and the inline view the night values only.
+    const THEMED = {
+        night: {
+            COLORS: { AXIS: 'rgba(255, 255, 255, 0.55)', GRID: 'rgba(255, 255, 255, 0.08)', EMPTY: 'rgba(255, 255, 255, 0.4)' },
+            PANEL_COLORS: {
+                AXIS: 'rgba(255, 255, 255, 0.45)',
+                AXIS_LINE: 'rgba(255, 255, 255, 0.18)',
+                GRID: 'rgba(255, 255, 255, 0.06)',
+                TEXT: 'rgba(255, 255, 255, 0.72)',
+                TEXT_MUTED: 'rgba(255, 255, 255, 0.45)',
+                EMPTY: 'rgba(255, 255, 255, 0.4)',
+            },
+        },
+        day: {
+            COLORS: { AXIS: '#6B7280', GRID: 'rgba(0,0,0,0.08)', EMPTY: '#9CA3AF' },
+            PANEL_COLORS: {
+                AXIS: 'rgba(15, 23, 42, 0.55)',
+                AXIS_LINE: 'rgba(15, 23, 42, 0.25)',
+                GRID: 'rgba(15, 23, 42, 0.07)',
+                TEXT: 'rgba(15, 23, 42, 0.8)',
+                TEXT_MUTED: 'rgba(15, 23, 42, 0.55)',
+                EMPTY: 'rgba(15, 23, 42, 0.45)',
+            },
+        },
+    };
+
+    function _applyTheme() {
+        const day = document.documentElement.getAttribute('data-theme') === 'light';
+        const theme = THEMED[day ? 'day' : 'night'];
+        Object.assign(COLORS, theme.COLORS);
+        Object.assign(PANEL_COLORS, theme.PANEL_COLORS);
+    }
+
     function _normalizePoint(p, yField) {
         const yRaw = (yField && p[yField] != null) ? p[yField] : null;
         return {
@@ -391,6 +437,7 @@
      * @returns {Object} controller — update / highlight / clearHighlight / resize / destroy
      */
     function renderInteractive(container, result, opts) {
+        _applyTheme();
         opts = opts || {};
         if (!container || typeof container.querySelector !== 'function') return null;
         if (typeof global.d3 === 'undefined') {
@@ -717,7 +764,7 @@
                 .on('mousemove', (event, d) => {
                     _showTooltip(`
                         <div class="dm-quantification-tooltip-label">Sample · Lane ${d.lane_number ?? '—'}</div>
-                        ${d.sample_label ? `<div class="dm-quantification-tooltip-row">${d.sample_label}</div>` : ''}
+                        ${d.sample_label ? `<div class="dm-quantification-tooltip-row">${escapeHtml(d.sample_label)}</div>` : ''}
                         <div class="dm-quantification-tooltip-row">Area: ${d.x.toFixed(1)}</div>
                         <div class="dm-quantification-tooltip-row">Predicted: ${d.y.toFixed(2)} ${r.unit === 'UG_ML' ? 'µg/mL' : 'µg'}</div>
                     `, event);

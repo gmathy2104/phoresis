@@ -12,8 +12,11 @@
  * Columns are grouped via <th colspan> into 4 sections:
  *   - Identity      Lane# | Type | Sample | Band
  *   - Densitometry  Total area | Band area | % lane
- *   - Quantification Estimated amount | Recovery % (CONTROL only)
+ *   - Quantification Estimated amount (+ its calibration-range chip) | Recovery % (CONTROL only)
  *   - Quality       Fit R² | Flag
+ *
+ * A band the server flags saturated (band.densitometry.saturated) carries a
+ * "Saturated" badge in its Band cell; the page's "To check" strip names it too.
  *
  * Clicking a row calls state.selectBand(bandId) — same behaviour as
  * clicking a band on the gel: the parent lane is auto-selected, band
@@ -55,6 +58,23 @@
         return b && b.band_type && b.band_type !== 'OTHER';
     }
 
+    // Calibration range of an estimated amount — DensitometryResult.CalibrationRange,
+    // stored by the server beside the amount (apply_to_analysis). Outside the
+    // standards' areas the amount is extrapolated: kept, flagged.
+    const CALIBRATION_RANGE = {
+        IN_RANGE: { label: 'in range', out: false, title: 'Band area within the calibration standards’ areas' },
+        ABOVE_RANGE: { label: 'above range', out: true, title: 'Band area above the largest calibration standard: the amount is extrapolated' },
+        BELOW_RANGE: { label: 'below range', out: true, title: 'Band area below the smallest calibration standard: the amount is extrapolated' },
+    };
+
+    /** A small chip for a calibration-range code; '' for none or an unknown code. Shared with the quantification modal. */
+    function calibrationRangeChip(code) {
+        const r = CALIBRATION_RANGE[code];
+        if (!r) return '';
+        const cls = r.out ? 'dm-range-chip dm-range-chip--out' : 'dm-range-chip dm-range-chip--in';
+        return `<span class="${cls}" data-range="${code}" title="${r.title}">${r.out ? '&#9888; ' : ''}${r.label}</span>`;
+    }
+
     class ResultsTablePanel {
         /**
          * @param {Object} options
@@ -84,10 +104,8 @@
             // Column preset
             let preset = 'standard';
             try {
-                if (typeof safeLocalGet === 'function') {
-                    const saved = safeLocalGet(PRESET_KEY, 'standard');
-                    if (VALID_PRESETS.includes(saved)) preset = saved;
-                }
+                const saved = global.localStorage.getItem(PRESET_KEY) || 'standard';
+                if (VALID_PRESETS.includes(saved)) preset = saved;
             } catch (_) { /* ignore */ }
             this.preset = preset;
 
@@ -176,7 +194,9 @@
                 if (!VALID_PRESETS.includes(v)) return;
                 this.preset = v;
                 try {
-                    if (typeof safeLocalSet === 'function') safeLocalSet(PRESET_KEY, v);
+                    try {
+                        global.localStorage.setItem(PRESET_KEY, v);
+                    } catch (_) { /* private window: the preset simply does not persist */ }
                 } catch (_) { /* ignore */ }
                 this._applyPreset();
             });
@@ -353,7 +373,7 @@
             // calibration band (its known reference is used by recovery).
             let estDisplay = '—';
             if (calibActive && d.estimated_amount != null) {
-                estDisplay = `${d.estimated_amount.toFixed(2)} ${unit}`;
+                estDisplay = `${d.estimated_amount.toFixed(2)} ${unit}${calibrationRangeChip(d.estimated_amount_range)}`;
             }
 
             // Recovery % — only on CONTROL lanes' calibration band where a
@@ -379,17 +399,30 @@
             const mwSuffix = (bandType === 'MW_REFERENCE' && band.estimated_mw_kda != null)
                 ? ` <span class="dm-band-mw">${Math.round(band.estimated_mw_kda)} kDa</span>`
                 : '';
+            // Saturation: the server's flag (services/densitometry/saturation.py, its threshold), shown in the
+            // Band cell so every column preset carries it. A warning only: the areas are not corrected.
+            let saturatedHtml = '';
+            if (d.saturated === true) {
+                const share = d.saturated_pixel_fraction != null
+                    ? `${(d.saturated_pixel_fraction * 100).toFixed(1)} % of its pixels`
+                    : 'Its pixels';
+                const why = `${share} sit at the end of the image's scale, where the scanner clips: `
+                    + 'its area reads too low. Load less or image with a shorter exposure.';
+                saturatedHtml = `<span class="dm-saturated-badge" title="${this._escape(why)}">Saturated</span>`;
+            }
+
             const bandRefHtml = `
                 ${bandRefMain}
-                <span class="gv-prop-type-badge gv-prop-type-${bandTypeLower}">${bandTypeLabel}</span>
+                <span class="gv-prop-type-badge gv-prop-type-${this._escape(bandTypeLower)}">${this._escape(bandTypeLabel)}</span>
                 ${mwSuffix}
+                ${saturatedHtml}
             `;
 
             return `
-                <tr class="dm-band-row ${tintClass}" data-band-id="${band.id}" data-lane-id="${lane.id}" data-lane-type="${laneType}" data-band-type="${bandType}">
+                <tr class="dm-band-row ${tintClass}" data-band-id="${band.id}" data-lane-id="${lane.id}" data-lane-type="${this._escape(laneType)}" data-band-type="${this._escape(bandType)}">
                     <td class="col-lane">${lane.lane_number}</td>
                     <td class="col-type">
-                        <span class="gv-prop-type-badge gv-prop-type-${typeLower}">${typeLabel}</span>
+                        <span class="gv-prop-type-badge gv-prop-type-${this._escape(typeLower)}">${this._escape(typeLabel)}</span>
                     </td>
                     <td class="col-sample col-preset-standard">${this._escape(lane.sample_name || '')}</td>
                     <td class="col-band">${bandRefHtml}</td>
@@ -421,7 +454,7 @@
                     </span>
                     ${calibActive ? `
                         <span class="dm-stat">
-                            <span class="dm-stat-value">${this.activeCalib.method || ''}</span>
+                            <span class="dm-stat-value">${this._escape(this.activeCalib.method || '')}</span>
                             <span class="dm-stat-label">Active calib</span>
                         </span>
                     ` : ''}
@@ -466,7 +499,8 @@
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         // -----------------------------------------------------------------
@@ -499,6 +533,8 @@
                         pct_lane: totalArea > 0 ? (d.corrected_area || 0) / totalArea * 100 : null,
                         fit_r_squared: d.fit_r_squared,
                         estimated_amount: d.estimated_amount,
+                        estimated_amount_range: d.estimated_amount_range,
+                        saturated: d.saturated,
                     });
                 });
             });
@@ -538,5 +574,6 @@
 
     global.Densitometry = global.Densitometry || {};
     global.Densitometry.ResultsTablePanel = ResultsTablePanel;
+    global.Densitometry.calibrationRangeChip = calibrationRangeChip;
 
 })(window);

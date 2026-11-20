@@ -23,6 +23,12 @@
 (function (global) {
     'use strict';
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     class QuantificationModal {
         /**
          * @param {Object} opts
@@ -67,20 +73,37 @@
             try {
                 const r = await this.api.previewQuantification(this.analysisId, body);
                 this.lastResult = r;
+                // 422 returns a domain result with success=false (no points
+                // yet, < 2 calibration points, densitometry missing, …). We
+                // render the result either way — _render shows the empty
+                // tables + the inline reason from r.error_message — so the
+                // modal is informational, not an "error" state.
                 this._render(r);
             } catch (err) {
+                // Real transport errors only (network, 500, auth, …).
                 console.error('[QuantificationModal] preview failed:', err);
                 this._renderError(err);
             }
         }
 
         async save() {
-            if (!this.lastResult || !this.lastResult.success) return;
+            if (!this.lastResult || !this.lastResult.success || this._isLocked()) return;
             const body = this._readForm();
             try {
                 const calib = await this.api.saveQuantification(this.analysisId, body);
+                // saveQuantification also goes through _fetchDomain — a 422
+                // here means the user tried to save a state that became
+                // invalid between refit and save (rare; e.g. another tab
+                // excluded the last point). Surface the reason inline.
+                if (calib && calib.success === false) {
+                    this._renderError(new Error(calib.error_message || 'Save failed'));
+                    return;
+                }
                 if (this.bus && typeof this.bus.emit === 'function') {
-                    this.bus.emit('QUANT_CALIBRATION_CHANGED', { calib });
+                    // The bus's own event name ('quant:calibration:changed'): the table, the curve view and
+                    // the page summary subscribe to it. The bare literal used before reached none of them.
+                    const Events = global.Densitometry && global.Densitometry.Events;
+                    this.bus.emit((Events && Events.QUANT_CALIBRATION_CHANGED) || 'quant:calibration:changed', { calib });
                 }
                 this.close();
             } catch (err) {
@@ -115,6 +138,11 @@
                 });
             }
 
+            // Night | Day: the curve's canvas is drawn by script, it follows on a redraw.
+            window.addEventListener('dsh:themechange', () => {
+                if (this.lastResult) this._render(this.lastResult);
+            });
+
             // Close on Escape
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape' && this.el && !this.el.hidden) this.close();
@@ -144,7 +172,7 @@
         _render(r) {
             this._renderPointsTable(r.calibration_points || []);
             this._renderControlsTable(r.control_points || []);
-            this._renderSamplesTable(r.sample_projections || []);
+            this._renderSamplesTable(r.sample_projections || [], r.calibration_area_range);
 
             const r2El = document.getElementById('qcm-r2');
             if (r2El) r2El.textContent = (typeof r.r_squared === 'number') ? r.r_squared.toFixed(4) : '—';
@@ -156,15 +184,41 @@
             }
 
             const eqEl = document.getElementById('qcm-equation');
-            if (eqEl) eqEl.textContent = r.equation || '—';
+            if (eqEl) {
+                // On a successful fit show the equation; on a domain failure
+                // (success=false, returned with 422) show the reason inline
+                // so the user knows what to do next (mark more CALIBRATION
+                // bands, run densitometry, …). NOT prefixed with "error: " —
+                // it's an expected informational state, not a crash.
+                if (r.success) {
+                    eqEl.textContent = r.equation || '—';
+                } else if (r.error_message) {
+                    eqEl.textContent = r.error_message;
+                } else {
+                    eqEl.textContent = '—';
+                }
+            }
 
             this._renderCurve(r);
 
             const saveBtn = document.getElementById('qcm-save');
-            if (saveBtn) saveBtn.disabled = !r.success;
+            if (saveBtn) saveBtn.disabled = !r.success || this._isLocked();
+        }
+
+        /**
+         * Save & apply is locked server-side on an approved analysis (the
+         * template marks the button data-locked and shows why): a fit may
+         * still be previewed, never saved.
+         */
+        _isLocked() {
+            const saveBtn = document.getElementById('qcm-save');
+            return !!(saveBtn && saveBtn.hasAttribute('data-locked'));
         }
 
         _renderError(err) {
+            // Reserved for genuine transport errors (network, 500, auth) —
+            // domain-level failures (no points, missing densito) go through
+            // _render with r.success=false instead.
             const eqEl = document.getElementById('qcm-equation');
             if (eqEl) eqEl.textContent = `error: ${err.message || err}`;
             const saveBtn = document.getElementById('qcm-save');
@@ -194,7 +248,7 @@
                 return `
                     <tr class="${rowCls}">
                         <td>${p.lane_number ?? '—'}</td>
-                        <td>${load}</td>
+                        <td>${escapeHtml(load)}</td>
                         <td>${this._fmtNum(p.corrected_area, 1)}</td>
                         <td>${residual}</td>
                         <td><input type="checkbox" data-band-id="${bandId}" ${checked}></td>
@@ -210,7 +264,7 @@
             const tbody = document.querySelector('#qcm-controls-table tbody');
             if (!tbody) return;
             if (!controls.length) {
-                tbody.innerHTML = `<tr><td colspan="4" class="dm-table-empty">No control lanes marked.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="dm-table-empty">No control lanes marked.</td></tr>`;
                 return;
             }
             tbody.innerHTML = controls.map(c => {
@@ -223,26 +277,40 @@
                         <td>${c.known_amount ?? '—'}</td>
                         <td>${this._fmtNum(c.predicted_amount, 2)}</td>
                         <td>${recovery}</td>
+                        <td>${this._rangeCell(c.calibration_range)}</td>
                     </tr>
                 `;
             }).join('');
         }
 
-        _renderSamplesTable(samples) {
+        _renderSamplesTable(samples, areaRange) {
             const tbody = document.querySelector('#qcm-samples-table tbody');
+            const caption = document.getElementById('qcm-samples-range');
+            if (caption) {
+                caption.textContent = (Array.isArray(areaRange) && areaRange.length === 2)
+                    ? `Calibration range: area ${this._fmtNum(areaRange[0], 1)} – ${this._fmtNum(areaRange[1], 1)} (non-excluded standards). Outside it the amount is extrapolated.`
+                    : '';
+            }
             if (!tbody) return;
             if (!samples.length) {
-                tbody.innerHTML = `<tr><td colspan="4" class="dm-table-empty">No sample lanes to project.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="dm-table-empty">No sample lanes to project.</td></tr>`;
                 return;
             }
             tbody.innerHTML = samples.map(s => `
                 <tr>
                     <td>${s.lane_number ?? '—'}</td>
-                    <td>${s.sample_label ?? '—'}</td>
+                    <td>${escapeHtml(s.sample_label ?? '—')}</td>
                     <td>${this._fmtNum(s.corrected_area, 1)}</td>
                     <td>${this._fmtNum(s.estimated_amount, 2)}</td>
+                    <td>${this._rangeCell(s.calibration_range)}</td>
                 </tr>
             `).join('');
+        }
+
+        /** The calibration-range chip of a projection (results-table-panel.js renders it, loaded first); '—' for none. */
+        _rangeCell(code) {
+            const chip = global.Densitometry && global.Densitometry.calibrationRangeChip;
+            return (chip && chip(code)) || '—';
         }
 
         // -----------------------------------------------------------------

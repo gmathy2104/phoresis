@@ -1,12 +1,12 @@
 /**
  * detection-panel-base.js
  *
- * Shared base utilities for DetectionPanel and ProfileDetectionPanel.
- * Provides common slider binding, teacher integration, show/hide animation,
- * lane filtering, taught-badge management, and task polling.
+ * Shared base utilities for the detection panels (DetectionPanel, CV2DetectionPanel,
+ * BandModelPanel). Provides common slider binding, teacher integration, show/hide
+ * animation, lane filtering, taught-badge management, and task polling.
  *
  * This is NOT a class to inherit from — it's a namespace of static helpers
- * that both panels call, passing their own state as arguments.
+ * that the panels call, passing their own state as arguments.
  *
  * @requires GelViewer.Events
  */
@@ -121,8 +121,12 @@
          */
         setupTeacherEvents(eventBus, panel) {
             eventBus.on(Events.TEACHER_PANEL_SHOWN, () => {
-                panel._wasVisibleBeforeTeacher = panel.isVisible;
-                if (panel.isVisible) panel.hide();
+                // Emitted twice (the Teach button, then TeacherPanel.show): only a visible panel sets the flag, or
+                // the second emit forgot it and the panel never came back when the teacher closed.
+                if (panel.isVisible) {
+                    panel._wasVisibleBeforeTeacher = true;
+                    panel.hide();
+                }
             });
 
             eventBus.on(Events.TEACHER_PANEL_HIDDEN, () => {
@@ -203,20 +207,6 @@
                 default:
                     return allLanes;
             }
-        },
-
-        // ─── Button State ────────────────────────────────────────────
-
-        /**
-         * Enable or disable a list of buttons by their element IDs.
-         * @param {Array<string>} buttonIds - DOM element IDs
-         * @param {boolean} enabled
-         */
-        setButtonsEnabled(buttonIds, enabled) {
-            buttonIds.forEach(id => {
-                const btn = document.getElementById(id);
-                if (btn) btn.disabled = !enabled;
-            });
         },
 
         // ─── Task Polling ────────────────────────────────────────────

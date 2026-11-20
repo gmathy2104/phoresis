@@ -56,13 +56,30 @@
 
     /**
      * Sample colors for visual differentiation.
+     *
+     * Day mode (`data-theme="light"` on <html>, set only by hosts that offer it: the
+     * PD dashboard) draws the same hues darker, so the traces hold on white.
+     * SAMPLE_COLORS is ONE array, refilled in place at load and on each
+     * `dsh:themechange`; a chart already drawn keeps its colours until its host
+     * redraws it (the dashboard re-mounts its tiles).
      */
-    const SAMPLE_COLORS = [
-        '#2196F3',  // Blue
-        '#4CAF50',  // Green
-        '#FF9800',  // Orange
-        '#9C27B0',  // Purple
+    // Eight lanes before a colour repeats (four cycled before): the PD sample comparison's "DS-Hub" palette
+    // (process_development/static/process_development/css/sample_compare.css --scmp-s1..8, from
+    // pdd-style.js PRESETS[0]), so a lane reads in one colour on both comparisons. Keep the three in step.
+    const SAMPLE_COLORS_NIGHT = [
+        '#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#60a5fa', '#f87171',
     ];
+    const SAMPLE_COLORS_DAY = [
+        '#0369a1', '#c2410c', '#7c3aed', '#047857', '#db2777', '#a16207', '#2563eb', '#dc2626',
+    ];
+    const SAMPLE_COLORS = SAMPLE_COLORS_NIGHT.slice();
+
+    function applyThemeColors() {
+        const day = document.documentElement.getAttribute('data-theme') === 'light';
+        (day ? SAMPLE_COLORS_DAY : SAMPLE_COLORS_NIGHT).forEach((c, i) => { SAMPLE_COLORS[i] = c; });
+    }
+    applyThemeColors();
+    global.addEventListener('dsh:themechange', applyThemeColors);
 
     /**
      * SampleComparisonState Class
@@ -70,9 +87,15 @@
     class SampleComparisonState {
         /**
          * @param {EventBus} eventBus - EventBus instance for communication
+         * @param {Object} [options]
+         * @param {Function} [options.colorForKey] - colorForKey(laneKey, n) → hex | null:
+         *   a host's own colour per lane (the PD dashboard's Style palette), n = the
+         *   rank of the sample within its lane in display order. Absent — every
+         *   other host — the positional SAMPLE_COLORS.
          */
-        constructor(eventBus) {
+        constructor(eventBus, options) {
             this.eventBus = eventBus;
+            this.colorForKey = options && typeof options.colorForKey === 'function' ? options.colorForKey : null;
 
             // Sample data: Map<sampleId, SampleData>
             // SampleData = { sample, lane, bands, profile, color, densitometry }
@@ -157,7 +180,7 @@
         /**
          * Add a sample to the comparison.
          * @param {Object} data - Sample data object
-         * @param {Object} data.sample - ProcessSample info
+         * @param {Object} data.sample - always null in Phoresis (ds-hub: ProcessSample info)
          * @param {Object} data.lane - Lane data
          * @param {Array} data.bands - Band array
          * @param {Object} data.profile - Profile data (optional)
@@ -170,9 +193,10 @@
          * @returns {boolean} True if added successfully
          */
         addSample(data) {
-            // Use data.id as the unique identifier - it's always present
-            // Format: "lane_{id}" for standalone lanes, "process_sample_{id}" for linked samples
-            const sampleId = data.id || (data.sample?.id ? `process_sample_${data.sample.id}` : `lane_${data.lane?.id}`);
+            // Use data.id as the unique identifier - it's always present: "lane_{id}", the LANE's
+            // (services/comparison_items.py). A sample's id would merge its two lanes (reduced and
+            // non-reduced, or its SDS-PAGE and anti-HCP lanes) and drop the second.
+            const sampleId = data.id || `lane_${data.lane?.id}`;
 
             console.log('[SampleComparisonState] addSample called with:', {
                 sampleId: sampleId,
@@ -189,16 +213,18 @@
                 return false;
             }
 
-            // Assign color based on index
+            // Assign color based on index (or the host's lane colour)
             const colorIndex = this.samples.size;
-            const color = SAMPLE_COLORS[colorIndex % SAMPLE_COLORS.length];
+            const laneKey = data.lane_key != null ? String(data.lane_key) : null;
+            const color = this._hostColor(laneKey, this.sampleOrder) ||
+                SAMPLE_COLORS[colorIndex % SAMPLE_COLORS.length];
 
             // Store sample data with unique ID and label for display
             const sampleData = {
-                sampleId: sampleId,  // Unique identifier (lane_X or process_sample_X)
-                source: data.source || 'lane',  // 'lane' or 'process_sample'
+                sampleId: sampleId,  // Unique identifier (lane_X)
+                source: data.source || 'lane',  // always 'lane' in Phoresis
                 label: data.label || (data.sample?.sample_id || `Lane ${data.lane?.lane_number || data.lane?.id}`),
-                sample: data.sample,  // ProcessSample info (may be null for standalone lanes)
+                sample: data.sample || null,  // null in Phoresis: a comparison is made of lanes only
                 lane: data.lane,
                 bands: data.bands || [],
                 profile: data.profile || null,
@@ -208,6 +234,17 @@
                 densitometry: data.densitometry || null,
                 image_url: data.image_url || null,  // Gel image URL
                 analysis: data.analysis || null,  // Analysis info
+                cdw_batch_id: data.cdw_batch_id || "",  // always "" in Phoresis (ds-hub: CDW batch key)
+                lane_key: laneKey,  // PD dashboard lane (slot payloads), for its colour
+                // Why the lane cannot be compared (critical issues): the card's warning reads it.
+                comparability: data.comparability || null,
+                // The comparison page's (services/comparison_items.py::enrich; absent on PD tiles):
+                // the assay, the kind the lane is compared in, and its readout cells.
+                assay: data.assay || null,
+                gel_type: data.gel_type || null,
+                kind: data.kind || null,
+                readout: data.readout || null,
+                strip: data.strip || null,  // the LaneStrips entry (lanes side by side)
                 color: color,
                 colorIndex: colorIndex,
             };
@@ -285,6 +322,21 @@
         }
 
         /**
+         * The host's colour for a sample of lane `laneKey` (see colorForKey), or
+         * null: no host resolver, or a sample without a lane. `earlierIds` = the
+         * samples before it in display order; those of the same lane set its shade.
+         * @private
+         */
+        _hostColor(laneKey, earlierIds) {
+            if (!this.colorForKey || laneKey == null) return null;
+            const n = earlierIds.filter(id => {
+                const s = this.samples.get(id);
+                return s && s.lane_key === laneKey;
+            }).length;
+            return this.colorForKey(laneKey, n) || null;
+        }
+
+        /**
          * Reassign colors based on display order (sampleOrder).
          * @private
          */
@@ -293,7 +345,8 @@
                 const sampleData = this.samples.get(sampleId);
                 if (!sampleData) return;
 
-                const newColor = SAMPLE_COLORS[index % SAMPLE_COLORS.length];
+                const newColor = this._hostColor(sampleData.lane_key, this.sampleOrder.slice(0, index)) ||
+                    SAMPLE_COLORS[index % SAMPLE_COLORS.length];
                 sampleData.color = newColor;
                 sampleData.colorIndex = index;
 

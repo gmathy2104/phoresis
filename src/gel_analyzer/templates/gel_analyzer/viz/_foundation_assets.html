@@ -1,0 +1,31 @@
+{% load static %}
+{% comment %}
+  Gel Analyzer Viz — foundation assets.
+
+  d3 (vendored) + the shared/core foundation JS + the generic Viz runtime
+  (panel-base.js, mount.js). Any page that mounts a GelAnalyzer.Viz
+  component includes this (directly or via a component-specific
+  asset partial such as _comparison_assets.html).
+
+  Keep this list minimal: ONLY the cross-cutting foundation. Component
+  panel/app scripts belong in the component's own asset partial.
+{% endcomment %}
+{# D3.js: the vendored copy, never a CDN (AGENTS.md §1). #}
+<script src="{% static 'gel_analyzer/js/vendor/d3.v7.min.js' %}"></script>
+
+<!-- Core EventBus -->
+<script src="{% static 'gel_analyzer/js/core/event-bus.js' %}"></script>
+
+<!-- Shared Utilities (must load before module scripts) -->
+<script src="{% static 'gel_analyzer/js/shared/api-error.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/auto-save.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/panel-splitter.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/lane-geometry.js' %}"></script>
+
+<!-- Generic Viz runtime (Panel base + mount) -->
+<script src="{% static 'gel_analyzer/js/viz/panel-base.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/viz/mount.js' %}"></script>
+<!-- Shared brush-to-zoom gesture of the curve panels -->
+<script src="{% static 'gel_analyzer/js/viz/brush-zoom.js' %}"></script>

@@ -60,6 +60,71 @@
                 match_tolerance_px: 15,
                 enable_deconvolution: false,
             };
+
+            // Western readout (spec §4.4). Computed by the server
+            // (readout_publisher.lane_readouts, the publisher's own values):
+            // this module only stores and displays it.
+            this.readoutAssay = null;                // {id, name, readout} | null
+            this.readoutReferenceLaneId = null;      // anti-HCP reference lane id | null
+            this.readoutReferenceLaneNumber = null;
+            this.readouts = [];                      // lane entries; null = the server could not compute them
+            this.readoutsLoaded = false;             // false until the first densitometry fetch
+            // services/analysis_detail.py::summary_payload, rendered at load then refreshed with the readouts.
+            this.pageSummary = options.pageSummary || null;
+            this.canWrite = false;
+            this.isEditable = false;
+        }
+
+        // =====================================================================
+        // Western readout
+        // =====================================================================
+
+        /**
+         * Store the readout block of a densitometry payload (or of the page
+         * config) and emit READOUTS_UPDATED. Only the keys present are
+         * updated, so a POST response carrying just the reference can be
+         * applied before the re-fetch lands.
+         */
+        setReadouts(payload) {
+            if (!payload) return;
+            if ('assay' in payload) this.readoutAssay = payload.assay || null;
+            if ('readout_reference_lane_id' in payload) {
+                this.readoutReferenceLaneId = payload.readout_reference_lane_id ?? null;
+            }
+            if ('reference_lane_number' in payload) {
+                this.readoutReferenceLaneNumber = payload.reference_lane_number ?? null;
+            }
+            if ('can_write' in payload) this.canWrite = payload.can_write === true;
+            if ('is_editable' in payload) this.isEditable = payload.is_editable === true;
+            if ('readouts' in payload) {
+                this.readouts = payload.readouts;  // null kept: the panel says so
+                this.readoutsLoaded = true;
+            }
+            this.eventBus.emit(Events.READOUTS_UPDATED, {
+                assay: this.readoutAssay,
+                referenceLaneId: this.readoutReferenceLaneId,
+                readouts: this.readouts,
+            });
+            // The page summary (services/analysis_detail.py::summary_payload) rides on the same GET: every
+            // path that refreshes the readouts (a run, a reference change, a quantification save) refreshes it.
+            if (payload.page_summary) this.setPageSummary(payload.page_summary);
+        }
+
+        /** The summary strip's and the Lanes view's payload (server-built; the page never computes it). */
+        setPageSummary(summary) {
+            if (!summary) return;
+            this.pageSummary = summary;
+            this.eventBus.emit(Events.PAGE_SUMMARY_UPDATED, summary);
+        }
+
+        /**
+         * The anti-HCP reference lane id (a number), or null when there is
+         * none or the assay is not an anti-HCP western.
+         */
+        getHcpReferenceLaneId() {
+            if (this.readoutAssay?.readout !== 'HOST_CELL_PROTEINS') return null;
+            if (this.readoutReferenceLaneId === null || this.readoutReferenceLaneId === undefined) return null;
+            return Number(this.readoutReferenceLaneId);
         }
 
         // =====================================================================
@@ -101,6 +166,12 @@
             this.results = results;
             this.hasResults = true;
 
+            // A band's western role (services/readouts.py::band_roles) comes with its result; a band the
+            // payload no longer carries (never integrated, wiped by an edit) has none.
+            this.bands.forEach(band => {
+                band.role = null;
+            });
+
             // Update lane data with densitometry
             if (results.lanes) {
                 results.lanes.forEach(laneResult => {
@@ -120,6 +191,7 @@
                             const band = this.bands.get(bandResult.band_id);
                             if (band) {
                                 band.densitometry = bandResult;
+                                band.role = bandResult.role ?? null;
                                 // Sync bbox to the band top-level so the
                                 // chromatogram render (chromatogram-utils
                                 // calculateBandBounds reads band.bbox_y /

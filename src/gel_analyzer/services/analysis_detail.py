@@ -128,7 +128,7 @@ def readout_columns(readout: str, has_quant: bool) -> list[dict]:
             {
                 "key": "purity",
                 "label": "Purity",
-                "title": "POI share of the lane: the purity Process Development receives",
+                "title": "POI share of the lane: the sample's purity",
             },
         ]
         if has_quant:
@@ -388,7 +388,7 @@ def build_checks(analysis, rows: list[dict], readout: str, *, ladder_count: int,
             "no_sample",
             "warn",
             f"{_lanes(no_sample)}: no sample",
-            "No value reaches Process Development without one: assign it from the lane table.",
+            "Name it from the lane table, so its values can be told apart.",
         )
 
     if readout != Readout.NONE:
@@ -833,7 +833,7 @@ def reading_guide(readout: str, reference_lane_number=None) -> list[dict]:
 
     if readout == Readout.PURITY:
         return [
-            item("b-poi", "POI", "Its share of the lane is the purity Process Development receives"),
+            item("b-poi", "POI", "Its share of the lane is the sample's purity"),
             item("b-other", "Other", "Every other band, in the lane total"),
             item("b-mw", "MW reference", "Ladder bands, never counted"),
         ]

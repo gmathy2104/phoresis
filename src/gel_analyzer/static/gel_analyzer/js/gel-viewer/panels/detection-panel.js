@@ -15,6 +15,12 @@
     const Events = global.GelViewer.Events;
     const Base = global.GelViewer.DetectionPanelBase;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * Default detection parameters matching backend defaults.
      */
@@ -58,7 +64,6 @@
          * @param {EventBus} options.eventBus - Event bus for communication
          * @param {APIClient} options.apiClient - API client for server requests
          * @param {StateManager} options.stateManager - State manager reference
-         * @param {Object} options.svg - SVG.js instance for previews
          * @param {Function} options.onDetectionComplete - Callback when detection completes
          * @param {Object} [options.electropherogramPanel] - Electropherogram panel reference
          */
@@ -66,7 +71,6 @@
             this.eventBus = options.eventBus;
             this.apiClient = options.apiClient;
             this.stateManager = options.stateManager;
-            this.svg = options.svg;
             this.onDetectionComplete = options.onDetectionComplete;
             this.electropherogramPanel = options.electropherogramPanel || null;
 
@@ -74,7 +78,6 @@
             this.isVisible = false;
             this.isProcessing = false;
             this.params = { ...DEFAULT_PARAMS };
-            this.previewResults = [];
             this.targetLanes = [];
             this.laneFilter = 'all';
 
@@ -87,7 +90,6 @@
 
             // DOM references
             this.panel = null;
-            this.previewGroup = null;
 
             // Embed state — managed by DetectionPanelBase
             this._embedState = null;
@@ -104,11 +106,6 @@
         _setupDOM() {
             this.panel = document.getElementById('detection-panel');
             this.backdrop = document.getElementById('detection-backdrop');
-
-            // Create SVG group for band previews
-            if (this.svg) {
-                this.previewGroup = this.svg.group().attr('id', 'band-previews');
-            }
         }
 
         /**
@@ -121,10 +118,8 @@
                 closeBtn.addEventListener('click', () => this.hide());
             }
 
-            // Backdrop click to close modal
-            if (this.backdrop) {
-                this.backdrop.addEventListener('click', () => this.hide());
-            }
+            // A click on the backdrop closes nothing (owner, 2026-10-13): a stray click lost the tuned parameters.
+            // The x button and Esc close.
 
             // Lane filter select
             const filterSelect = document.getElementById('detection-lane-filter');
@@ -309,14 +304,7 @@
                 }
             });
 
-            // Keyboard shortcuts
-            document.addEventListener('keydown', (e) => {
-                if (!this.isVisible) return;
-
-                if (e.key === 'Escape') {
-                    this.hide();
-                }
-            });
+            // Esc: GelViewer.Layers (show) closes the panel.
 
             // Listen for lane selection changes
             this.eventBus.on(Events.LANE_SELECTED, () => {
@@ -532,6 +520,11 @@
             this._updateTargetLanes();
             Base.showPanel(this.panel, this.backdrop);
             this.isVisible = true;
+            global.GelViewer.Layers?.open(this.panel, {
+                modal: true,
+                close: () => this.hide(),
+                isOpen: () => this.isVisible,
+            });
 
             // Embed electropherogram panel into chart host
             this._embedElectropherogram();
@@ -555,6 +548,7 @@
          * Returns the electropherogram to its original location.
          */
         hide() {
+            global.GelViewer.Layers?.close(this.panel);
             // Return electropherogram to original parent before animating out
             this._unembedElectropherogram();
             this._clearPreviews();
@@ -615,7 +609,7 @@
             listEl.innerHTML = this.targetLanes.slice(0, 10).map(lane => `
                 <div class="gv-detection-lane-item" data-lane-id="${lane.id}">
                     <span class="lane-number">#${lane.lane_number || '?'}</span>
-                    <span class="lane-type">${lane.lane_type}</span>
+                    <span class="lane-type">${escapeHtml(lane.lane_type)}</span>
                 </div>
             `).join('');
 
@@ -670,8 +664,6 @@
                 );
 
                 if (result && result.bands) {
-                    this.previewResults = [{ laneId: lane.id, bands: result.bands }];
-                    this._renderPreviews();
                     this._showPreviewStats(result.bands.length, 1);
                     this._updatePolarityBadge(result.profile?.was_inverted);
 
@@ -911,47 +903,10 @@
         }
 
         /**
-         * Render band previews on SVG.
-         */
-        _renderPreviews() {
-            this._clearPreviews();
-
-            if (!this.previewGroup) return;
-
-            for (const result of this.previewResults) {
-                for (const band of result.bands) {
-                    this._renderBandPreview(band);
-                }
-            }
-        }
-
-        /**
-         * Render a single band preview.
-         */
-        _renderBandPreview(band) {
-            if (!this.previewGroup) return;
-
-            // Create rectangle preview
-            const x = band.bbox_x;
-            const y = band.bbox_y;
-            const width = band.bbox_width;
-            const height = band.bbox_height;
-
-            this.previewGroup.rect(width, height)
-                .attr('x', x)
-                .attr('y', y)
-                .addClass('gv-band-preview');
-        }
-
-        /**
-         * Clear all previews.
+         * Clear the preview: the electropherogram's markers and the polarity badge.
+         * A preview is never drawn on the gel: this modal covers it (owner, 2026-10-13).
          */
         _clearPreviews() {
-            if (this.previewGroup) {
-                this.previewGroup.clear();
-            }
-            this.previewResults = [];
-
             // Hide polarity badge
             const badge = document.getElementById('detection-polarity-badge');
             if (badge) badge.style.display = 'none';
@@ -984,15 +939,13 @@
             const existing = document.querySelector('.gv-message');
             if (existing) existing.remove();
 
+            // Over the panel's own backdrop: in .gv-viewer it was drawn under it (.gv-main is a stacking context).
             const message = document.createElement('div');
-            message.className = 'gv-message';
+            message.className = 'gv-message gv-message--over';
+            message.setAttribute('role', 'status');
             message.textContent = text;
-
-            const viewer = document.querySelector('.gv-viewer');
-            if (viewer) {
-                viewer.appendChild(message);
-                setTimeout(() => message.remove(), 3000);
-            }
+            document.body.appendChild(message);
+            setTimeout(() => message.remove(), 3000);
         }
 
         /**

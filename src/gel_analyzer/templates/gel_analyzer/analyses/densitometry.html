@@ -1,42 +1,31 @@
-{% extends "components/base.html" %}
-{% load static ui_icons %}
+{% extends "gel_analyzer/_ga_base_minimal.html" %}
+{% load static %}
 
 {% block title %}{{ page_title }}{% endblock %}
 
-{% block head %}
+{% block theme_head %}{% include 'gel_analyzer/workbench/_theme_head.html' %}{% endblock %}
+
+{% block extra_css %}
 <link rel="stylesheet" href="{% static 'gel_analyzer/css/densitometry.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/ga-workbench.css' %}">
 {% endblock %}
 
-{% block body %}
+{% block content %}
 <div class="dm-app" id="densitometry-app">
-    <!-- Header Toolbar -->
-    <header class="dm-header">
-        <div class="dm-header-left">
-            <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.id %}" class="dm-back-link" data-tooltip="Back to Analysis" data-tooltip-pos="bottom">
-                {% icon "arrow-left" size=16 %}
-                <span>Back</span>
-            </a>
-            <h1 class="dm-title">{{ analysis.name }}</h1>
-            <span class="dm-subtitle">Densitometry Analysis</span>
-            <button type="button" class="dm-help-btn" id="how-it-works-btn"
-                    data-tooltip="How densitometry works" data-tooltip-pos="bottom">
-                <i class="bi bi-info-circle"></i>
-            </button>
-        </div>
-
-        <div class="dm-header-center">
-            <div class="dm-param-group">
-                <label for="normalization-method">Normalization:</label>
-                <div class="dm-select-with-help">
-                    <select id="normalization-method" class="dm-select">
-                        <option value="lane_total">Lane Total</option>
-                        <option value="gel_total">Gel Total</option>
-                        <option value="loading_control">Loading Control</option>
-                    </select>
-                    <button type="button" class="dm-help-btn" id="normalization-help-btn" aria-label="Normalization help">
-                        <i class="bi bi-question-circle"></i>
-                    </button>
-                </div>
+    {# Header (spec 2026-10-12-gel-modern-ui-design.md §3–4): the identity row, then today's commands. #}
+    {# Every id the scripts bind to is kept; Export / Report / adjustments / how-it-works sit in "⋯". #}
+    <header class="ga-wb-bar dm-wb-bar">
+        {% include 'gel_analyzer/workbench/_identity.html' with active='densitometry' %}
+        <div class="ga-wb-row ga-wb-row--cmd">
+            <div class="ga-wb-field dm-param-group">
+                <label for="normalization-method" class="ga-wb-label">Normalization</label>
+                <select id="normalization-method" class="ga-wb-select dm-select">
+                    <option value="lane_total">Lane Total</option>
+                    <option value="loading_control">Loading Control</option>
+                </select>
+                <button type="button" class="ga-wb-iconbtn dm-wb-help" id="normalization-help-btn" aria-label="Normalization help" title="Normalization help">
+                    <i class="bi bi-question-circle" aria-hidden="true"></i>
+                </button>
             </div>
             <!-- Normalization Help Popover -->
             <div id="normalization-help-popover" class="dm-help-popover" style="display: none;">
@@ -54,67 +43,84 @@
                             <li>Each lane sums to ~100%</li>
                             <li>Best for comparing bands <em>within the same lane</em></li>
                             <li>Default method for most analyses</li>
+                            <li>Each band's share of the <em>whole gel</em> is computed on every run too (% Gel in the CSV export)</li>
                         </ul>
                         <code>Band % = (Band Area / Lane Total) × 100</code>
-                    </div>
-                    <div class="dm-help-method">
-                        <h4><i class="bi bi-grid-fill"></i> Gel Total</h4>
-                        <p>Each band is expressed as a <strong>percentage of the entire gel's total area</strong>.</p>
-                        <ul>
-                            <li>Entire gel sums to 100%</li>
-                            <li>Best for comparing bands <em>across different lanes</em></li>
-                            <li>Useful for relative quantification between samples</li>
-                        </ul>
-                        <code>Band % = (Band Area / Gel Total) × 100</code>
                     </div>
                     <div class="dm-help-method">
                         <h4><i class="bi bi-bullseye"></i> Loading Control</h4>
                         <p>Each band is expressed <strong>relative to MW Reference bands</strong> in the same lane.</p>
                         <ul>
                             <li>Values can exceed 100%</li>
-                            <li>Requires bands marked as "MW Reference" type</li>
                             <li>Compensates for unequal sample loading</li>
-                            <li>Falls back to Lane Total if no reference bands</li>
+                            <li>Every lane with bands needs an "MW Reference" band with signal: otherwise Run Analysis is refused, names the lanes without one, and saves nothing</li>
                         </ul>
                         <code>Band % = (Band Area / Reference Area) × 100</code>
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div class="dm-header-right">
-            {% if analysis.is_editable %}
-            <a href="{% url 'gel_analyzer:analysis_annotate' pk=analysis.id %}" class="dm-btn dm-btn-outline" data-tooltip="Open annotation editor" data-tooltip-pos="bottom">
-                <i class="bi bi-pencil-square me-2"></i>Annotate
-            </a>
-            {% else %}
-            <span class="dm-btn-disabled-wrapper" data-tooltip="Analysis is {{ analysis.get_status_display }} and cannot be edited" data-tooltip-pos="bottom">
-                <button class="dm-btn dm-btn-outline" disabled>
-                    <i class="bi bi-pencil-square me-2"></i>Annotate
-                </button>
-            </span>
+            {# Anti-HCP western: the reference lane, server-rendered so it works before any run. #}
+            {# Options and labels come from the view (SAMPLE + CONTROL lanes and the current reference). #}
+            {% if readout_assay and readout_assay.readout == "HOST_CELL_PROTEINS" %}
+            <div class="ga-wb-field ga-wb-field--ref dm-param-group">
+                <label for="hcp-reference-select"><span class="ga-wb-ref">REF</span> <span class="ga-wb-label">HCP reference lane</span></label>
+                <select id="hcp-reference-select" class="ga-wb-select dm-select"{% if not can_write %} disabled title="You need write access to Gel Analyzer to change the HCP reference"{% elif not analysis.is_editable %} disabled title="Analysis is {{ analysis.get_status_display }} and cannot be edited"{% endif %}>
+                    <option value="">None</option>
+                    {% for candidate in reference_candidates %}
+                    <option value="{{ candidate.id }}"{% if candidate.id == readout_reference_lane_id %} selected{% endif %}>{{ candidate.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             {% endif %}
-            <a href="{% url 'gel_analyzer:sample_comparison' %}?lanes={{ lane_ids_csv }}" class="dm-btn dm-btn-info" data-tooltip="Compare lanes from this analysis" data-tooltip-pos="bottom">
-                <i class="bi bi-graph-up me-2"></i>Compare Lanes
-            </a>
-            <button id="run-analysis-btn" class="dm-btn dm-btn-primary" data-tooltip="Run densitometry analysis on all bands" data-tooltip-pos="bottom">
-                <i class="bi bi-play-circle me-2"></i>Run Analysis
-            </button>
-            <button id="open-quantification-modal" class="dm-btn dm-btn-outline" data-tooltip="Protein quantification calibration" data-tooltip-pos="bottom">
-                <i class="bi bi-droplet-half me-2"></i>Quantification
-            </button>
-            <button id="export-csv-btn" class="dm-btn dm-btn-secondary" data-tooltip="Export measurements to CSV" data-tooltip-pos="bottom" {% if not has_results %}disabled{% endif %}>
-                <i class="bi bi-download me-2"></i>Export CSV
-            </button>
-            <button id="open-report-modal-btn" class="dm-btn dm-btn-report" data-tooltip="Generate Report (Word, Excel, PowerPoint)" data-tooltip-pos="bottom" {% if not has_results %}disabled{% endif %}>
-                <i class="bi bi-file-earmark-richtext me-1"></i>
-                <span class="dm-btn-label">Report</span>
-            </button>
-            <button id="adjust-image-btn" class="dm-btn dm-btn-icon" data-tooltip="Image Adjustments" data-tooltip-pos="bottom">
-                <i class="bi bi-sliders"></i>
-            </button>
+
+            <div class="ga-wb-right">
+                {% if run_locked_reason %}
+                <span class="dm-btn-disabled-wrapper" title="{{ run_locked_reason }}">
+                    <button id="run-analysis-btn" class="ga-wb-btn ga-wb-btn--primary" disabled>
+                        <i class="bi bi-play-fill" aria-hidden="true"></i><span class="dm-btn-label">Run Analysis</span>
+                    </button>
+                </span>
+                {% else %}
+                <button id="run-analysis-btn" class="ga-wb-btn ga-wb-btn--primary" title="Run densitometry analysis on all bands">
+                    <i class="bi bi-play-fill" aria-hidden="true"></i><span class="dm-btn-label">Run Analysis</span>
+                </button>
+                {% endif %}
+                <button id="open-quantification-btn" class="ga-wb-btn ga-wb-phone-hide" title="Protein quantification (calibration curve + sample projections)">
+                    <i class="bi bi-graph-up" aria-hidden="true"></i><span class="dm-btn-label">Quantification</span>
+                </button>
+                <a href="{% url 'gel_analyzer:sample_comparison' %}?lanes={{ lane_ids_csv }}" class="ga-wb-btn ga-wb-phone-hide" title="Compare lanes from this analysis">
+                    <i class="bi bi-layout-split" aria-hidden="true"></i><span class="dm-btn-label">Compare Lanes</span>
+                </a>
+                <div class="ga-wb-more" id="dm-more">
+                    <button type="button" class="ga-wb-iconbtn" id="dm-more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More actions" title="More actions">
+                        <i class="bi bi-three-dots" aria-hidden="true"></i>
+                    </button>
+                    <div class="ga-wb-more-pop" role="menu" aria-labelledby="dm-more-btn">
+                        <button type="button" class="ga-wb-phone-only" data-proxy="open-quantification-btn"><i class="bi bi-graph-up" aria-hidden="true"></i>Quantification</button>
+                        <a class="ga-wb-phone-only" href="{% url 'gel_analyzer:sample_comparison' %}?lanes={{ lane_ids_csv }}"><i class="bi bi-layout-split" aria-hidden="true"></i>Compare Lanes</a>
+                        <button id="export-csv-btn" title="Export measurements to CSV" {% if not has_results %}disabled{% endif %}>
+                            <i class="bi bi-download" aria-hidden="true"></i><span class="dm-btn-label">Export CSV</span>
+                        </button>
+                        <button id="open-report-modal-btn" title="Generate Report (Word, Excel, PowerPoint)" {% if not has_results %}disabled{% endif %}>
+                            <i class="bi bi-file-earmark-richtext" aria-hidden="true"></i><span class="dm-btn-label">Report</span>
+                        </button>
+                        <hr>
+                        <button id="adjust-image-btn" title="Image Adjustments"><i class="bi bi-sliders" aria-hidden="true"></i>Image adjustments</button>
+                        <button type="button" id="how-it-works-btn" title="How densitometry works"><i class="bi bi-info-circle" aria-hidden="true"></i>How densitometry works</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </header>
+
+    {% if analysis.status == 'APPROVED' %}
+    <div class="ga-wb-lock" role="status"><i class="bi bi-lock-fill" aria-hidden="true"></i><span>{{ approved_is_final }}</span></div>
+    {% endif %}
+
+    {# The summary strip: the analysis page's cards, checks and status hint (services/analysis_detail.py::summary_payload). #}
+    <section class="ga-wb-summary" id="ga-wb-summary" aria-label="Summary of the readout"></section>
+    {# Phone only: the lanes as chips, driving the selection (lanes-view.js fills it). #}
+    <nav class="dm-lane-picker" id="dm-lane-picker" aria-label="Lane"></nav>
 
     <!-- Progress Bar (hidden by default) -->
     <div id="analysis-progress" class="dm-progress-container" style="display: none;">
@@ -139,7 +145,7 @@
             Densitometry results are out of date — bands have changed since the last analysis.
             Click <strong>Run Analysis</strong> to refresh integration values.
         </span>
-        <button type="button" id="stale-banner-rerun-btn" class="dm-btn dm-btn-primary dm-btn-sm">
+        <button type="button" id="stale-banner-rerun-btn" class="dm-btn dm-btn-primary dm-btn-sm"{% if run_locked_reason %} disabled title="{{ run_locked_reason }}"{% endif %}>
             <i class="bi bi-arrow-clockwise me-1"></i>Rerun
         </button>
     </div>
@@ -356,15 +362,17 @@
                     <div class="dm-step-header">
                         <span class="dm-step-number">4</span>
                         <i class="bi bi-percent dm-step-icon"></i>
-                        <h4 class="dm-step-title">Normalization &amp; Purity</h4>
+                        <h4 class="dm-step-title">Normalization &amp; {% if readout == "PURITY" %}Purity{% else %}Readout{% endif %}</h4>
                     </div>
                     <div class="dm-step-body">
                         <p>Band areas are converted to <strong>relative percentages</strong> using the selected normalization method:</p>
                         <ul class="dm-step-list">
                             <li><strong>Lane Total</strong> &mdash; each band as % of its lane total (each lane sums to 100%)</li>
-                            <li><strong>Gel Total</strong> &mdash; each band as % of the entire gel area</li>
-                            <li><strong>Loading Control</strong> &mdash; relative to MW Reference bands</li>
+                            <li><strong>Loading Control</strong> &mdash; relative to the MW Reference bands of its lane; refused if a lane with bands has none</li>
                         </ul>
+                        <p class="dm-step-detail">Each band's share of the whole gel is computed too, whatever the method (% Gel in the CSV export).</p>
+                        {# What the lanes are then read for follows the gel's assay (services/analysis_detail.py texts). #}
+                        {% if readout == "PURITY" %}
                         <div class="dm-step-diagram">
 <pre>Purity (%) = POI Area / (POI Area + OTHER Area) &times; 100
 
@@ -374,6 +382,17 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                             The <strong>Protein of Interest (POI)</strong> band is the target protein you are measuring.
                             All other bands are impurities. MW Reference bands (from ladder lanes) serve only as molecular weight markers.
                         </p>
+                        {% elif readout_texts %}
+                        <p>This gel is a western blot read for <strong>{{ readout_label|lower }}</strong>, not for a purity:</p>
+                        <ul class="dm-step-list">
+                            {% for label, title in readout_texts %}<li><strong>{{ label }}</strong> &mdash; {{ title }}</li>{% endfor %}
+                        </ul>
+                        {% if readout == "HOST_CELL_PROTEINS" %}
+                        <p class="dm-step-detail">A POI band on an anti-HCP blot is cross-reacting molecule, not host-cell protein: it is left out of the HCP signal.</p>
+                        {% endif %}
+                        {% else %}
+                        <p class="dm-step-detail">This image has no assay with a readout: its bands are measured, nothing is read from its lanes. Set its assay so the gel is read for what it measures.</p>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -469,9 +488,17 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                                     <input type="checkbox" checked data-section-key="gel_image">
                                     <span>Full Gel Image</span>
                                 </label>
-                                <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-band-overlay-option" data-parent-group="gel_visuals" data-depends-on="gel_image">
-                                    <input type="checkbox" id="report-band-overlay" checked>
-                                    <span>Show band overlays on gel image</span>
+                                <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-gel-variant-lanes-only-option" data-parent-group="gel_visuals" data-depends-on="gel_image">
+                                    <input type="checkbox" data-gel-variant="LANES_ONLY">
+                                    <span>Lanes only</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-gel-variant-key-bands-option" data-parent-group="gel_visuals" data-depends-on="gel_image">
+                                    <input type="checkbox" data-gel-variant="KEY_BANDS">
+                                    <span>Key bands</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-gel-variant-full-option" data-parent-group="gel_visuals" data-depends-on="gel_image">
+                                    <input type="checkbox" checked data-gel-variant="FULL">
+                                    <span>Full (all bands)</span>
                                 </label>
                                 <label class="dm-report-section-option dm-report-child-option" data-section="digital_gel" data-parent-group="gel_visuals" data-image-only>
                                     <input type="checkbox" checked data-section-key="digital_gel">
@@ -495,6 +522,10 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                                 <label class="dm-report-section-option dm-report-child-option" data-section="terrain_view" data-parent-group="detailed" data-image-only>
                                     <input type="checkbox" checked data-section-key="terrain_view">
                                     <span>3D Terrain View</span>
+                                </label>
+                                <label class="dm-report-section-option dm-report-child-option" data-section="quantification" data-parent-group="detailed">
+                                    <input type="checkbox" checked data-section-key="quantification">
+                                    <span>Protein Quantification</span>
                                 </label>
                             </div>
                         </div>
@@ -551,23 +582,38 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                 </div>
             </div>
 
+            <!-- Vertical splitter between gel and chromatogram -->
+            <div class="dm-splitter dm-splitter-v" data-splitter="top-row" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize · double-click to reset"></div>
+
             <!-- Chromatogram (Top-Right) -->
             <div class="dm-panel dm-panel-chromatogram" id="chromatogram-panel">
                 <div class="dm-panel-header">
                     <span class="dm-panel-title"><i class="bi bi-graph-up me-1"></i>Graphical View</span>
                     <div class="dm-panel-actions">
-                        <div class="dm-view-toggle" id="graphical-view-toggle">
-                            <button class="dm-view-btn active" data-view="electropherogram" data-tooltip="Electropherogram">
+                        {# The tabs follow the gel's readout (spec 2026-10-12 §4): POI purity on a purity gel only, #}
+                        {# the western readout as Variants or HCP vs reference, neither on a gel with no readout. #}
+                        <div class="dm-view-toggle" id="graphical-view-toggle" role="tablist">
+                            <button class="dm-view-btn active" data-view="electropherogram" title="Lane profile: the bands' peaks along the lane">
                                 <i class="bi bi-activity"></i> Electropherogram
                             </button>
-                            <button class="dm-view-btn" data-view="3d-mountain" data-tooltip="3D Mountain View">
-                                <i class="bi bi-box"></i> 3D Mountain
-                            </button>
-                            <button class="dm-view-btn" data-view="poi-purity" data-tooltip="POI Purity (all lanes)">
+                            {% if readout == "PURITY" %}
+                            <button class="dm-view-btn" data-view="poi-purity" title="POI share of each lane: its purity">
                                 <i class="bi bi-bar-chart-fill"></i> POI Purity
                             </button>
-                            <button class="dm-view-btn" data-view="quantification" data-tooltip="Protein quantification calibration curve">
-                                <i class="bi bi-droplet-half"></i> Quantification curve
+                            {% elif readout == "MOLECULE_VARIANTS" %}
+                            <button class="dm-view-btn" data-view="readout" title="HMWS (high molecular weight species), main band and LMWS (low molecular weight species) of each lane">
+                                <i class="bi bi-bar-chart-steps"></i> Variants
+                            </button>
+                            {% elif readout == "HOST_CELL_PROTEINS" %}
+                            <button class="dm-view-btn" data-view="readout" title="HCP signal of each lane in % of the reference lane's">
+                                <i class="bi bi-bar-chart-line"></i> HCP vs reference
+                            </button>
+                            {% endif %}
+                            <button class="dm-view-btn" data-view="quantification" title="Protein quantification calibration curve">
+                                <i class="bi bi-droplet-half"></i> Quantification
+                            </button>
+                            <button class="dm-view-btn" data-view="3d-mountain" title="3D Mountain View">
+                                <i class="bi bi-box"></i> 3D
                             </button>
                         </div>
                         <button class="dm-panel-btn" id="snapshot-btn" data-tooltip="Download as PNG">
@@ -586,20 +632,16 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                     <!-- 3D terrain view container (hidden by default, toggled via view toggle) -->
                     <div class="dm-chromatogram-3d-container" id="chromatogram-3d-container" style="display: none;"></div>
                     <!-- POI purity bar chart container (hidden by default, toggled via view toggle) -->
+                    {% if readout == "PURITY" %}
                     <div id="poi-purity-container" class="dm-poi-purity-container" style="display: none;"></div>
+                    {% endif %}
                     {% comment %}
-                      Quantification curve is the 4th sub-view (alongside Electropherogram /
-                      3D Mountain / POI Purity), toggled via the same `dm-view-toggle`. It
-                      shares the panel content area; visibility is managed by the inline
-                      switchView() handler below.
+                      Quantification curve container — 4th sub-view alongside
+                      Electropherogram / 3D Mountain / POI Purity. SVG is
+                      injected by QuantificationCurveRenderer.renderInteractive
+                      at view-switch time. The modal keeps its own canvas
+                      (#qcm-curve-chart) so the two don't collide.
                     {% endcomment %}
-                    {# Quantification curve container — D3 SVG injected by
-                       QuantificationCurveRenderer.renderInteractive at
-                       view-switch time. The previous canvas-based version
-                       lived here; we keep the legacy id (#dm-quantification-chart)
-                       so the modal's separate canvas still finds its own
-                       element by id, and the panel injects SVG into
-                       #dm-quantification-host instead. #}
                     <div id="dm-quantification-container" class="dm-quantification-container" style="display: none;">
                         <div id="dm-quantification-host" class="dm-quantification-host"></div>
                         <div class="dm-quantification-tooltip" id="dm-quantification-tooltip" role="tooltip"></div>
@@ -609,9 +651,16 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                             </div>
                         </div>
                     </div>
+                    {# Western readout — 5th sub-view, one row per lane; filled by panels/readout-panel.js #}
+                    {% if readout == "HOST_CELL_PROTEINS" or readout == "MOLECULE_VARIANTS" %}
+                    <div id="dm-readout-container" class="dm-readout-container" style="display: none;"></div>
+                    {% endif %}
                 </div>
             </div>
         </div>
+
+        <!-- Horizontal splitter between top and bottom rows -->
+        <div class="dm-splitter dm-splitter-h" data-splitter="main" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag to resize · double-click to reset"></div>
 
         <!-- Bottom Row -->
         <div class="dm-panel-row dm-row-bottom">
@@ -629,6 +678,9 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
                     <!-- Band zoom and digital lane will be inserted by JS -->
                 </div>
             </div>
+
+            <!-- Vertical splitter between band detail and results table -->
+            <div class="dm-splitter dm-splitter-v" data-splitter="bottom-row" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize · double-click to reset"></div>
 
             <!-- Results Table (Bottom-Right) -->
             <div class="dm-panel dm-panel-results" id="results-table-panel">
@@ -701,23 +753,28 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
 
 {% block scripts %}
 <!-- Three.js Import Map (must appear before any module scripts) -->
+{# Vendored copies, no CDN (AGENTS.md §1). The one addon is mapped by its file, not by a "three/addons/" #}
+{# directory prefix: the static tag on a directory has no entry in the production staticfiles manifest. #}
 <script type="importmap">
 {
     "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        "three": "{% static 'gel_analyzer/js/vendor/three/three.module.min.js' %}",
+        "three/addons/controls/OrbitControls.js": "{% static 'gel_analyzer/js/vendor/three/addons/controls/OrbitControls.js' %}"
     }
 }
 </script>
 
-<!-- D3.js v7 -->
-<script src="https://d3js.org/d3.v7.min.js"></script>
+<!-- D3.js v7 (vendored) -->
+<script src="{% static 'gel_analyzer/js/vendor/d3.v7.min.js' %}"></script>
 
 <!-- Shared Utilities (must load before module scripts) -->
 <script src="{% static 'gel_analyzer/js/shared/api-error.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/shared/auto-save.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/panel-splitter.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/lane-geometry.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/workbench-summary.js' %}"></script>
 
 <!-- Densitometry Module Scripts -->
 <script src="{% static 'gel_analyzer/js/densitometry/densitometry-event-bus.js' %}"></script>
@@ -727,10 +784,12 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/chromatogram-panel.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/band-zoom-panel.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/results-table-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/readout-charts.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/readout-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/densitometry/panels/lanes-view.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-curve-renderer.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/panels/quantification-modal.js' %}"></script>
 <script src="{% static 'gel_analyzer/js/densitometry/densitometry-app.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/report/report-capture.js' %}"></script>
 
 <!-- 3D Terrain Renderer (ES Module — attaches to window.Densitometry for IIFE interop) -->
 <script type="module">
@@ -798,22 +857,46 @@ class Chromatogram3DRenderer {
         this.bands = null;
         this.depthSegments = 30;
 
-        // Band type colors (match densitometry CSS variables)
+        // The gel palette (gel_viewer_standalone.css, ga-workbench.css): POI violet, Other green, MW reference
+        // orange, Calibration red-400; on a western, the band's server role first (services/readouts.py).
         this.bandColors = {
-            POI: new THREE.Color(0x22C55E),
-            MW_REFERENCE: new THREE.Color(0xFFC107),
-            OTHER: new THREE.Color(0x9E9E9E),
+            POI: new THREE.Color(0xa855f7),
+            MW_REFERENCE: new THREE.Color(0xf97316),
+            OTHER: new THREE.Color(0x22c55e),
+            CALIBRATION: new THREE.Color(0xf87171),
             DEFAULT: new THREE.Color(0x2196F3),
         };
+        this.roleColors = {
+            aggregate: new THREE.Color(0xf472b6),
+            main: new THREE.Color(0xa855f7),
+            clipping: new THREE.Color(0x38bdf8),
+            hcp: new THREE.Color(0x22c55e),
+            left_out: new THREE.Color(0x64748b),
+        };
+        this.grid = null;
+    }
+
+    // Night | Day (dsh-theme.js): the scene's background and grid; the bands keep the gel palette.
+    _applyTheme() {
+        if (!this.scene) return;
+        const day = document.documentElement.getAttribute('data-theme') === 'light';
+        this.scene.background = new THREE.Color(day ? 0xf1f5f9 : 0x1a1a2e);
+        if (this.grid) {
+            this.scene.remove(this.grid);
+            this.grid.geometry?.dispose();
+            this.grid.material?.dispose();
+        }
+        this.grid = new THREE.GridHelper(24, 24, day ? 0x94a3b8 : 0x444466, day ? 0xcbd5e1 : 0x2a2a44);
+        this.grid.position.y = 0;
+        this.scene.add(this.grid);
     }
 
     init() {
         const w = this.container.clientWidth || 600;
         const h = this.container.clientHeight || 400;
 
-        // Scene
+        // Scene (background and grid: _applyTheme, again on every Night | Day switch)
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x1a1a2e);
 
         // Camera
         this.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
@@ -846,10 +929,13 @@ class Chromatogram3DRenderer {
         // Legend overlay
         this._createLegend();
 
-        // Grid at base
-        const grid = new THREE.GridHelper(24, 24, 0x444466, 0x2a2a44);
-        grid.position.y = 0;
-        this.scene.add(grid);
+        // Background and grid at base, following the theme
+        this._applyTheme();
+        this._onThemeChange = () => {
+            this._applyTheme();
+            this._renderFrame();
+        };
+        window.addEventListener('dsh:themechange', this._onThemeChange);
 
         // Initial single frame render (no continuous loop)
         this._renderFrame();
@@ -1021,6 +1107,7 @@ class Chromatogram3DRenderer {
             }
         }
         if (bestBand) {
+            if (bestBand.role && this.roleColors[bestBand.role]) return this.roleColors[bestBand.role];
             const type = bestBand.band_type || 'OTHER';
             return this.bandColors[type] || this.bandColors.DEFAULT;
         }
@@ -1047,9 +1134,10 @@ class Chromatogram3DRenderer {
         legend.className = 'dm-3d-legend';
         legend.innerHTML = `
             <div class="dm-3d-legend-title">Band Types</div>
-            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#22C55E"></span>POI</div>
-            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#9E9E9E"></span>Other</div>
-            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#FFC107"></span>MW Reference</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#a855f7"></span>POI</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#22c55e"></span>Other</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#f97316"></span>MW Reference</div>
+            <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#f87171"></span>Calibration</div>
             <div class="dm-3d-legend-item"><span class="dm-3d-legend-swatch" style="background:#2196F3"></span>Baseline</div>
         `;
         this.container.appendChild(legend);
@@ -1221,6 +1309,10 @@ class Chromatogram3DRenderer {
 
     dispose() {
         this._isAnimating = false;
+        if (this._onThemeChange) {
+            window.removeEventListener('dsh:themechange', this._onThemeChange);
+            this._onThemeChange = null;
+        }
         if (this._dampingTimeout) {
             clearTimeout(this._dampingTimeout);
             this._dampingTimeout = null;
@@ -1255,16 +1347,28 @@ window.Densitometry.Chromatogram3DRenderer = Chromatogram3DRenderer;
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // Initialize data
     const analysisId = '{{ analysis.id }}';
     const csrfToken = '{{ csrf_token }}';
 
-    const lanes = {{ lanes|safe }};
-    const bands = {{ bands|safe }};
+    const lanes = {{ lanes }};
+    const bands = {{ bands }};
     const hasResults = {{ has_results|yesno:"true,false" }};
 
     // Calibration data for MW axis mode
     const calibrationData = {{ calibration_json }};
+
+    // Western readout facts known at render time: {assay, can_write, is_editable, reference_lane_id}
+    const readoutConfig = {{ readout_config_json }};
+
+    // The page summary (services/analysis_detail.py::summary_payload): the summary strip and the Lanes view.
+    const pageSummary = {{ summary_json }};
 
     // Initialize the app
     const app = new Densitometry.App({
@@ -1273,6 +1377,8 @@ document.addEventListener('DOMContentLoaded', function() {
         lanes: lanes,
         bands: bands,
         calibrationData: calibrationData,
+        readoutConfig: readoutConfig,
+        pageSummary: pageSummary,
         {% if gel_image %}{% if gel_image.display_file or gel_image.original_file %}
         imageUrl: '{% url "gel_analyzer:api_image_proxy" pk=gel_image.id %}',
         {% endif %}{% endif %}
@@ -1285,6 +1391,23 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     app.init();
+
+    // The summary strip, redrawn whenever the readouts are re-read (a run, a reference change, a quantification
+    // save), and the "⋯" menu of the header.
+    const summaryStrip = document.getElementById('ga-wb-summary');
+    GelAnalyzer.Workbench.Summary.render(summaryStrip, app.state.pageSummary);
+    app.eventBus.on(Densitometry.Events.PAGE_SUMMARY_UPDATED, (summary) => {
+        GelAnalyzer.Workbench.Summary.render(summaryStrip, summary);
+    });
+    GelAnalyzer.Workbench.wireMenu(document.getElementById('dm-more'));
+
+    // Resizable panel splitters (independent layout key from comparison view).
+    const panelSplitter = new GelAnalyzer.Shared.PanelSplitter({
+        appEl: document.getElementById('densitometry-app'),
+        storageKey: 'gelDensitometryLayout',
+    });
+    panelSplitter.init();
+    window.panelSplitter = panelSplitter;
 
     // Make app globally accessible for debugging
     window.densitometryApp = app;
@@ -1307,7 +1430,10 @@ document.addEventListener('DOMContentLoaded', function() {
             this.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
                 cb.checked = true;
             });
-            document.getElementById('report-band-overlay').checked = true;
+            // Reset gel-image variant toggles to spec D3 default: FULL checked, others unchecked.
+            this.overlay.querySelectorAll('input[data-gel-variant]').forEach(cb => {
+                cb.checked = (cb.dataset.gelVariant === 'FULL');
+            });
 
             // Reset format to docx
             const docxRadio = this.overlay.querySelector('input[value="docx"]');
@@ -1360,12 +1486,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
 
-            // Also handle the band overlay sub-option
-            const bandOverlay = body.querySelector('#report-band-overlay');
-            if (bandOverlay) {
-                bandOverlay.disabled = !enabled;
-                if (!enabled) bandOverlay.checked = false;
-            }
+            // Also handle the gel-image variant sub-options (LANES_ONLY / KEY_BANDS / FULL).
+            // When the group is disabled they go disabled+unchecked; when re-enabled,
+            // updateDependencies() (driven by the gel_image checkbox) restores the
+            // FULL default. We only need to force-clear them here on disable.
+            body.querySelectorAll('input[data-gel-variant]').forEach(cb => {
+                cb.disabled = !enabled;
+                if (!enabled) cb.checked = false;
+            });
 
             // Visual state
             body.classList.toggle('dm-report-group-disabled', !enabled);
@@ -1484,8 +1612,21 @@ document.addEventListener('DOMContentLoaded', function() {
         async generate() {
             const format = this.getFormat();
             const sections = this.getSections();
-            const bandOverlayCb = document.getElementById('report-band-overlay');
-            const bandOverlay = bandOverlayCb ? (bandOverlayCb.checked && !bandOverlayCb.disabled) : true;
+
+            // Collect checked gel-image variant toggles (spec D3 — one PPTX gel
+            // slide per selected variant). Backend defaults to ["FULL"] when the
+            // list is absent/empty, so send ["FULL"] if none are checked.
+            const gelVariants = [];
+            this.overlay.querySelectorAll('input[data-gel-variant]:checked').forEach(cb => {
+                if (!cb.disabled) gelVariants.push(cb.dataset.gelVariant);
+            });
+            const gel_variants = gelVariants.length ? gelVariants : ['FULL'];
+
+            // Phoresis: its report builders are not resynced yet and read only format, sections and
+            // band_overlay (views/report_api.py); gel_variants is ignored there. So the variants drive
+            // band_overlay: "Lanes only" alone asks for the gel without its bands, as the former
+            // "band overlay" checkbox did when unticked.
+            const bandOverlay = gel_variants.some(v => v !== 'LANES_ONLY');
 
             if (sections.length === 0) {
                 gaToast('Please select at least one section.', 'warning');
@@ -1504,7 +1645,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             'Content-Type': 'application/json',
                             'X-CSRFToken': csrfToken,
                         },
-                        body: JSON.stringify({ format, sections, band_overlay: bandOverlay }),
+                        body: JSON.stringify({ format, sections, band_overlay: bandOverlay, gel_variants }),
                     }
                 );
 
@@ -1593,8 +1734,10 @@ document.addEventListener('DOMContentLoaded', function() {
             reportModal.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
                 if (!cb.disabled) cb.checked = true;
             });
-            const bandCb = document.getElementById('report-band-overlay');
-            if (bandCb && !bandCb.disabled) bandCb.checked = true;
+            // Restore the gel-image variant default (FULL checked, others unchecked).
+            reportModal.overlay.querySelectorAll('input[data-gel-variant]').forEach(cb => {
+                if (!cb.disabled) cb.checked = (cb.dataset.gelVariant === 'FULL');
+            });
             reportModal.overlay.querySelectorAll('.dm-report-section-option:not(.dm-report-child-option) input[data-section-key]').forEach(cb => {
                 if (!cb.disabled) cb.checked = true;
             });
@@ -1612,8 +1755,9 @@ document.addEventListener('DOMContentLoaded', function() {
             reportModal.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
                 if (!cb.disabled) cb.checked = false;
             });
-            const bandCb = document.getElementById('report-band-overlay');
-            if (bandCb) bandCb.checked = false;
+            reportModal.overlay.querySelectorAll('input[data-gel-variant]').forEach(cb => {
+                cb.checked = false;
+            });
             reportModal.updateDependencies();
         });
 
@@ -1712,6 +1856,8 @@ document.addEventListener('DOMContentLoaded', function() {
         let currentView = 'electropherogram';
         let poiChartInitialized = false;
         let poiResizeObserver = null;
+        // The container size the POI chart was last drawn for: a resize redraws only when it changed.
+        let poiDrawnSize = null;
 
         // References for hiding/showing electropherogram-specific buttons
         const chromPanel = document.getElementById('chromatogram-panel');
@@ -1719,7 +1865,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const zoomResetBtn = document.getElementById('zoom-reset-btn');
 
         // Electropherogram-specific toggle button IDs (created by chromatogram-panel.js)
-        const ephemeralBtnIds = ['mw-toggle-btn', 'legend-toggle-btn', 'boundaries-toggle-btn', 'labels-toggle-btn'];
+        const ephemeralBtnIds = [
+            'mw-toggle-btn', 'bg-toggle-btn', 'legend-toggle-btn', 'boundaries-toggle-btn', 'peakmax-toggle-btn', 'labels-toggle-btn',
+        ];
+        // The views Snapshot can capture (an SVG or the 3D canvas): elsewhere the button did nothing.
+        const SNAPSHOT_VIEWS = new Set(['electropherogram', '3d-mountain', 'poi-purity']);
 
         function setEphemeralButtonsVisible(visible) {
             ephemeralBtnIds.forEach(id => {
@@ -1733,6 +1883,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (view === currentView) return;
             const previousView = currentView;
             currentView = view;
+            const snapshotBtn = document.getElementById('snapshot-btn');
+            if (snapshotBtn) snapshotBtn.style.display = SNAPSHOT_VIEWS.has(view) ? '' : 'none';
 
             // Notify ChromatogramPanel of view change so it can guard
             // SVG creation/visibility during resize and 3D toggle
@@ -1749,12 +1901,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const container3d = document.getElementById('chromatogram-3d-container');
             const poiContainer = document.getElementById('poi-purity-container');
             const quantContainer = document.getElementById('dm-quantification-container');
+            const readoutContainer = document.getElementById('dm-readout-container');
 
             // Hide all containers first (querySelectorAll catches any SVGs)
             panelContent?.querySelectorAll('svg').forEach(svg => svg.style.display = 'none');
             if (container3d) container3d.style.display = 'none';
             if (poiContainer) poiContainer.style.display = 'none';
             if (quantContainer) quantContainer.style.display = 'none';
+            if (readoutContainer) readoutContainer.style.display = 'none';
             const placeholder = panelContent?.querySelector('.dm-chart-placeholder');
             if (placeholder) placeholder.style.display = 'none';
 
@@ -1814,15 +1968,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             } else if (view === 'quantification') {
                 if (quantContainer) quantContainer.style.display = 'flex';
-                // Delegate the actual fetch + render to ChromatogramPanel
-                // (it owns the api client and the QuantificationCurveRenderer
-                // wiring). Uses _renderQuantificationView under the hood.
+                // Delegate fetch + render to ChromatogramPanel (it owns the
+                // api client + QuantificationCurveRenderer wiring).
                 const chromPanelInstance = app?.panels?.chromatogram;
                 if (chromPanelInstance && typeof chromPanelInstance._renderQuantificationView === 'function') {
                     chromPanelInstance._renderQuantificationView().catch(err => {
                         console.error('[densitometry] quantification view render failed:', err);
                     });
                 }
+            } else if (view === 'readout') {
+                // Server-computed values (state.readouts); ReadoutPanel only formats them.
+                if (readoutContainer) readoutContainer.style.display = 'flex';
+                app?.panels?.readout?.render();
             }
 
             // When leaving 3D, disable 3D mode and stop GPU work
@@ -1860,6 +2017,65 @@ document.addEventListener('DOMContentLoaded', function() {
         // ============================================
         // POI Purity Bar Chart Renderer (D3.js)
         // ============================================
+
+        // The chart's event-bus listeners and resize observer, made ONCE, at the first draw. Made on every draw, as
+        // they once were, the chart redrew itself every frame (a ResizeObserver delivers an observation as soon as it
+        // observes a sized element: 360 SVGs in 3 s on 2026-10-13, the bar under the mouse replaced before its tooltip
+        // could show) and the listeners piled up by the hundred, each lane click highlighting as many dead charts.
+        function hookPOIPurityChart(container) {
+            if (poiResizeObserver) return;
+            const state = app.state;
+
+            // Highlight: dim full lane group when a lane is selected;
+            // additionally outline the bar when a specific band matches.
+            // Reads the bars of the chart on screen, never those of the draw that hooked it.
+            function highlightSelectedBar(laneId, bandId) {
+                d3.select(container).selectAll('.dm-poi-bar')
+                    .classed('dimmed', d => laneId && d.laneId !== laneId)
+                    .classed('selected', d => bandId && d.bandId === bandId);
+            }
+
+            // Listen for LANE_SELECTED events
+            app.eventBus.on(Densitometry.Events.LANE_SELECTED, (data) => {
+                if (currentView === 'poi-purity') {
+                    highlightSelectedBar(data.laneId, state.selectedBandId);
+                }
+            });
+
+            app.eventBus.on(Densitometry.Events.BAND_SELECTED, (data) => {
+                if (currentView === 'poi-purity') {
+                    const band = data && data.bandId ? state.getBand(data.bandId) : null;
+                    const laneId = (band && (band.lane || band.lane_id)) || state.selectedLaneId;
+                    highlightSelectedBar(laneId, data && data.bandId);
+                }
+            });
+
+            // Listen for DATA_UPDATED → re-render
+            app.eventBus.on(Densitometry.Events.DATA_UPDATED, () => {
+                if (currentView === 'poi-purity') {
+                    renderPOIPurityChart();
+                }
+            });
+            // The bars' values come with the page summary, re-read AFTER the results on a run: redraw then too.
+            app.eventBus.on(Densitometry.Events.PAGE_SUMMARY_UPDATED, () => {
+                if (currentView === 'poi-purity') {
+                    renderPOIPurityChart();
+                }
+            });
+
+            // ResizeObserver for responsive redraw, when the container's size really changed (its first observation,
+            // the hidden container's 0 x 0, a switch back to this view already drawn by switchView: no redraw).
+            poiResizeObserver = new ResizeObserver(() => {
+                if (currentView !== 'poi-purity') return;
+                const rect = container.getBoundingClientRect();
+                if (poiDrawnSize
+                    && Math.abs(rect.width - poiDrawnSize.width) < 1
+                    && Math.abs(rect.height - poiDrawnSize.height) < 1) return;
+                renderPOIPurityChart();
+            });
+            poiResizeObserver.observe(container);
+        }
+
         function renderPOIPurityChart() {
             const container = document.getElementById('poi-purity-container');
             if (!container) return;
@@ -1869,40 +2085,48 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const state = app?.state;
             if (!state) return;
+            hookPOIPurityChart(container);
 
-            // Build a grouped-bar dataset: one group per lane, one bar per
-            // POI band inside the group. A lane with three POIs gets three
-            // bars side-by-side; a lane with a single POI looks identical
-            // to the old per-lane chart. The previous one-bar-per-lane
-            // shape collapsed multi-POI lanes into a single sum which hid
-            // the per-POI purity that the user actually cares about.
-            const lanes = state.getAllLanes();
-            const lanesData = lanes
-                .filter(lane => lane.lane_type !== 'LADDER')
-                .map(lane => {
-                    const raw = lane.process_sample?.sample_id || lane.sample_name || `Lane ${lane.lane_number}`;
-                    const allBands = state.getBandsForLane(lane.id) || [];
-                    const totalArea = allBands.reduce(
-                        (s, b) => s + ((b.densitometry || {}).corrected_area || 0), 0
-                    );
-                    const poiBands = allBands
+            // The size this draw is for (the container fills the panel whatever it holds, the placeholder included).
+            const rect = container.getBoundingClientRect();
+            poiDrawnSize = { width: rect.width, height: rect.height };
+
+            // One group per lane, one bar per POI band. The lane's value is the SERVER's published purity
+            // (services/analysis_detail.py rows: signals.published_purity, POI / (POI + OTHER)), never a sum
+            // made here; a lane with several POI bands splits it by their areas, so its bars add up to the
+            // lane's purity. A lane without a value is named under the chart with its
+            // reason (no POI band, not analysed yet), never drawn as 0 %.
+            const summaryRows = (state.pageSummary && state.pageSummary.rows) || [];
+            const missing = [];
+            const lanesData = summaryRows
+                .filter(row => row.is_read)
+                .map(row => {
+                    const raw = row.sample || `Lane ${row.lane_number}`;
+                    if (row.purity === null || row.purity === undefined) {
+                        if (row.reason) missing.push(`Lane ${row.lane_number}: ${row.reason}`);
+                        return null;
+                    }
+                    const poiBands = (state.getBandsForLane(row.id) || [])
                         .filter(b => b.band_type === 'POI')
                         .sort((a, b) => (a.band_number || 0) - (b.band_number || 0));
-                    if (totalArea <= 0 || poiBands.length === 0) return null;
-                    const bars = poiBands.map((b, idx) => {
-                        const area = (b.densitometry || {}).corrected_area || 0;
-                        return {
-                            bandId: b.id,
-                            bandNumber: b.band_number,
-                            bandKey: `b${b.band_number || idx}`,
-                            mw: b.estimated_mw_kda,
-                            area,
-                            purity: (area / totalArea) * 100,
-                        };
-                    });
+                    const areas = poiBands.map(b => Math.max(0, (b.densitometry || {}).corrected_area || 0));
+                    const poiTotal = areas.reduce((sum, a) => sum + a, 0);
+                    const cell = (row.cells || {}).purity || {};
+                    const bars = (poiBands.length ? poiBands : [null]).map((b, idx) => ({
+                        bandId: b ? b.id : null,
+                        bandNumber: b ? b.band_number : null,
+                        // Positional key inside the lane's group: a stored number and a rank can coincide.
+                        bandKey: `b${idx}`,
+                        mw: b ? b.estimated_mw_kda : null,
+                        area: b ? areas[idx] : null,
+                        purity: poiTotal > 0 && b ? row.purity * (areas[idx] / poiTotal) : row.purity,
+                        lanePurity: row.purity,
+                        tone: cell.tone || null,
+                        shared: poiBands.length > 1,
+                    }));
                     return {
-                        laneId: lane.id,
-                        laneNumber: lane.lane_number,
+                        laneId: row.id,
+                        laneNumber: row.lane_number,
                         fullLabel: raw,
                         label: raw.length > 22 ? raw.substring(0, 20) + '\u2026' : raw,
                         bars,
@@ -1915,12 +2139,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="dm-poi-placeholder">
                         <i class="bi bi-bar-chart" style="font-size: 2.5rem; opacity: 0.4;"></i>
                         <span>No POI purity data</span>
-                        <small style="color: rgba(255,255,255,0.35);">Run densitometry analysis first</small>
+                        <small style="color: var(--dm-text-muted);">${missing.length ? escapeHtml(missing.join(' · ')) : 'Run densitometry analysis first'}</small>
                     </div>`;
                 return;
             }
 
-            const rect = container.getBoundingClientRect();
             const maxLabelLen = Math.max(...lanesData.map(d => d.label.length));
             const dynamicBottom = Math.min(Math.max(60, maxLabelLen * 4), 150);
             const margin = { top: 30, right: 30, bottom: dynamicBottom, left: 55 };
@@ -1963,7 +2186,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 .attr('transform', `rotate(${rotation})`)
                 .style('text-anchor', 'end')
                 .style('font-size', '11px')
-                .style('fill', 'rgba(255,255,255,0.7)');
+                .style('fill', 'var(--dm-text-secondary)');
 
             // Add full-label tooltips on x-axis labels
             g.selectAll('.x-axis text')
@@ -1975,7 +2198,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
 
             g.selectAll('.x-axis path, .x-axis line')
-                .style('stroke', 'rgba(255,255,255,0.2)');
+                .style('stroke', 'var(--dm-border-light)');
 
             // Y Axis
             g.append('g')
@@ -1983,10 +2206,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 .call(d3.axisLeft(y).ticks(5).tickFormat(d => d + '%'))
                 .selectAll('text')
                 .style('font-size', '11px')
-                .style('fill', 'rgba(255,255,255,0.7)');
+                .style('fill', 'var(--dm-text-secondary)');
 
             g.selectAll('.y-axis path, .y-axis line')
-                .style('stroke', 'rgba(255,255,255,0.2)');
+                .style('stroke', 'var(--dm-border-light)');
 
             // Y axis label
             g.append('text')
@@ -1995,13 +2218,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 .attr('y', -40)
                 .attr('text-anchor', 'middle')
                 .style('font-size', '12px')
-                .style('fill', 'rgba(255,255,255,0.5)')
+                .style('fill', 'var(--dm-text-muted)')
                 .text('POI Purity (%)');
 
             // Threshold lines
+            // analysis_detail.PURITY_GOOD / PURITY_FAIR; the bars' colours are the server's tones.
             const thresholds = [
-                { value: 90, color: '#22C55E', label: 'Target (90%)' },
-                { value: 70, color: '#FFC107', label: 'Minimum (70%)' },
+                { value: 90, color: 'var(--ga-wb-ok, #22C55E)', label: 'Target (90%)' },
+                { value: 70, color: 'var(--ga-wb-warn, #FFC107)', label: 'Minimum (70%)' },
             ];
 
             thresholds.forEach(t => {
@@ -2011,7 +2235,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     .attr('x2', width)
                     .attr('y1', y(t.value))
                     .attr('y2', y(t.value))
-                    .attr('stroke', t.color)
+                    .style('stroke', t.color)
                     .attr('stroke-dasharray', '6,4')
                     .attr('stroke-width', 1.5)
                     .attr('opacity', 0.7);
@@ -2026,11 +2250,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     .text(t.label);
             });
 
-            // Color function
-            function barColor(purity) {
-                if (purity >= 90) return '#22C55E';
-                if (purity >= 70) return '#FFC107';
-                return '#EF4444';
+            // The lane's tone from the server (analysis_detail._purity_tone): never re-derived here.
+            const TONE_COLORS = { ok: 'var(--ga-wb-ok, #22C55E)', warn: 'var(--ga-wb-warn, #FFC107)', bad: 'var(--ga-wb-bad, #EF4444)' };
+            function barColor(bar) {
+                return TONE_COLORS[bar.tone] || 'var(--dm-text-muted)';
             }
 
             // Bars with rounded tops — flatten lanesData[].bars into a
@@ -2040,6 +2263,22 @@ document.addEventListener('DOMContentLoaded', function() {
             const barRadius = 4;
             const selectedLaneId = state.selectedLaneId;
             const selectedBandId = state.selectedBandId;
+
+            // The tooltip stays inside the container, beside the cursor or flipped to its other side near an edge: one
+            // that crossed the edge gave the panel (overflow: auto) a scrollbar, the scrollbar shrank the container,
+            // and the resize redraw took the tooltip away in the same frame. Measured at 0,0, where it is not squeezed.
+            function placeTooltip(tip, event) {
+                const node = tip.node();
+                const cRect = container.getBoundingClientRect();
+                tip.style('left', '0px').style('top', '0px');
+                const x = event.clientX - cRect.left;
+                const y = event.clientY - cRect.top;
+                let left = x + 12;
+                let top = y + 12;
+                if (left + node.offsetWidth > cRect.width) left = Math.max(0, x - 12 - node.offsetWidth);
+                if (top + node.offsetHeight > cRect.height) top = Math.max(0, y - 12 - node.offsetHeight);
+                tip.style('left', left + 'px').style('top', top + 'px');
+            }
 
             const flatBars = [];
             lanesData.forEach(ld => {
@@ -2080,7 +2319,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             Q${bx + bw},${by} ${bx + bw},${by + r}
                             L${bx + bw},${height}Z`;
                 })
-                .attr('fill', d => barColor(d.purity))
+                .style('fill', d => barColor(d))
                 .attr('data-lane-id', d => d.laneId)
                 .attr('data-band-id', d => d.bandId)
                 .style('cursor', 'pointer')
@@ -2111,20 +2350,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         .style('border', '1px solid rgba(255,255,255,0.1)')
                         .style('z-index', '100')
                         .html(
-                            `<div style="font-weight:600;margin-bottom:2px;">${d.laneLabel}</div>` +
-                            `<div>POI B${d.bandNumber || '?'}${d.mw != null ? ' · ' + Math.round(d.mw) + ' kDa' : ''}</div>` +
-                            `<div>Area: ${Math.round(d.area)}</div>` +
-                            `<div>Purity: <strong>${d.purity.toFixed(1)}%</strong></div>`
+                            `<div style="font-weight:600;margin-bottom:2px;">${escapeHtml(d.laneLabel)}</div>` +
+                            (d.bandId ? `<div>POI B${d.bandNumber || '?'}${d.mw != null ? ' · ' + Math.round(d.mw) + ' kDa' : ''}</div>` : '') +
+                            (d.area != null ? `<div>Area: ${Math.round(d.area)}</div>` : '') +
+                            (d.shared ? `<div>This POI band: <strong>${d.purity.toFixed(1)}%</strong></div>` : '') +
+                            `<div>Lane purity: <strong>${d.lanePurity.toFixed(1)}%</strong></div>`
                         );
-                    const cRect = container.getBoundingClientRect();
-                    tip.style('left', (event.clientX - cRect.left + 12) + 'px')
-                       .style('top', (event.clientY - cRect.top + 12) + 'px');
+                    placeTooltip(tip, event);
                 })
                 .on('mousemove', function(event) {
-                    const cRect = container.getBoundingClientRect();
-                    d3.select(container).select('.dm-poi-bar-tooltip')
-                        .style('left', (event.clientX - cRect.left + 12) + 'px')
-                        .style('top', (event.clientY - cRect.top + 12) + 'px');
+                    const tip = d3.select(container).select('.dm-poi-bar-tooltip');
+                    if (!tip.empty()) placeTooltip(tip, event);
                 })
                 .on('mouseleave', function() {
                     d3.select(this).style('filter', null);
@@ -2146,47 +2382,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 .style('font-family', "'Roboto Mono', monospace")
                 .style('font-size', d => d.innerW < 32 ? '10px' : '12px')
                 .style('font-weight', '600')
-                .style('fill', '#fff')
+                .style('fill', 'var(--dm-text-primary)')
                 .text(d => d.purity.toFixed(0) + '%');
 
-            // Highlight: dim full lane group when a lane is selected;
-            // additionally outline the bar when a specific band matches.
-            function highlightSelectedBar(laneId, bandId) {
-                g.selectAll('.dm-poi-bar')
-                    .classed('dimmed', d => laneId && d.laneId !== laneId)
-                    .classed('selected', d => bandId && d.bandId === bandId);
+            // The lanes without a value, with the server's reason (never a 0 % bar).
+            if (missing.length) {
+                const note = document.createElement('div');
+                note.className = 'dm-poi-missing';
+                note.textContent = missing.join(' · ');
+                container.appendChild(note);
             }
-
-            // Listen for LANE_SELECTED events
-            app.eventBus.on(Densitometry.Events.LANE_SELECTED, (data) => {
-                if (currentView === 'poi-purity') {
-                    highlightSelectedBar(data.laneId, state.selectedBandId);
-                }
-            });
-
-            app.eventBus.on(Densitometry.Events.BAND_SELECTED, (data) => {
-                if (currentView === 'poi-purity') {
-                    const band = data && data.bandId ? state.getBand(data.bandId) : null;
-                    const laneId = (band && (band.lane || band.lane_id)) || state.selectedLaneId;
-                    highlightSelectedBar(laneId, data && data.bandId);
-                }
-            });
-
-            // Listen for DATA_UPDATED → re-render
-            app.eventBus.on(Densitometry.Events.DATA_UPDATED, () => {
-                if (currentView === 'poi-purity') {
-                    renderPOIPurityChart();
-                }
-            });
-
-            // ResizeObserver for responsive redraw
-            if (poiResizeObserver) poiResizeObserver.disconnect();
-            poiResizeObserver = new ResizeObserver(() => {
-                if (currentView === 'poi-purity') {
-                    renderPOIPurityChart();
-                }
-            });
-            poiResizeObserver.observe(container);
         }
 
         // ============================================

@@ -16,6 +16,12 @@
 
     const Events = global.Densitometry.Events;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * BandZoomPanel Class
      */
@@ -39,15 +45,20 @@
             // Digital lane mode
             this.digitalLaneMode = 'bands';  // 'bands' or 'pseudo-gel'
 
-            // Colors - Match annotation panel + handle CALIBRATION
-            // (the panel used to fall through to "other" green for
-            // calibration bands, making them indistinguishable from
-            // regular bands in the digital-lane / pseudo-gel views).
+            // Colors - Match annotation panel + handle CALIBRATION (the panel
+            // used to fall through to "other" green for calibration bands,
+            // making them indistinguishable from regular bands in the
+            // digital-lane / pseudo-gel views).
             this.colors = {
                 poi: '#a855f7',          // Purple
                 other: '#22c55e',        // Green
                 mwReference: '#f97316',  // Orange
                 calibration: '#f87171',  // Red-400 — same as annotation
+                // A western band's role (services/readouts.py::band_roles, from the server)
+                aggregate: '#f472b6',
+                main: '#a855f7',
+                clipping: '#38bdf8',
+                leftOut: '#64748b',
             };
 
             // Resize handling
@@ -263,7 +274,7 @@
                 html += `
                     <div class="dm-stat">
                         <span class="dm-stat-value">${band.estimated_mw_kda.toFixed(0)}</span>
-                        <span class="dm-stat-label">kDa</span>
+                        <span class="dm-stat-label"><span class="ga-wb-unit-text">kDa</span></span>
                     </div>
                 `;
             }
@@ -293,7 +304,7 @@
             html += `
                 <div class="dm-stat dm-stat-muted">
                     <span class="dm-stat-value">${Math.round(band.position_y)}</span>
-                    <span class="dm-stat-label">Y px</span>
+                    <span class="dm-stat-label">Y <span class="ga-wb-unit-text">px</span></span>
                 </div>
             `;
 
@@ -396,7 +407,7 @@
                 const rangeHeight = posRange.maxY - posRange.minY;
                 const bandHeightPercent = (bandHeightPx / rangeHeight) * 100;
 
-                const color = this._getBandColor(band.band_type);
+                const color = this._getBandColor(band.band_type, band);
 
                 // Intensity-based opacity
                 let opacity = 0.7;
@@ -413,7 +424,7 @@
                                 background-color: ${color};
                                 opacity: ${isSelected ? 1 : opacity};"
                          data-band-id="${band.id}"
-                         title="${band.band_type}${band.estimated_mw_kda ? ` (~${band.estimated_mw_kda.toFixed(0)} kDa)` : ''}">
+                         title="${escapeHtml(band.band_type)}${band.estimated_mw_kda ? ` (~${band.estimated_mw_kda.toFixed(0)} kDa)` : ''}">
                         ${isSelected ? '<span class="dm-band-marker"></span>' : ''}
                     </div>
                 `;
@@ -522,7 +533,7 @@
 
                 // Create gradient
                 const gradient = ctx.createLinearGradient(0, y - bandHeight/2, 0, y + bandHeight/2);
-                const color = this._getBandColor(band.band_type);
+                const color = this._getBandColor(band.band_type, band);
 
                 gradient.addColorStop(0, 'transparent');
                 gradient.addColorStop(0.2, this._adjustColorIntensity(color, intensity * 0.5));
@@ -683,7 +694,18 @@
         /**
          * Get color for band type.
          */
-        _getBandColor(bandType) {
+        _getBandColor(bandType, band = null) {
+            // On a western, the band's role from the server (the classification the published values sum).
+            const role = band && band.role;
+            if (role === 'aggregate') return this.colors.aggregate;
+            if (role === 'main') return this.colors.main;
+            if (role === 'clipping') return this.colors.clipping;
+            if (role === 'left_out') return this.colors.leftOut;
+            if (role === 'hcp') return this.colors.other;
+            // CALIBRATION used to fall through to "other" (green), making
+            // calibration points invisible in the per-band view. Now they
+            // render in red to match the annotation panel.
+            if (bandType === 'CALIBRATION') return this.colors.calibration;
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;

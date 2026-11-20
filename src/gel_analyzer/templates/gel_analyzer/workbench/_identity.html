@@ -1,0 +1,57 @@
+{% comment %}
+The identity row of the gel workbench header (css/ga-workbench.css): back, crumbs, the analysis name,
+its status, its assay, the three views of the analysis, Night | Day.
+
+Include with: active ("densitometry" | "annotate"), and theme=False only on a page whose CSS has no
+day mode (it hides the Night | Day switch); more_menu, optionally, the template of a phone "..." menu.
+Reads analysis, gel_image and readout_label from the context.
+The assay reads as on the analysis page: the row's name, else "<gel type> · no assay".
+Annotate is greyed with the editor's own refusal when the analysis is not editable; Densitometry while
+the gel has no band (the editor's rule). In the editor that rule changes while one draws, so there
+Densitometry is always the link #ga-wb-view-densitometry, greyed by .is-off + aria-disabled and no href
+(the editor toggles them from data-href and refuses the click).
+
+Ported from ds-hub-django without its hub bar, project crumb and help button.
+{% endcomment %}
+<div class="ga-wb-row">
+    <a class="ga-wb-iconbtn" href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}" title="Back to the analysis" aria-label="Back to the analysis">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i>
+    </a>
+    <nav class="ga-wb-crumbs" aria-label="Breadcrumb">
+        <a href="{% url 'gel_analyzer:image_list' %}">Gel images</a><i class="bi bi-chevron-right" aria-hidden="true"></i>
+        <a href="{% url 'gel_analyzer:image_detail' pk=gel_image.pk %}" title="The gel image">{{ gel_image.original_filename }}</a><i class="bi bi-chevron-right" aria-hidden="true"></i>
+    </nav>
+    <h1 class="ga-wb-title" title="{{ analysis.name }}">{{ analysis.name|default:"Untitled" }}</h1>
+    <span class="ga-wb-badge{% if analysis.status == 'IN_PROGRESS' %} ga-wb-badge--warn{% elif analysis.status == 'COMPLETED' %} ga-wb-badge--info{% elif analysis.status == 'APPROVED' %} ga-wb-badge--ok{% elif analysis.status == 'REJECTED' %} ga-wb-badge--bad{% endif %}">
+        <span class="ga-wb-dot" aria-hidden="true"></span>{{ analysis.get_status_display }}
+    </span>
+    {% if gel_image.assay %}
+    <span class="ga-wb-badge ga-wb-badge--assay ga-wb-phone-hide" title="Assay — read for: {{ readout_label }}"><i class="bi bi-eyedropper" aria-hidden="true"></i>{{ gel_image.assay.name }}</span>
+    {% else %}
+    <span class="ga-wb-badge ga-wb-badge--assay ga-wb-phone-hide" title="No assay: read from its gel type ({{ readout_label|lower }})"><i class="bi bi-eyedropper" aria-hidden="true"></i>{{ gel_image.get_gel_type_display }} · no assay</span>
+    {% endif %}
+    <div class="ga-wb-right">
+        <nav class="ga-wb-views" aria-label="Views of this analysis">
+            <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}"><i class="bi bi-card-text" aria-hidden="true"></i>Analysis</a>
+            {% if active == 'annotate' %}
+            <span aria-current="page"><i class="bi bi-bounding-box" aria-hidden="true"></i>Annotate</span>
+            {% elif analysis.is_editable %}
+            <a href="{% url 'gel_analyzer:analysis_annotate' pk=analysis.pk %}" title="Open the annotation editor"><i class="bi bi-bounding-box" aria-hidden="true"></i>Annotate</a>
+            {% else %}
+            <span class="is-off" title="Analysis is {{ analysis.get_status_display }} and cannot be edited"><i class="bi bi-bounding-box" aria-hidden="true"></i>Annotate</span>
+            {% endif %}
+            {% if active == 'densitometry' %}
+            <span aria-current="page"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>Densitometry</span>
+            {% elif active == 'annotate' %}
+            <a id="ga-wb-view-densitometry"{% if analysis.total_bands %} href="{% url 'gel_analyzer:analysis_densitometry' pk=analysis.pk %}" title="Open the densitometry"{% else %} class="is-off" aria-disabled="true" title="No band yet: detect or draw the bands first"{% endif %}
+               data-href="{% url 'gel_analyzer:analysis_densitometry' pk=analysis.pk %}" data-title-on="Open the densitometry" data-title-off="No band yet: detect or draw the bands first"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>Densitometry</a>
+            {% elif analysis.total_bands %}
+            <a href="{% url 'gel_analyzer:analysis_densitometry' pk=analysis.pk %}" title="Open the densitometry"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>Densitometry</a>
+            {% else %}
+            <span class="is-off" title="No band yet: detect or draw the bands first"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i>Densitometry</span>
+            {% endif %}
+        </nav>
+        {% if more_menu %}{% include more_menu %}{% endif %}
+        {% if theme is not False %}{% include 'gel_analyzer/workbench/_theme_toggle.html' %}{% endif %}
+    </div>
+</div>

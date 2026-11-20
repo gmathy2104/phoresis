@@ -1,6 +1,6 @@
 <!-- Profile Detection Panel (d1/d2 derivative) - Centered Modal -->
 <div class="gv-modal-backdrop" id="detection-backdrop" style="display: none;"></div>
-<div class="gv-detection-panel" id="detection-panel" style="display: none;">
+<div class="gv-detection-panel" id="detection-panel" style="display: none;" role="dialog" aria-modal="true" aria-label="Profile detection (d1/d2)" tabindex="-1">
     <!-- Header -->
     <div class="gv-detection-header">
         <div class="gv-detection-title">
@@ -239,7 +239,7 @@
                         <!-- Min Band Width -->
                         <div class="gv-detection-param">
                             <label for="detection-min-width">
-                                Min Width (px)
+                                <span>Min Width <span class="gv-unit-text">(px)</span></span>
                                 <span class="gv-detection-param-value" id="detection-min-width-value">3</span>
                             </label>
                             <input type="range" id="detection-min-width"
@@ -251,7 +251,7 @@
                         <!-- Max Band Width -->
                         <div class="gv-detection-param">
                             <label for="detection-max-width">
-                                Max Width (px)
+                                <span>Max Width <span class="gv-unit-text">(px)</span></span>
                                 <span class="gv-detection-param-value" id="detection-max-width-value">120</span>
                             </label>
                             <input type="range" id="detection-max-width"
@@ -344,7 +344,7 @@
     <div class="gv-detection-footer">
         <div class="gv-detection-footer-hint">
             <i class="bi bi-info-circle"></i>
-            <span>Preview shows dashed outlines. Detect & Save creates permanent bands.</span>
+            <span>Preview marks the bands on the electropherogram. Detect & Save creates permanent bands.</span>
         </div>
         <div class="gv-detection-footer-actions">
             <button class="gv-detection-btn gv-detection-btn-teach" id="detection-teach" title="Teach the system with examples">

@@ -12,7 +12,7 @@
     // response. Falls back to status + statusText so a 500 HTML page still
     // shows up as "500 Internal Server Error" in the UI instead of the
     // useless `{}` we used to throw.
-    const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError)
+    const sharedExtractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError)
         || (async function fallbackExtract(response, fallback) {
             // Defensive fallback for the unlikely case the shared module
             // didn't load — keep behaviour close to the new helper.
@@ -22,6 +22,56 @@
             } catch (_) { /* ignore */ }
             return fallback || `${response.status} ${response.statusText || ''}`.trim();
         });
+
+    // The legacy views answer a refusal as {"error": "..."} (json_error): that message is the one to show, as
+    // ds-hub's client reads it. Anything else (DRF's {"detail"}, field errors, an HTML 500) goes to the shared helper.
+    async function extractApiError(response, fallback) {
+        try {
+            const copy = typeof response.clone === 'function' ? response.clone() : response;
+            const body = await copy.json();
+            if (body && typeof body.error === 'string' && body.error.trim()) return body.error;
+        } catch (_) { /* not JSON: the shared helper says what it can */ }
+        return sharedExtractApiError(response, fallback);
+    }
+
+    // The writes that change what the server reads of the annotations (lanes, bands, MW, the HCP reference, the
+    // image): each announces itself once settled (constructor). Previews, estimates and parameter fits are not here.
+    const WRITES = [
+        'createLane', 'updateLane', 'patchLaneV1', 'deleteLane', 'createLanesBulk', 'updateLanesBulk',
+        'deleteLanesBulk', 'deleteAllLanes', 'deleteAllBands', 'createBand', 'updateBand', 'patchBand', 'deleteBand',
+        'splitBand', 'updateBandPolygonsBulk', 'setReadoutReferenceLane', 'applyCalibration', 'applyMultiCalibration',
+        'applyLadderTemplate', 'detectAndSaveBands', 'detectBandsCV2Save', 'cropImage',
+    ];
+
+    // Signed out, a request never reaches its view: @login_required answers 302 to the login page and fetch follows
+    // it -- a PUT is replayed there and answered 200 with the page's HTML, a POST becomes a GET of it, 200 again (a
+    // DELETE gets 405). `response.ok` alone took that page for a save: the band PUT resolved, the editor dropped the
+    // pending change and said "Band updated" (measured on devlocal, 2026-10-13). Every answer now goes through
+    // APIClient._request: the login page (the `next=` redirect_to_login adds, whatever LOGIN_URL is) or a 401 (the DRF
+    // endpoints) is a SessionExpiredError, and a success that is not JSON fails too -- every endpoint called here
+    // answers JSON. The caller fails as on any refusal, so the change stays pending for the next Save.
+    const LOG_IN_AGAIN = 'Log in again in another tab and keep this one open: then Save sends the changes still '
+        + 'waiting here.';
+
+    class SessionExpiredError extends Error {
+        constructor(message, status) {
+            super(message);
+            this.name = 'SessionExpiredError';
+            this.status = status;
+        }
+    }
+
+    function isLoginPage(url) {
+        try {
+            return new URL(url).searchParams.has('next');
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function isJson(response) {
+        return /json/i.test(response.headers.get('content-type') || '');
+    }
 
     /**
      * APIClient Class
@@ -38,8 +88,60 @@
         constructor(options) {
             this.analysisId = options.analysisId;
             this.imageId = options.imageId;
-            this.csrfToken = options.csrfToken;
+            this._pageCsrfToken = options.csrfToken;
             this.eventBus = options.eventBus;
+            this.signedOut = false;  // SESSION_EXPIRED once, until an answer comes through again (SESSION_RESTORED)
+
+            // Every write announces itself once settled (SERVER_WRITTEN): the editor refreshes what the server reads
+            // from the annotations -- a band's role, the checks -- whoever wrote (a form, a panel, the batch Save).
+            WRITES.forEach((name) => {
+                const write = this[name];
+                if (typeof write !== 'function') return;
+                this[name] = async (...args) => {
+                    try {
+                        return await write.apply(this, args);
+                    } finally {
+                        if (this.eventBus) this.eventBus.emit(GelViewer.Events.SERVER_WRITTEN, { method: name });
+                    }
+                };
+            });
+        }
+
+        /**
+         * The CSRF token the server holds now. A login rotates it (django.contrib.auth.login), so after logging in
+         * again in another tab the token the page was rendered with is refused (403, measured 2026-10-13): read the
+         * cookie, as Django's AJAX recipe does, the page's token as the fallback (HttpOnly cookie, CSRF_USE_SESSIONS).
+         */
+        get csrfToken() {
+            const cookies = (global.document && global.document.cookie) || '';
+            const match = cookies.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+            return match ? decodeURIComponent(match[1]) : this._pageCsrfToken;
+        }
+
+        /** fetch, then refuse an answer that is not the endpoint's own (see SessionExpiredError above). */
+        async _request(url, init) {
+            const response = await fetch(url, init);
+            const signedOut = response.status === 401 || (response.redirected && isLoginPage(response.url));
+            const notData = response.ok && response.status !== 204 && !isJson(response);
+            if (!signedOut && !notData) {
+                if (this.signedOut) {
+                    this.signedOut = false;
+                    if (this.eventBus) this.eventBus.emit(GelViewer.Events.SESSION_RESTORED);
+                }
+                return response;
+            }
+            // The caller's own message reads "Save failed: <this>"; the notice (GelViewerApp) says what to do.
+            const [message, notice] = signedOut
+                ? ['you are signed out (session expired) - log in again',
+                    `You are signed out (your session expired): nothing reaches the server. ${LOG_IN_AGAIN}`]
+                : [`the server answered a web page, not data (HTTP ${response.status}) - log in again`,
+                    `The server answered a web page instead of data, so nothing was taken as saved: your session `
+                        + `may have expired. ${LOG_IN_AGAIN}`];
+            if (!this.signedOut) {
+                this.signedOut = true;
+                if (this.eventBus) this.eventBus.emit(GelViewer.Events.SESSION_EXPIRED, { message: notice });
+            }
+            throw new SessionExpiredError(message, response.status);
         }
 
         // =====================================================================
@@ -48,13 +150,16 @@
 
         /**
          * Load all annotations from the server.
+         * @param {Object} [opts]
+         * @param {boolean} [opts.quiet=false] - No DATA_LOADING / DATA_LOADED: a refresh of the reading only, the
+         *   panels that reload on those events stay as they are.
          * @returns {Promise<Object>} Analysis data with lanes and bands
          */
-        async loadAnnotations() {
-            this.eventBus.emit(GelViewer.Events.DATA_LOADING);
+        async loadAnnotations({ quiet = false } = {}) {
+            if (!quiet) this.eventBus.emit(GelViewer.Events.DATA_LOADING);
 
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/data/`, {
+                const response = await this._request(`/api/analyses/${this.analysisId}/data/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -63,12 +168,12 @@
                 }
 
                 const data = await response.json();
-                this.eventBus.emit(GelViewer.Events.DATA_LOADED, data);
+                if (!quiet) this.eventBus.emit(GelViewer.Events.DATA_LOADED, data);
                 return data;
 
             } catch (error) {
                 console.error('Error loading annotations:', error);
-                this.eventBus.emit(GelViewer.Events.DATA_ERROR, { error });
+                if (!quiet) this.eventBus.emit(GelViewer.Events.DATA_ERROR, { error });
                 throw error;
             }
         }
@@ -84,7 +189,7 @@
          */
         async createLane(data) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/`, {
+                const response = await this._request(`/api/analyses/${this.analysisId}/lanes/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -105,8 +210,8 @@
                         // Metadata fields
                         is_reduced: data.is_reduced,
                         protein_load_ug: data.protein_load_ug,
+                        loading_volume_ul: data.loading_volume_ul,
                         protein_load_type: data.protein_load_type,
-                        process_sample_id: data.process_sample_id,
                         // Detection source (MANUAL or YOLO)
                         detection_source: data.detection_source || 'MANUAL',
                         confidence: data.confidence,
@@ -139,14 +244,11 @@
             try {
                 // Use the v1 PATCH endpoint when ?force is required (lane-type
                 // downgrade purge); the legacy PUT endpoint at /api/lanes/<id>/
-                // does not understand ?force=true.
+                // does not understand ?force=true. (Phoresis; ds-hub's own path is patchLaneV1.)
                 const useV1 = !!options.force;
-                const url = useV1
-                    ? `/api/v1/lanes/${id}/${options.force ? '?force=true' : ''}`
-                    : `/api/lanes/${id}/`;
-                const method = useV1 ? 'PATCH' : 'PUT';
-                const response = await fetch(url, {
-                    method,
+                const url = useV1 ? `/api/v1/lanes/${id}/?force=true` : `/api/lanes/${id}/`;
+                const response = await this._request(url, {
+                    method: useV1 ? 'PATCH' : 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': this.csrfToken,
@@ -175,17 +277,66 @@
         }
 
         /**
+         * PATCH a lane via the DRF v1 endpoint (LaneViewSet.partial_update).
+         *
+         * Specifically wires the CALIBRATION/CONTROL → other downgrade
+         * safeguard: the backend returns 409 with `dependent_band_ids` when
+         * a downgrade would orphan ProteinQuantCalibrationPoint rows. The
+         * caller re-fires with `{force: true}` after explicit confirmation
+         * to purge those points and re-tag the affected bands.
+         *
+         *  - 2xx → { ok: true, lane }
+         *  - 409 → { ok: false, conflict: true, dependent_band_ids, detail }
+         *  - other → throws
+         *
+         * @param {number|string} id - Lane ID
+         * @param {Object} data - Partial payload (e.g. { lane_type: 'OTHER' })
+         * @param {Object} [opts]
+         * @param {boolean} [opts.force=false] - Append ?force=true to purge
+         * @returns {Promise<Object>}
+         */
+        async patchLaneV1(id, data, opts = {}) {
+            const url = opts.force
+                ? `/api/v1/lanes/${id}/?force=true`
+                : `/api/v1/lanes/${id}/`;
+            const response = await this._request(url, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+                body: JSON.stringify(data),
+            });
+            if (response.status === 409) {
+                const payload = await response.json().catch(() => ({}));
+                return {
+                    ok: false,
+                    conflict: true,
+                    dependent_band_ids: payload.dependent_band_ids || [],
+                    detail: payload.detail || '',
+                };
+            }
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.detail || err.error || `HTTP ${response.status}`);
+            }
+            const lane = await response.json().catch(() => null);
+            return { ok: true, lane };
+        }
+
+        /**
          * Delete a lane from the server.
          * @param {number|string} id - Lane ID
          */
         async deleteLane(id) {
             try {
-                const response = await fetch(`/api/lanes/${id}/`, {
+                const response = await this._request(`/api/lanes/${id}/`, {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },
                 });
 
-                if (!response.ok) {
+                // 404 = already gone (e.g. auto-detect rerun wiped it); desired end state.
+                if (!response.ok && response.status !== 404) {
                     throw new Error(await extractApiError(response, 'Failed to delete lane'));
                 }
 
@@ -203,7 +354,7 @@
          */
         async createLanesBulk(lanes) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/bulk/`, {
+                const response = await this._request(`/api/analyses/${this.analysisId}/lanes/bulk/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -231,7 +382,8 @@
          */
         async updateLanesBulk(lanes) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/bulk-update/`, {
+                const url = `/api/analyses/${this.analysisId}/lanes/bulk-update/`;
+                const response = await this._request(url, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -259,7 +411,8 @@
          */
         async deleteLanesBulk(laneIds) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/lanes/bulk-delete/`, {
+                const url = `/api/analyses/${this.analysisId}/lanes/bulk-delete/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -306,7 +459,8 @@
          */
         async deleteAllBands() {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/bands/bulk-delete/`, {
+                const url = `/api/analyses/${this.analysisId}/bands/bulk-delete/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -339,7 +493,7 @@
          */
         async createBand(laneId, data) {
             try {
-                const response = await fetch(`/api/lanes/${laneId}/bands/`, {
+                const response = await this._request(`/api/lanes/${laneId}/bands/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -375,7 +529,7 @@
          */
         async updateBand(id, data) {
             try {
-                const response = await fetch(`/api/bands/${id}/`, {
+                const response = await this._request(`/api/bands/${id}/`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -395,30 +549,90 @@
         }
 
         /**
-         * PATCH a band via the DRF v1 endpoint, which understands the nested
-         * quant_point payload and the CALIBRATION validation rules.
-         * @param {string} id - Band UUID
-         * @param {Object} data - Partial band fields, optionally including
-         *   {quant_point: {load_amount, load_unit, is_excluded_from_fit?}}
+         * PATCH a band via the DRF v1 endpoint (BandSerializer).
+         *
+         * Used for nested writes that the legacy /api/bands/<id>/ PUT cannot
+         * validate — most importantly, the `quant_point` payload that needs
+         * the BandSerializer's _validate_band_quant_point + auto-promote
+         * + apply_band_type post-save logic (services/quantification/band_type_change.py).
+         *
+         * @param {string} id - Band ID
+         * @param {Object} data - Partial payload, e.g.
+         *   { band_type: 'CALIBRATION', quant_point: { load_amount, load_unit } }
+         * @returns {Promise<Object>} updated band
          */
         async patchBand(id, data) {
-            try {
-                const response = await fetch(`/api/v1/bands/${id}/`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify(data),
-                });
-                if (!response.ok) {
-                    throw new Error(await extractApiError(response, 'Failed to PATCH band'));
-                }
-                return await response.json();
-            } catch (error) {
-                console.error('Server error patching band:', error);
-                throw error;
+            const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError);
+            const response = await this._request(`/api/v1/bands/${id}/`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+                body: JSON.stringify(data),
+            });
+            if (!response.ok) {
+                const message = extractApiError
+                    ? await extractApiError(response, 'Failed to PATCH band')
+                    : `HTTP ${response.status}`;
+                throw new Error(message);
             }
+            return response.json();
+        }
+
+        /**
+         * Set (laneId) or clear (null) the anti-HCP reference lane of the
+         * analysis. Saved at once, not with the batch save: the server stores
+         * GelAnalysis.readout_reference_lane and republishes the readouts.
+         * 403 for a reader or a non-editable analysis, 400 for a foreign lane.
+         *
+         * @param {number|null} laneId - Server lane id (never a temp id)
+         * @returns {Promise<Object>} { reference_lane_id, reference_lane_number, published }
+         */
+        async setReadoutReferenceLane(laneId) {
+            const response = await this._request(`/api/analyses/${this.analysisId}/readout-reference/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+                body: JSON.stringify({ lane_id: laneId }),
+            });
+            if (!response.ok) {
+                // The endpoint answers {"error": "..."} (json_error); the
+                // shared extractor covers anything else (HTML 500, proxy...).
+                let message = null;
+                try {
+                    const body = await response.clone().json();
+                    if (body && typeof body.error === 'string' && body.error.trim()) {
+                        message = body.error;
+                    }
+                } catch (_) { /* not JSON: fall through */ }
+                if (!message) {
+                    const extractApiError = (global.PhoresisShared && global.PhoresisShared.extractApiError);
+                    message = extractApiError
+                        ? await extractApiError(response, 'Failed to set the HCP reference lane')
+                        : `HTTP ${response.status}`;
+                }
+                throw new Error(message);
+            }
+            return response.json();
+        }
+
+        /**
+         * Get the active protein quantification calibration for the analysis.
+         * Returns { active: { ... } | null }. Used by PropertiesPanel to lock
+         * the load_unit select when an active calibration exists.
+         */
+        async getActiveQuantification(analysisId) {
+            const id = analysisId || this.analysisId;
+            const response = await this._request(`/api/v1/analyses/${id}/quantification/`, {
+                headers: { 'Accept': 'application/json' },
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
         }
 
         /**
@@ -427,17 +641,51 @@
          */
         async deleteBand(id) {
             try {
-                const response = await fetch(`/api/bands/${id}/`, {
+                const response = await this._request(`/api/bands/${id}/`, {
                     method: 'DELETE',
                     headers: { 'X-CSRFToken': this.csrfToken },
                 });
 
-                if (!response.ok) {
+                // 404 = already gone (e.g. auto-detect rerun wiped it); desired end state.
+                if (!response.ok && response.status !== 404) {
                     throw new Error(await extractApiError(response, 'Failed to delete band'));
                 }
 
             } catch (error) {
                 console.error('Server error deleting band:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Split a band into two halves atomically. Sends both pre-computed
+         * upper + lower payloads in a single POST; the backend deletes the
+         * original + creates the two new bands inside a transaction and
+         * returns the new band objects. Replaces the old DELETE → CREATE →
+         * CREATE → reload chain (4 roundtrips) with 1.
+         * @param {string} bandId - UUID of the band to split
+         * @param {Object} payload - { upper: {...}, lower: {...} }
+         * @returns {Promise<Object>} { success, deleted_id, upper, lower }
+         */
+        async splitBand(bandId, payload) {
+            try {
+                const response = await this._request(`/api/bands/${bandId}/split/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken,
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || errorData.detail || 'Failed to split band');
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('Server error splitting band:', error);
                 throw error;
             }
         }
@@ -449,7 +697,7 @@
          */
         async updateBandPolygonsBulk(updates) {
             try {
-                const response = await fetch('/api/bands/bulk-update-polygons/', {
+                const response = await this._request('/api/bands/bulk-update-polygons/', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -471,64 +719,6 @@
             }
         }
 
-        // =====================================================================
-        // Sample Search API
-        // =====================================================================
-
-        /**
-         * Search for process samples.
-         * @param {Object} params - Search parameters
-         * @param {string} [params.query] - Search query
-         * @param {number} [params.drugSubstanceId] - Filter by drug substance
-         * @param {number} [params.sheetId] - Filter by process sheet
-         * @returns {Promise<Array>} Matching samples
-         */
-        async searchSamples(params = {}) {
-            try {
-                const url = new URL('/api/samples/search/', window.location.origin);
-
-                if (params.query) url.searchParams.append('q', params.query);
-                if (params.drugSubstanceId) url.searchParams.append('drug_substance', params.drugSubstanceId);
-                if (params.sheetId) url.searchParams.append('sheet', params.sheetId);
-
-                const response = await fetch(url.toString(), {
-                    headers: { 'Accept': 'application/json' }
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to search samples');
-                }
-
-                const data = await response.json();
-                return data.samples || [];
-
-            } catch (error) {
-                console.error('Error searching samples:', error);
-                throw error;
-            }
-        }
-
-        /**
-         * Get filter options for sample search.
-         * @returns {Promise<Object>} Filter options (drug substances, sheets)
-         */
-        async getSampleFilterOptions() {
-            try {
-                const response = await fetch('/api/samples/filter-options/', {
-                    headers: { 'Accept': 'application/json' }
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to get filter options');
-                }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error('Error getting filter options:', error);
-                throw error;
-            }
-        }
 
         // =====================================================================
         // YOLO Results API
@@ -544,7 +734,7 @@
          */
         async saveYoloResults(results) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/yolo-results/`, {
+                const response = await this._request(`/api/analyses/${this.analysisId}/yolo-results/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -570,6 +760,67 @@
         }
 
         // =====================================================================
+        // Band Model API (the YOLO band model the browser runs, after the lane model)
+        // =====================================================================
+
+        /**
+         * The model to run (URL, sha256, settings), the image size, the gel's window in a scanned page,
+         * whether the analysis is editable and whether this user may save.
+         * @returns {Promise<Object>}
+         */
+        async getBandModelContext() {
+            return this._bandModelRequest('GET', 'band-model/');
+        }
+
+        /**
+         * The bands each lane would get from the model's boxes. Writes nothing.
+         * @param {Object} body - {model_sha256, image: {width, height}, boxes, confidence, lane_ids}
+         * @returns {Promise<Object>}
+         */
+        async previewBandModel(body) {
+            return this._bandModelRequest('POST', 'band-model/preview/', body);
+        }
+
+        /**
+         * Write the bands: auto-detected bands of these lanes replaced, hand-drawn ones kept.
+         * @param {Object} body - the preview's body, with the chosen confidence
+         * @returns {Promise<Object>}
+         */
+        async saveBandModel(body) {
+            return this._bandModelRequest('POST', 'band-model/save/', body);
+        }
+
+        /**
+         * Each detected lane's axis for the review's "Follow the lanes" (the guarded mask slope). Writes nothing.
+         * @param {Object} body - {token, boxes: [{index, box: [x, y, w, h], mask_slope}]}
+         * @param {AbortSignal} [signal] - the review aborts it on close or after 10 s
+         * @returns {Promise<Object>} {token, y_ref, lanes: [{index, x_ref, slope, width, source}]}
+         */
+        async measureLaneTilt(body, signal) {
+            return this._bandModelRequest('POST', 'lanes/tilt/', body, signal);
+        }
+
+        /** fetch + JSON; a refusal throws an Error carrying the server's message and the HTTP status. */
+        async _bandModelRequest(method, path, body, signal) {
+            const response = await this._request(`/api/analyses/${this.analysisId}/${path}`, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+                body: body === undefined ? undefined : JSON.stringify(body),
+                signal,
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            return data;
+        }
+
+        // =====================================================================
         // Band Detection API (Auto d1/d2 Derivative)
         // =====================================================================
 
@@ -579,7 +830,7 @@
          */
         async getDetectionParams() {
             try {
-                const response = await fetch('/api/detection/params/', {
+                const response = await this._request('/api/detection/params/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -603,7 +854,7 @@
          */
         async previewBandDetection(laneId, params = {}) {
             try {
-                const response = await fetch(`/api/lanes/${laneId}/detect-bands/`, {
+                const response = await this._request(`/api/lanes/${laneId}/detect-bands/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -633,7 +884,7 @@
          */
         async detectAndSaveBands(laneId, params = {}) {
             try {
-                const response = await fetch(`/api/lanes/${laneId}/detect-bands/save/`, {
+                const response = await this._request(`/api/lanes/${laneId}/detect-bands/save/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -663,7 +914,8 @@
          */
         async detectBandsBulkAsync(laneIds, params = {}) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands/async/`, {
+                const url = `/api/analyses/${this.analysisId}/detect-bands/async/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -695,7 +947,7 @@
             try {
                 const body = { params };
                 if (bgType && bgType !== 'auto') body.bg_type = bgType;
-                const response = await fetch(`/api/lanes/${laneId}/detect-bands-cv2/`, {
+                const response = await this._request(`/api/lanes/${laneId}/detect-bands-cv2/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -721,7 +973,7 @@
             try {
                 const body = { params, delete_existing: deleteExisting };
                 if (bgType && bgType !== 'auto') body.bg_type = bgType;
-                const response = await fetch(`/api/lanes/${laneId}/detect-bands-cv2/save/`, {
+                const response = await this._request(`/api/lanes/${laneId}/detect-bands-cv2/save/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -751,7 +1003,8 @@
                     save_results: saveResults,
                 };
                 if (bgType && bgType !== 'auto') body.bg_type = bgType;
-                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands-cv2/async/`, {
+                const url = `/api/analyses/${this.analysisId}/detect-bands-cv2/async/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -775,7 +1028,8 @@
 
         async getCV2CalibratedParams() {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands-cv2/calibrate/`, {
+                const url = `/api/analyses/${this.analysisId}/detect-bands-cv2/calibrate/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -797,84 +1051,6 @@
             }
         }
 
-        // ── Hybrid Band Detection ────────────────────────────────────────
-
-        async detectBandsHybridPreview(laneId, params = {}) {
-            try {
-                const response = await fetch(`/api/lanes/${laneId}/detect-bands-hybrid/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify({ params }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || `HTTP ${response.status}`);
-                }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error('[APIClient] Hybrid preview failed:', error);
-                throw error;
-            }
-        }
-
-        async detectBandsHybridSave(laneId, params = {}, deleteExisting = true) {
-            try {
-                const response = await fetch(`/api/lanes/${laneId}/detect-bands-hybrid/save/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify({ params, delete_existing: deleteExisting }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || `HTTP ${response.status}`);
-                }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error('[APIClient] Hybrid save failed:', error);
-                throw error;
-            }
-        }
-
-        async detectBandsHybridAsync(laneIds, params = {}, saveResults = true) {
-            try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/detect-bands-hybrid/async/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify({
-                        lane_ids: laneIds,
-                        params,
-                        save_results: saveResults,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || `HTTP ${response.status}`);
-                }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error('[APIClient] Hybrid async failed:', error);
-                throw error;
-            }
-        }
-
         /**
          * Get status of an async task (Celery).
          * @param {string} taskId - Celery task ID
@@ -882,7 +1058,7 @@
          */
         async getTaskStatus(taskId) {
             try {
-                const response = await fetch(`/api/tasks/${taskId}/status/`, {
+                const response = await this._request(`/api/tasks/${taskId}/status/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -908,7 +1084,7 @@
          */
         async getLadderTemplates() {
             try {
-                const response = await fetch('/api/ladder-templates/', {
+                const response = await this._request('/api/ladder-templates/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -930,7 +1106,7 @@
          */
         async getDefaultLadderTemplate() {
             try {
-                const response = await fetch('/api/ladder-templates/default/', {
+                const response = await this._request('/api/ladder-templates/default/', {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -953,7 +1129,7 @@
          */
         async getLadderTemplate(templateId) {
             try {
-                const response = await fetch(`/api/ladder-templates/${templateId}/`, {
+                const response = await this._request(`/api/ladder-templates/${templateId}/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -971,6 +1147,29 @@
         }
 
         /**
+         * Fill a LADDER lane's band MW values from a ladder template (LadderTemplateApply, its one caller): the server
+         * gives the template's values to the lane's saved bands, top to bottom, and stores the template on the lane.
+         * @param {number} laneId - Saved lane ID
+         * @param {string} templateId - Template UUID
+         * @returns {Promise<Object>} {bands_updated, template_name, warnings (null or strings), bands}
+         */
+        async applyLadderTemplate(laneId, templateId) {
+            const response = await this._request(`/api/lanes/${laneId}/apply-ladder-template/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.csrfToken,
+                },
+                body: JSON.stringify({ template_id: templateId }),
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || `Failed to apply the template (HTTP ${response.status})`);
+            }
+            return response.json();
+        }
+
+        /**
          * Match lane bands to a ladder template (preview matching).
          * @param {number} laneId - Lane ID
          * @param {string} templateId - Template UUID
@@ -978,7 +1177,7 @@
          */
         async matchTemplate(laneId, templateId) {
             try {
-                const response = await fetch(`/api/lanes/${laneId}/match-template/`, {
+                const response = await this._request(`/api/lanes/${laneId}/match-template/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1005,19 +1204,23 @@
          * @param {number} laneId - Ladder lane ID
          * @param {string} templateId - Template UUID
          * @param {string} method - Calibration method (LOG_LINEAR, POLYNOMIAL_2, etc.)
+         * @param {string[]} excludedBandIds - Band UUIDs to drop from the fit
          * @returns {Promise<Object>} Calibration result with coefficients
          */
         async calibrateSingle(laneId, templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
+                // Omit template_id when null — the manual-MW workflow runs
+                // calibration without a template (PR #1 of the quantification
+                // port made the backend service-layer template arg optional).
                 const body = {
                     lane_id: laneId,
                     method: method,
                     excluded_band_ids: excludedBandIds,
                 };
-                // Template is optional — omit when null so the backend
-                // doesn't try to look it up.
-                if (templateId) body.template_id = templateId;
-                const response = await fetch(`/api/analyses/${this.analysisId}/calibrate/`, {
+                if (templateId != null) {
+                    body.template_id = templateId;
+                }
+                const response = await this._request(`/api/analyses/${this.analysisId}/calibrate/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1043,16 +1246,22 @@
          * Calibrate all ladder lanes with multi-ladder interpolation.
          * @param {string} templateId - Template UUID
          * @param {string} method - Calibration method
+         * @param {string[]} excludedBandIds - Band UUIDs to drop from the fit (across all ladders)
          * @returns {Promise<Object>} Multi-calibration result
          */
         async calibrateMulti(templateId, method = 'LOG_LINEAR', excludedBandIds = []) {
             try {
+                // Omit template_id when null — manual-MW workflow runs
+                // multi-ladder calibration without a template (PR #1 of the
+                // quantification port).
                 const body = {
                     method: method,
                     excluded_band_ids: excludedBandIds,
                 };
-                if (templateId) body.template_id = templateId;
-                const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-multi/`, {
+                if (templateId != null) {
+                    body.template_id = templateId;
+                }
+                const response = await this._request(`/api/analyses/${this.analysisId}/calibrate-multi/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1080,7 +1289,8 @@
          */
         async applyCalibration() {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/apply-calibration/`, {
+                const url = `/api/analyses/${this.analysisId}/apply-calibration/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1106,7 +1316,8 @@
          */
         async applyMultiCalibration() {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/apply-multi-calibration/`, {
+                const url = `/api/analyses/${this.analysisId}/apply-multi-calibration/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1133,7 +1344,7 @@
          */
         async getCalibration() {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/calibration/`, {
+                const response = await this._request(`/api/analyses/${this.analysisId}/calibration/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -1155,7 +1366,8 @@
          */
         async getMultiCalibration() {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/multi-calibration/`, {
+                const url = `/api/analyses/${this.analysisId}/multi-calibration/`;
+                const response = await this._request(url, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -1178,7 +1390,7 @@
          */
         async estimateBandMW(bandId) {
             try {
-                const response = await fetch(`/api/bands/${bandId}/estimate-mw/`, {
+                const response = await this._request(`/api/bands/${bandId}/estimate-mw/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1195,86 +1407,6 @@
 
             } catch (error) {
                 console.error('Error estimating band MW:', error);
-                throw error;
-            }
-        }
-
-        // =====================================================================
-        // UNPLUGGED: Profile Peak Detection API deprecated in favour of Auto (d1/d2) detection
-        // =====================================================================
-
-        /**
-         * Detect peaks from lane intensity profile.
-         * Uses AdvancedPeakDetector for profile-based detection.
-         *
-         * @param {number} laneId - Lane ID
-         * @param {Object} params - Detection parameters
-         * @param {number} [params.sensitivity=0.85] - Detection sensitivity (0.5-1.0)
-         * @param {number} [params.min_peak_distance=10] - Min distance between peaks (px)
-         * @param {number} [params.match_tolerance_px=15] - Tolerance for matching existing bands
-         * @param {number} [params.smoothing_window=11] - Smoothing window size
-         * @param {boolean} [params.enable_deconvolution=false] - Enable multi-Gaussian fitting
-         * @param {boolean} [params.enable_shoulder_detection=true] - Detect shoulder peaks
-         * @param {boolean} [params.preview=false] - If true, only preview (no band creation)
-         * @returns {Promise<Object>} Detection result with peaks and optional bands_created
-         */
-        async detectPeaksFromProfile(laneId, params = {}) {
-            throw new Error('Profile Peak Detection is unplugged — use Auto (d1/d2) detection instead');
-            try {
-                const response = await fetch(`/api/lanes/${laneId}/detect-peaks-profile/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify(params),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to detect peaks from profile');
-                }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error('Error detecting peaks from profile:', error);
-                throw error;
-            }
-        }
-
-        /**
-         * Start async profile peak detection for multiple lanes.
-         *
-         * @param {string} analysisId - Analysis UUID
-         * @param {Array<number>} laneIds - Array of lane IDs to process
-         * @param {Object} params - Detection parameters
-         * @returns {Promise<Object>} Object with task_id for status polling
-         */
-        async detectPeaksProfileAsync(analysisId, laneIds, params = {}) {
-            throw new Error('Profile Peak Detection is unplugged — use Auto (d1/d2) detection instead');
-            try {
-                const response = await fetch(`/api/analyses/${analysisId}/detect-peaks-profile/async/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify({
-                        lane_ids: laneIds,
-                        params: params,
-                    }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || 'Failed to start profile peak detection');
-                }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error('Error starting async profile peak detection:', error);
                 throw error;
             }
         }
@@ -1298,7 +1430,7 @@
          */
         async cropImage(cropData) {
             try {
-                const response = await fetch(`/api/images/${this.imageId}/crop/`, {
+                const response = await this._request(`/api/images/${this.imageId}/crop/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1331,7 +1463,8 @@
          */
         async calibrateDetection(regions) {
             try {
-                const response = await fetch(`/api/analyses/${this.analysisId}/calibrate-detection/`, {
+                const url = `/api/analyses/${this.analysisId}/calibrate-detection/`;
+                const response = await this._request(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1366,7 +1499,7 @@
          */
         async getLaneProfile(laneId) {
             try {
-                const response = await fetch(`/api/lanes/${laneId}/profile/`, {
+                const response = await this._request(`/api/lanes/${laneId}/profile/`, {
                     headers: { 'Accept': 'application/json' }
                 });
 
@@ -1381,167 +1514,6 @@
                 console.error('Error getting lane profile:', error);
                 throw error;
             }
-        }
-
-        // =====================================================================
-        // Cross-Lane Consensus API
-        // =====================================================================
-
-        /**
-         * Preview cross-lane consensus (dry run, no DB writes).
-         * @param {string} analysisId - Analysis UUID
-         * @param {Object} params - Consensus parameters
-         * @returns {Promise<Object>} Preview result with proposed changes
-         */
-        async previewCrossLaneConsensus(analysisId, params) {
-            const response = await fetch(
-                `/analyses/${analysisId}/cross-lane-consensus/`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify({ params, dry_run: true }),
-                }
-            );
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({}));
-                throw new Error(err.error || `HTTP ${response.status}`);
-            }
-            return response.json();
-        }
-
-        /**
-         * Apply cross-lane consensus (persists changes).
-         * @param {string} analysisId - Analysis UUID
-         * @param {Object} params - Consensus parameters
-         * @returns {Promise<Object>} Apply result with run_id for undo
-         */
-        async applyCrossLaneConsensus(analysisId, params) {
-            const response = await fetch(
-                `/analyses/${analysisId}/cross-lane-consensus/`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken,
-                    },
-                    body: JSON.stringify({ params, dry_run: false }),
-                }
-            );
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({}));
-                throw new Error(err.error || `HTTP ${response.status}`);
-            }
-            return response.json();
-        }
-
-        // =====================================================================
-        // Protein Quantification API (Phase 5+)
-        // =====================================================================
-
-        /**
-         * Get the active protein-quantification calibration for the analysis.
-         * @returns {Promise<Object>} { active: <calib>|null }
-         */
-        async getActiveQuantification(analysisId) {
-            const id = analysisId || this.analysisId;
-            try {
-                const response = await fetch(`/api/v1/analyses/${id}/quantification/`, {
-                    headers: { 'Accept': 'application/json' },
-                });
-                if (!response.ok) {
-                    throw new Error('Failed to load active quantification');
-                }
-                return await response.json();
-            } catch (error) {
-                console.error('Error getting active quantification:', error);
-                throw error;
-            }
-        }
-
-        /**
-         * Preview a quantification fit (dry run, no DB writes).
-         * @param {string} analysisId - Analysis UUID
-         * @param {Object} body - { method, unit, excluded_band_ids? }
-         * @returns {Promise<Object>} QuantResult.to_dict()
-         */
-        async previewQuantification(analysisId, body) {
-            const id = analysisId || this.analysisId;
-            try {
-                const response = await fetch(
-                    `/api/v1/analyses/${id}/quantification/preview/`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': this.csrfToken,
-                        },
-                        body: JSON.stringify(body || {}),
-                    },
-                );
-                // 200 = success, 422 = fit failed but body still has details
-                const data = await response.json().catch(() => ({}));
-                return { ok: response.ok, status: response.status, data };
-            } catch (error) {
-                console.error('Error previewing quantification:', error);
-                throw error;
-            }
-        }
-
-        /**
-         * Save & apply a quantification fit.
-         * @param {string} analysisId - Analysis UUID
-         * @param {Object} body - { method, unit, excluded_band_ids?, notes? }
-         * @returns {Promise<Object>} Saved calibration
-         */
-        async saveQuantification(analysisId, body) {
-            const id = analysisId || this.analysisId;
-            try {
-                const response = await fetch(
-                    `/api/v1/analyses/${id}/quantification/`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': this.csrfToken,
-                        },
-                        body: JSON.stringify(body || {}),
-                    },
-                );
-                if (!response.ok) {
-                    const err = await response.json().catch(() => ({}));
-                    throw new Error(err.detail || 'Failed to save quantification');
-                }
-                return await response.json();
-            } catch (error) {
-                console.error('Error saving quantification:', error);
-                throw error;
-            }
-        }
-
-        // =====================================================================
-
-        /**
-         * Undo a previous cross-lane consensus run.
-         * @param {string} analysisId - Analysis UUID
-         * @param {string} runId - Consensus run ID returned from applyCrossLaneConsensus
-         * @returns {Promise<Object>} Undo result
-         */
-        async undoCrossLaneConsensus(analysisId, runId) {
-            const response = await fetch(
-                `/analyses/${analysisId}/cross-lane-consensus/?run_id=${encodeURIComponent(runId)}`,
-                {
-                    method: 'DELETE',
-                    headers: { 'X-CSRFToken': this.csrfToken },
-                }
-            );
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({}));
-                throw new Error(err.error || `HTTP ${response.status}`);
-            }
-            return response.json();
         }
     }
 

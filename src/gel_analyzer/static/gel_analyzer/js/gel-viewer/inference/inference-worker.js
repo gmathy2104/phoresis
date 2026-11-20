@@ -431,6 +431,12 @@ function parseOutput(results, config) {
     // Apply 20% width shrink to approximate lane boundaries
     // (mask-based bounds were too wide - keeping computeMaskBounds() for future use)
     for (const det of nmsDetections) {
+        // The detection's own mask axis, BEFORE the shrink rewrites its box (spec 2026-10-10 §10): the review's
+        // "Follow the lanes" tilts the lane by it. scaleDetections turns it into image space.
+        det.mask_slope_640 = (protoData && protoDims && det.mask_coeffs && det.mask_coeffs.length)
+            ? maskSlope(det.mask_coeffs, protoData, protoDims, det.bbox)
+            : null;
+
         const [x, y, w, h] = det.bbox;
 
         // Shrink width by 20% (10% from each side)
@@ -454,6 +460,37 @@ function parseOutput(results, config) {
     }
 
     return nmsDetections;
+}
+
+/**
+ * Slope d(x)/d(y) of the line through a detection's mask row centres, in model-input (640) space; null with fewer
+ * than 2 mask rows. tools/proofs/lane_tilt/capture.js::maskAxes VERBATIM -- the fit the lane-tilt bench validated
+ * (spec 2026-10-10 §9-§10): the raw box, 3 extra proto columns each side, a pixel in the mask when
+ * sum(coeff * proto) > 0 (sigmoid > 0.5), a row's centre = the middle of its first and last mask pixels.
+ * Never "simplify" it: the bench's numbers are this fit's.
+ */
+function maskSlope(coeffs, protoData, protoDims, bbox) {
+    const PH = protoDims[2], PW = protoDims[3], NM = coeffs.length;
+    const stride = CONFIG.INPUT_SIZE / PW;
+    const [bx, by, bw, bh] = bbox;
+    const px1 = Math.max(0, Math.floor(bx / stride) - 3), px2 = Math.min(PW - 1, Math.ceil((bx + bw) / stride) + 3);
+    const py1 = Math.max(0, Math.floor(by / stride)), py2 = Math.min(PH - 1, Math.ceil((by + bh) / stride));
+    const pts = [];
+    for (let y = py1; y <= py2; y++) {
+        let lo = -1, hi = -1;
+        for (let x = px1; x <= px2; x++) {
+            let s = 0;
+            for (let p = 0; p < NM; p++) s += coeffs[p] * protoData[p * PH * PW + y * PW + x];
+            if (s > 0) { if (lo < 0) lo = x; hi = x; }
+        }
+        if (lo >= 0) pts.push([(y + 0.5) * stride, ((lo + hi) / 2 + 0.5) * stride]);
+    }
+    const n = pts.length;
+    if (n < 2) return null;
+    const my = pts.reduce((a, p) => a + p[0], 0) / n, mx = pts.reduce((a, p) => a + p[1], 0) / n;
+    const sxy = pts.reduce((a, p) => a + (p[0] - my) * (p[1] - mx), 0);
+    const syy = pts.reduce((a, p) => a + (p[0] - my) ** 2, 0);
+    return syy > 0 ? sxy / syy : 0;
 }
 
 /**
@@ -534,10 +571,15 @@ function scaleDetections(detections, metadata) {
             ];
         });
 
+        // A slope in model-input space becomes one in image space by the two axes' scales (spec 2026-10-10 §10).
+        const maskSlopeImage = det.mask_slope_640 == null ? null : det.mask_slope_640 * scaleX / scaleY;
+        const { mask_slope_640: _unused, ...rest } = det;
+
         return {
-            ...det,
+            ...rest,
             bbox: [clampedX, clampedY, clampedW, clampedH],
             polygon: scaledPolygon,
+            mask_slope: maskSlopeImage,
         };
     });
 }

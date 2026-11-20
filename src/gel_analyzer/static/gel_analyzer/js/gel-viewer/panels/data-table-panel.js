@@ -10,6 +10,12 @@
 
     const Events = global.GelViewer.Events;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * DataTablePanel Class
      */
@@ -20,7 +26,10 @@
          * @param {StateManager} options.stateManager - StateManager instance
          * @param {Function} options.onSelectAnnotation - Callback for selection
          * @param {Function} options.onUpdateLane - Callback to update lane
-         * @param {APIClient} options.apiClient - APIClient (used for auto-save of text fields)
+         * @param {APIClient} options.apiClient - APIClient (used for auto-save of the sample name)
+         * @param {Function} options.onChangeLaneType - (laneId, newType, select) => Promise<boolean>: the properties
+         *   form's own lane-type path (PropertiesPanel.changeLaneType), confirmations and ladder template included
+         * @param {Function} options.onSaveAll - () => Promise: the editor's Save, of every unsaved change
          */
         constructor(options) {
             this.eventBus = options.eventBus;
@@ -29,6 +38,8 @@
             this.onUpdateLane = options.onUpdateLane;
             this.apiClient = options.apiClient;
             this._fieldSaveTimers = {};
+            this.onChangeLaneType = options.onChangeLaneType;
+            this.onSaveAll = options.onSaveAll;
 
             // DOM elements
             this.panel = document.getElementById('table-panel');
@@ -56,19 +67,21 @@
                 closeBtn.addEventListener('click', () => this.hide());
             }
 
-            // Cancel button (hide without saving)
-            const cancelBtn = document.getElementById('cancel-table-changes');
-            if (cancelBtn) {
-                cancelBtn.addEventListener('click', () => this.hide());
+            // Close (footer): the table's edits stay, unsaved, like every edit in the editor until a save. It
+            // was "Cancel" and reverted nothing.
+            const footerCloseBtn = document.getElementById('close-table-footer');
+            if (footerCloseBtn) {
+                footerCloseBtn.addEventListener('click', () => this.hide());
             }
 
-            // Apply button (save changes)
-            const applyBtn = document.getElementById('apply-table-changes');
-            if (applyBtn) {
-                applyBtn.addEventListener('click', () => {
-                    // Emit save event and hide
-                    this.eventBus.emit('save:requested');
-                    this.hide();
+            // Save all: the editor's Save (Ctrl+S), so EVERY unsaved change, the bands' included, not only this
+            // table's. It was "Apply", said "applied locally" and saved everything. The panel stays open; its rows
+            // are rebuilt once the save is over, a lane the save created now has its real id.
+            const saveAllBtn = document.getElementById('save-all-from-table');
+            if (saveAllBtn && this.onSaveAll) {
+                saveAllBtn.addEventListener('click', async () => {
+                    await this.onSaveAll();
+                    if (this.visible) this.refresh();
                 });
             }
         }
@@ -119,6 +132,16 @@
                 this.panel.classList.add('open');
                 this.visible = true;
                 if (this.toggleBtn) this.toggleBtn.classList.add('active');
+                // Mark the page-level container so the responsive CSS can
+                // slide the Properties sidebar out of the way on narrow
+                // viewports. Without this the Lane Editor (which lives
+                // inside .gv-viewer-wrapper, not the whole .gv-main flex
+                // row) was getting clipped on its right edge by the
+                // sidebar column. See gel_viewer_standalone.css
+                // `.gv-main.lane-editor-open .gv-sidebar` rule.
+                const main = document.querySelector('.gv-main');
+                if (main) main.classList.add('lane-editor-open');
+                global.GelViewer.Layers?.open(this.panel, { close: () => this.hide(), isOpen: () => this.visible });
                 console.log('DataTablePanel: Panel opened');
 
                 // Refresh the table
@@ -138,6 +161,9 @@
                 this.panel.classList.remove('open');
                 this.visible = false;
                 if (this.toggleBtn) this.toggleBtn.classList.remove('active');
+                const main = document.querySelector('.gv-main');
+                if (main) main.classList.remove('lane-editor-open');
+                global.GelViewer.Layers?.close(this.panel);
             }
         }
 
@@ -194,15 +220,18 @@
         _createRow(lane) {
             const row = document.createElement('tr');
             row.dataset.laneId = lane.id;
+            row.dataset.laneType = lane.lane_type || '';
 
             row.innerHTML = `
                 <td>${lane.lane_number}</td>
                 <td>
                     <select data-field="lane_type">
                         <option value="SAMPLE" ${lane.lane_type === 'SAMPLE' ? 'selected' : ''}>Sample</option>
-                        <option value="LADDER" ${lane.lane_type === 'LADDER' ? 'selected' : ''}>Ladder</option>
+                        <option value="LADDER" ${lane.lane_type === 'LADDER' ? 'selected' : ''}>MW Ladder</option>
                         <option value="EMPTY" ${lane.lane_type === 'EMPTY' ? 'selected' : ''}>Empty</option>
                         <option value="CONTROL" ${lane.lane_type === 'CONTROL' ? 'selected' : ''}>Control</option>
+                        <option value="CALIBRATION" ${lane.lane_type === 'CALIBRATION' ? 'selected' : ''}>Calibration Standard</option>
+                        <option value="DOT" ${lane.lane_type === 'DOT' ? 'selected' : ''}>Dot</option>
                     </select>
                 </td>
                 <td>
@@ -219,15 +248,15 @@
                 <td>
                     <select data-field="protein_load_type">
                         <option value="" ${!lane.protein_load_type ? 'selected' : ''}>—</option>
-                        <option value="TOTAL" ${lane.protein_load_type === 'TOTAL' ? 'selected' : ''}>Total</option>
-                        <option value="POI" ${lane.protein_load_type === 'POI' ? 'selected' : ''}>POI</option>
-                        <option value="HOST_CELL" ${lane.protein_load_type === 'HOST_CELL' ? 'selected' : ''}>HCP</option>
+                        <option value="TOTAL" ${lane.protein_load_type === 'TOTAL' ? 'selected' : ''}>Total Protein</option>
+                        <option value="POI" ${lane.protein_load_type === 'POI' ? 'selected' : ''}>Protein of Interest</option>
+                        <option value="HOST_CELL" ${lane.protein_load_type === 'HOST_CELL' ? 'selected' : ''}>Host Cell Protein</option>
                         <option value="OTHER" ${lane.protein_load_type === 'OTHER' ? 'selected' : ''}>Other</option>
                     </select>
                 </td>
                 <td class="sample-cell">
                     <input type="text" data-field="sample_name"
-                           value="${(lane.sample_name || '').replace(/"/g, '&quot;')}"
+                           value="${escapeHtml(lane.sample_name || '')}"
                            placeholder="Sample name…" maxlength="255">
                 </td>
             `;
@@ -292,6 +321,11 @@
             const field = input.dataset.field;
             let value = input.value;
 
+            if (field === 'lane_type') {
+                this._changeLaneType(laneId, input);
+                return;
+            }
+
             // Parse value based on field type
             if (field === 'is_reduced') {
                 value = value === '' ? null : value === 'true';
@@ -306,13 +340,17 @@
                 this.onUpdateLane(laneId, { [field]: value }, true); // silent=true
             }
 
-            // Auto-persist sample_name immediately (free-text identifier)
-            if (field === 'sample_name' && this.apiClient) {
+            // Auto-persist sample_name immediately (free-text identifier; Phoresis). A lane the server does not
+            // have yet (temp id) waits for Save like its other fields; once the PUT lands, the name no longer
+            // counts as an unsaved change.
+            if (field === 'sample_name' && this.apiClient && !String(laneId).startsWith('temp_')) {
                 const key = `${laneId}:sample_name`;
                 if (this._fieldSaveTimers[key]) clearTimeout(this._fieldSaveTimers[key]);
                 this._fieldSaveTimers[key] = setTimeout(async () => {
                     try {
-                        await this.apiClient.updateLane(laneId, { sample_name: value });
+                        const saved = { sample_name: value };
+                        await this.apiClient.updateLane(laneId, saved);
+                        this.stateManager.confirmUpdateSaved?.('lanes', laneId, saved);
                         input.classList.add('gv-field-saved');
                         setTimeout(() => input.classList.remove('gv-field-saved'), 700);
                     } catch (err) {
@@ -325,6 +363,22 @@
 
             // Emit event for properties panel sync
             this.eventBus.emit(Events.TABLE_CELL_CHANGED, { id: laneId, field, value });
+        }
+
+        /**
+         * A row's type goes through the properties form's own path (onChangeLaneType): the same calibration
+         * confirmations, the same ladder template. Once it is settled the row shows the lane's type: the new one, or
+         * the old one back when a confirmation was declined or the server refused.
+         * @param {string|number} laneId
+         * @param {HTMLSelectElement} select
+         */
+        async _changeLaneType(laneId, select) {
+            try {
+                if (this.onChangeLaneType) await this.onChangeLaneType(laneId, select.value, select);
+            } finally {
+                const lane = this.stateManager.getLane(laneId);
+                if (lane) this.syncCell(laneId, 'lane_type', lane.lane_type);
+            }
         }
 
         /**
@@ -345,6 +399,7 @@
                     input.value = value || '';
                 }
             }
+            if (field === 'lane_type') row.dataset.laneType = value || '';
         }
 
         /**

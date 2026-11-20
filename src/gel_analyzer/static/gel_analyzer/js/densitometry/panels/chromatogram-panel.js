@@ -19,6 +19,12 @@
     const ChartUtils = global.GelAnalyzer?.ChartUtils;
     const MWUtils = global.GelAnalyzer?.MWUtils;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * ChromatogramPanel Class
      */
@@ -33,12 +39,9 @@
             this.container = options.container;
             this.eventBus = options.eventBus;
             this.state = options.state;
-            // api + analysisId are needed by the Quantification curve view (called
-            // when the Graphical View toggle switches to "Quantification curve").
-            // Both are optional so older callers (and tests) keep working.
+            // The quantification-curve sub-view's active-calibration lookup (CHROM _renderQuantificationView).
             this.api = options.apiClient || null;
             this.analysisId = options.analysisId || null;
-            this._lastQuantResult = null;
 
             // Chart dimensions
             this.margin = { top: 20, right: 30, bottom: 50, left: 60 };
@@ -74,7 +77,8 @@
             this.resizeTimeout = null;
 
             // Legend state
-            this.legendVisible = true;
+            // On a phone the legend would cover the plot: off by default there, one tap on its toggle away.
+            this.legendVisible = !(window.matchMedia && window.matchMedia('(max-width: 700px)').matches);
 
             // Annotation visibility states
             this.showBoundaries = true;
@@ -101,18 +105,31 @@
             this.calibrationData = null;
             this.laneGeometry = null;
 
-            // Colors
+            // Colors: the gel palette and the western roles, read from the page's tokens (css/ga-workbench.css)
+            // by _refreshPalette() -- at construction and on every Night | Day switch. The fallbacks are the night
+            // values, for a host page without the tokens.
             this.colors = {
                 profile: '#2196F3',
                 background: '#E0E0E0',
-                poi: '#22C55E',
-                other: '#9E9E9E',
-                mwReference: '#FFC107',
-                calibration: '#f87171',   // Red-400 — matches annotation page
+                poi: '#a855f7',
+                other: '#22c55e',
+                mwReference: '#f97316',
+                calibration: '#f87171',
+                aggregate: '#f472b6',
+                main: '#a855f7',
+                clipping: '#38bdf8',
+                leftOut: '#64748b',
+                legendBg: 'rgba(15,23,42,0.92)',
+                legendBorder: '#334155',
+                legendText: '#e2e8f0',
+                mutedText: '#94a3b8',
                 orphanPeak: '#FF9800',
                 matchedPeak: '#4CAF50',
                 shoulderPeak: '#9C27B0',
             };
+            this._refreshPalette();
+            // Night | Day (process_development/js/lib/dsh-theme.js): re-read the palette and redraw.
+            window.addEventListener('dsh:themechange', () => this._onThemeChange());
 
             this._init();
         }
@@ -159,33 +176,15 @@
         /**
          * Fetch the active quantification calibration + a fresh preview, then
          * draw the curve via the shared QuantificationCurveRenderer. Shows the
-         * empty-state copy when no active calibration exists. Triggered by the
-         * Graphical View toggle when "Quantification curve" is selected.
+         * empty-state copy when no active calibration exists.
          */
         async _renderQuantificationView() {
             const host = document.getElementById('dm-quantification-host');
             const emptyWrap = document.getElementById('dm-quantification-empty-wrap');
             const empty = document.getElementById('dm-quantification-empty');
             const tooltip = document.getElementById('dm-quantification-tooltip');
-            // Visible breadcrumb: if the user is running cached old JS
-            // against the new template (or vice-versa) you'll see the
-            // mismatch in DevTools — the old code bails silently because
-            // it looks for #dm-quantification-chart (the legacy canvas id
-            // that no longer exists in the template).
-            console.debug('[DENSITO] Quantification curve render — host:', !!host,
-                'tooltip:', !!tooltip, 'emptyWrap:', !!emptyWrap);
             if (!host) {
-                // The legacy canvas-based path used to live here. If we hit
-                // this branch and the legacy id IS present, the user has the
-                // old template too — different combination, both caches
-                // need a hard reload (Ctrl+Shift+R).
-                const legacyCanvas = document.getElementById('dm-quantification-chart');
-                console.warn(
-                    '[DENSITO] Quantification host #dm-quantification-host not found. '
-                    + (legacyCanvas
-                        ? 'Legacy #dm-quantification-chart canvas IS present — JS is new but template is stale.'
-                        : 'Both ids missing — hard reload (Ctrl+Shift+R) the densito page.')
-                );
+                console.warn('[DENSITO] #dm-quantification-host not found — template stale, hard reload (Ctrl+Shift+R).');
                 return;
             }
 
@@ -218,10 +217,6 @@
                     tooltip,
                 });
                 if (!this._quantController) {
-                    // renderInteractive returns null only when D3 isn't on
-                    // window or the host element rejected. Fall through to
-                    // the empty-state with a diagnostic so the panel
-                    // doesn't render as a silent black void.
                     console.error('[DENSITO] renderInteractive returned null — D3 missing or host invalid');
                     showEmpty('Quantification renderer failed to mount (D3 not loaded?). Check console.');
                 }
@@ -237,7 +232,7 @@
                 if (empty && message) empty.textContent = message;
             };
 
-            // Use cached result on repeated tab clicks within the same calibration.
+            // Cached result on repeated tab clicks within the same calibration.
             if (this._lastQuantResult) {
                 showCurve(this._lastQuantResult);
                 return;
@@ -257,8 +252,6 @@
                     excluded_band_ids: active.excluded_band_ids || [],
                 };
                 const r = await this.api.previewQuantification(this.analysisId, previewBody);
-                // The densitometry api-client returns the parsed JSON directly,
-                // while the gel-viewer api-client wraps it in {ok, status, data}.
                 const result = (r && r.data) ? r.data : r;
                 this._lastQuantResult = result;
                 showCurve(result);
@@ -268,23 +261,14 @@
             }
         }
 
-        /**
-         * Highlight (or clear) the sample point matching a given band on
-         * the quantification curve sub-view. No-op when the controller
-         * isn't mounted yet (e.g. user never opened the tab) or when the
-         * panel is currently showing a different sub-view.
-         */
+        /** Highlight (or clear) the sample point matching a given band on the
+         * quantification curve sub-view. No-op when controller not mounted. */
         _highlightQuantBand(bandId) {
             if (!this._quantController) return;
             this._quantController.highlight(bandId || null);
         }
 
-        /**
-         * Resize the quantification curve to match the container — called
-         * when the panel is magnified to fullscreen and again on collapse.
-         * Cheap because the controller short-circuits if dimensions
-         * haven't changed.
-         */
+        /** Resize the quant curve to match container — for magnify/collapse. */
         _resizeQuantView() {
             if (this._quantController) {
                 this._quantController.resize();
@@ -295,17 +279,13 @@
          * Create the D3 chart.
          */
         _createChart() {
-            // Clear existing — but preserve sibling sub-view containers
-            // that share the same .dm-panel-content. innerHTML='' wipes
-            // EVERYTHING; we re-append the ones rendered by other code
-            // paths. Forgetting one of these silently destroys that view
-            // (the quantification curve container was missing from this
-            // list, which is why the Quantification curve sub-view
-            // rendered as a black void: by the time the user clicked the
-            // tab, the host div had been wiped at init).
+            // Clear existing — but preserve 3D, POI, Quantification and
+            // Readout containers. innerHTML='' would wipe everything; we
+            // re-append sibling sub-views so view-switching doesn't destroy them.
             const container3d = this.contentElement.querySelector('.dm-chromatogram-3d-container');
             const containerPoi = this.contentElement.querySelector('.dm-poi-purity-container');
             const containerQuant = this.contentElement.querySelector('.dm-quantification-container');
+            const containerReadout = this.contentElement.querySelector('.dm-readout-container');
             this.contentElement.innerHTML = '';
             if (container3d) {
                 this.contentElement.appendChild(container3d);
@@ -315,6 +295,9 @@
             }
             if (containerQuant) {
                 this.contentElement.appendChild(containerQuant);
+            }
+            if (containerReadout) {
+                this.contentElement.appendChild(containerReadout);
             }
 
             // Get dimensions
@@ -858,7 +841,7 @@
 
             // Render each band
             bands.forEach(band => {
-                const color = this._getBandColor(band.band_type);
+                const color = this._getBandColor(band.band_type, band);
                 const peakY = band.densitometry?.peak_center_y || band.position_y;
 
                 // Always find closest data point by Y position (stable across modes)
@@ -871,18 +854,24 @@
                 this.peakDataMap.set(band.id, { x: dataPoint.x, y: dataPoint.y });
 
                 // Integration boundaries == band bbox edges. The server-side
-                // densitometry integrator uses bbox_y / bbox_y + bbox_height
+                // densitometry integrator uses [bbox.y, bbox.y + bbox.height]
                 // as the integration region, so the dashed lines drawn here
-                // now reflect what is actually integrated (was ±3σ before
-                // the May 2026 fix — that was misleading vs the real area).
+                // reflect what is actually integrated (was ±3σ before the
+                // May 2026 fix — that was misleading vs the real area).
+                //
+                // The densitometry API serializes bbox as a NESTED object
+                // (``band.bbox = {x,y,width,height}``), so reading
+                // ``band.bbox_y`` flat would always be undefined here. The
+                // fallback below accepts both shapes for safety.
+                const bboxTop = band.bbox?.y ?? band.bbox_y;
+                const bboxHeight = band.bbox?.height ?? band.bbox_height;
+                const hasBbox = bboxTop != null && bboxHeight != null;
                 const bounds = ChartUtils
                     ? ChartUtils.calculateBandBounds(band)
                     : {
                         peakY,
-                        leftBound: band.bbox_y ?? peakY - 20,
-                        rightBound: (band.bbox_y != null && band.bbox_height != null)
-                            ? band.bbox_y + band.bbox_height
-                            : peakY + 20,
+                        leftBound: hasBbox ? bboxTop : peakY - 20,
+                        rightBound: hasBbox ? bboxTop + bboxHeight : peakY + 20,
                         sigma: band.densitometry?.sigma ?? null,
                     };
 
@@ -1010,7 +999,7 @@
                             .attr('y', this.height + 25)
                             .attr('text-anchor', 'middle')
                             .attr('font-size', '9px')
-                            .attr('fill', '#666')
+                            .attr('fill', this.colors.mutedText)
                             .attr('data-band-id', band.id)
                             .style('cursor', 'pointer')
                             .on('click', onClick)
@@ -1074,12 +1063,46 @@
         }
 
         /**
-         * Get color for band type.
+         * Re-read the colours from the page's tokens (night or day). Charts drawn by script cannot follow a
+         * stylesheet (docs/handover/known-traps.md, "A page stays dark in day mode").
          */
-        _getBandColor(bandType) {
-            if (ChartUtils) {
-                return ChartUtils.getBandColor(bandType, this.colors);
+        _refreshPalette() {
+            let css = null;
+            try {
+                css = getComputedStyle(document.documentElement);
+            } catch (_) {
+                return;
             }
+            const read = (name, fallback) => ((css.getPropertyValue(name) || '').trim() || fallback);
+            Object.assign(this.colors, {
+                profile: read('--ga-wb-accent', this.colors.profile),
+                background: read('--ga-wb-border-2', this.colors.background),
+                poi: read('--ga-wb-b-poi', this.colors.poi),
+                other: read('--ga-wb-b-other', this.colors.other),
+                mwReference: read('--ga-wb-b-mw', this.colors.mwReference),
+                calibration: read('--ga-wb-b-calibration', this.colors.calibration),
+                aggregate: read('--ga-wb-z-aggregate', this.colors.aggregate),
+                main: read('--ga-wb-z-main', this.colors.main),
+                clipping: read('--ga-wb-z-clipping', this.colors.clipping),
+                leftOut: read('--ga-wb-faint', this.colors.leftOut),
+                legendBg: read('--ga-wb-surface', this.colors.legendBg),
+                legendBorder: read('--ga-wb-border', this.colors.legendBorder),
+                legendText: read('--ga-wb-text-2', this.colors.legendText),
+                mutedText: read('--ga-wb-muted', this.colors.mutedText),
+            });
+        }
+
+        /**
+         * Colour of a band's peak: its western role when the server gave one (services/readouts.py::band_roles,
+         * the classification the published percentages sum), else its type in the gel palette.
+         */
+        _getBandColor(bandType, band = null) {
+            const role = band && band.role;
+            if (role === 'aggregate') return this.colors.aggregate;
+            if (role === 'main') return this.colors.main;
+            if (role === 'clipping') return this.colors.clipping;
+            if (role === 'hcp') return this.colors.other;
+            if (role === 'left_out') return this.colors.leftOut;
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;
@@ -1101,24 +1124,44 @@
 
             if (!this.legendVisible) return;
 
+            // The peaks' colours, as the gel's readout reads them (the roles come from the server).
+            const readout = this.state && this.state.readoutAssay ? this.state.readoutAssay.readout : null;
+            const peakItems = readout === 'MOLECULE_VARIANTS'
+                ? [
+                    { color: this.colors.aggregate, label: 'HMWS (above POI)' },
+                    { color: this.colors.main, label: 'Main band' },
+                    { color: this.colors.clipping, label: 'LMWS (below POI)' },
+                    { color: this.colors.mwReference, label: 'MW Ref' },
+                ]
+                : readout === 'HOST_CELL_PROTEINS'
+                    ? [
+                        { color: this.colors.other, label: 'HCP bands' },
+                        { color: this.colors.leftOut, label: 'POI · left out' },
+                        { color: this.colors.mwReference, label: 'MW Ref' },
+                    ]
+                    : [
+                        { color: this.colors.poi, label: 'POI' },
+                        { color: this.colors.other, label: 'Other' },
+                        { color: this.colors.mwReference, label: 'MW Ref' },
+                        { color: this.colors.calibration, label: 'Calibration' },
+                    ];
             const items = [
                 { color: this.colors.profile, label: 'Profile', type: 'line' },
                 { color: this.colors.background, label: 'Background', opacity: 0.3 },
-                { color: this.colors.poi, label: 'POI' },
-                { color: this.colors.mwReference, label: 'MW Ref' },
-                { color: this.colors.other, label: 'Other' },
-                { color: '#666', label: 'Integration (bbox)', type: 'dashed' },
+                ...peakItems,
+                { color: this.colors.mutedText, label: 'Integration (bbox)', type: 'dashed' },
                 { color: '#dc2626', label: 'Peak max (MW)', type: 'peakmax' },
             ];
 
-            // Background rect for readability — sized to fit all items.
+            // Background rect for readability — sized to fit all items; the theme's surface.
             this.legendGroup.append('rect')
                 .attr('x', -8)
                 .attr('y', -8)
-                .attr('width', 140)
+                .attr('width', 172)
                 .attr('height', items.length * 18 + 12)
-                .attr('fill', 'rgba(255,255,255,0.9)')
-                .attr('stroke', '#ddd')
+                .attr('fill', this.colors.legendBg)
+                .attr('fill-opacity', 0.94)
+                .attr('stroke', this.colors.legendBorder)
                 .attr('stroke-width', 1)
                 .attr('rx', 4);
 
@@ -1178,7 +1221,7 @@
                     .attr('x', 20)
                     .attr('y', y + 11)
                     .attr('font-size', '11px')
-                    .attr('fill', '#333')
+                    .attr('fill', this.colors.legendText)
                     .text(item.label);
             });
         }
@@ -1481,16 +1524,17 @@
             const svgEl = this.contentElement?.querySelector('svg.dm-chromatogram-svg') || this.svg?.node();
             const container3d = this.contentElement?.querySelector('.dm-chromatogram-3d-container');
             const containerPoi = this.contentElement?.querySelector('.dm-poi-purity-container');
+            const containerQuant = this.contentElement?.querySelector('.dm-quantification-container');
+            const containerReadout = this.contentElement?.querySelector('.dm-readout-container');
             const placeholder = this.contentElement?.querySelector('.dm-chart-placeholder');
             const legendPanel = this.contentElement?.querySelector('.dm-chart-legend-panel');
             const zoomControls = this.contentElement?.querySelector('.dm-zoom-controls');
-
-            const containerQuant = this.contentElement?.querySelector('#dm-quantification-container');
 
             if (show3D) {
                 if (svgEl) svgEl.style.display = 'none';
                 if (containerPoi) containerPoi.style.display = 'none';
                 if (containerQuant) containerQuant.style.display = 'none';
+                if (containerReadout) containerReadout.style.display = 'none';
                 if (placeholder) placeholder.style.display = 'none';
                 if (legendPanel) legendPanel.style.display = 'none';
                 if (zoomControls) zoomControls.style.display = 'none';
@@ -1500,9 +1544,13 @@
                 const showSvg = this.currentView === 'electropherogram';
                 const showPoi = this.currentView === 'poi-purity';
                 const showQuant = this.currentView === 'quantification';
+                const showReadout = this.currentView === 'readout';
                 if (svgEl) svgEl.style.display = showSvg ? 'block' : 'none';
                 if (containerPoi) containerPoi.style.display = showPoi ? 'flex' : 'none';
                 if (containerQuant) containerQuant.style.display = showQuant ? 'flex' : 'none';
+                if (containerReadout) containerReadout.style.display = showReadout ? 'flex' : 'none';
+                // Phoresis: the legend and zoom controls belong to the electropherogram only; left visible
+                // they float over the POI / quantification / readout sub-views.
                 if (legendPanel) legendPanel.style.display = showSvg ? '' : 'none';
                 if (zoomControls) zoomControls.style.display = showSvg ? '' : 'none';
                 if (container3d) container3d.style.display = 'none';
@@ -1534,7 +1582,7 @@
                 ? ChartUtils.getOrCreateTooltip()
                 : this._getTooltip();
 
-            let content = `<strong>${band.band_type}</strong><br>`;
+            let content = `<strong>${escapeHtml(band.band_type)}</strong><br>`;
             content += `Position: ${band.position_y}px<br>`;
 
             if (band.estimated_mw_kda) {
@@ -1899,7 +1947,7 @@
             }
 
             if (peak.matched_band_id) {
-                content += `<strong>Band ID:</strong> ${peak.matched_band_id.slice(0, 8)}...<br>`;
+                content += `<strong>Band ID:</strong> ${escapeHtml(peak.matched_band_id.slice(0, 8))}...<br>`;
             }
 
             if (peak.is_orphan) {
@@ -1987,6 +2035,20 @@
         /**
          * Handle resize - recreate chart or resize 3D renderer.
          */
+        _onThemeChange() {
+            this._refreshPalette();
+            if (this.currentView === 'quantification') {
+                this._renderQuantificationView();
+                return;
+            }
+            if (this.is3DMode || this.currentView !== 'electropherogram') return;
+            this._createChart();
+            if (this.currentLaneId) {
+                const profile = this.state.getProfile(this.currentLaneId);
+                if (profile) this._renderProfile(profile);
+            }
+        }
+
         _handleResize() {
             const rect = this.contentElement.getBoundingClientRect();
 

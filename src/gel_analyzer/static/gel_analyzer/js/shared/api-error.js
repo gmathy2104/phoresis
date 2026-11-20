@@ -33,7 +33,6 @@
      * @returns {Promise<string>}
      */
     async function extractApiError(response, fallback = 'Request failed') {
-        // (1) + (2) + (3): try the body as JSON first
         let body = null;
         try {
             body = await response.json();
@@ -55,20 +54,17 @@
                     return `${key}: ${value}`;
                 }
             }
-            // Non-empty object with no recognized shape — stringify it
             const serialized = JSON.stringify(body);
             if (serialized && serialized !== '{}' && serialized !== 'null') {
                 return serialized;
             }
         }
 
-        // (4) status + statusText
         if (response.status) {
             const statusText = response.statusText || '';
             return `${response.status}${statusText ? ' ' + statusText : ''}`;
         }
 
-        // (5) absolute fallback
         return fallback;
     }
 

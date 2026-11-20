@@ -1,182 +1,96 @@
-{% extends "components/base.html" %}
-{% load static ui_icons %}
+{% extends 'gel_analyzer/_ga_base_minimal.html' %}
+{% load static %}
 
 {% block title %}Sample Comparison{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{% static 'gel_analyzer/css/densitometry.css' %}">
-<link rel="stylesheet" href="{% static 'gel_analyzer/css/comparison.css' %}">
-<!-- Modern fonts for modal -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+{% block theme_head %}{% include 'gel_analyzer/workbench/_theme_head.html' %}{% endblock %}
+
+{% block extra_css %}
+{% include "gel_analyzer/viz/_comparison_styles.html" %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/ga-workbench.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/lane-strips.css' %}">
+{# No web fonts (AGENTS.md §1, no CDN): the stylesheets' font-family lists fall back to the system fonts. #}
 {% endblock %}
 
-{% block body %}
-<div class="dm-app" id="sample-comparison-app">
-    <!-- Header -->
-    <header class="dm-header">
-        <div class="dm-header-left">
-            {% url 'gel_analyzer:comparison_list' as comparison_list_url %}
-            <a href="{{ back_url|default:comparison_list_url }}" class="dm-back-link" data-tooltip="Back to Comparisons" data-tooltip-pos="bottom">
-                {% icon "arrow-left" size=16 %}
-                <span>Back</span>
+{% block content %}
+{% comment %}
+  Page chrome (header, toolbars, modals) lives in this consumer template and
+  drives the mounted comparison component via the public handle. The component
+  itself (panel skeleton: sample cards, gel overview, graphical view, band
+  detail, results table) is SELF-BUILT inside #sample-comparison-app by
+  GelAnalyzer.Viz.Comparison.mount — do NOT hand-author the .dm-panel markup
+  here; the component generates it (panels carry [data-ga-panel] + .dm-panel).
+{% endcomment %}
+<div class="dm-app ga-cmp-app">
+    {# Header in the gel workbench look (spec 2026-10-12-gel-modern-ui-design.md §3, §5): the identity row with the #}
+    {# assay switch, then the commands. Every id comparison-page-chrome.js binds is kept; Export and Report sit in "⋯". #}
+    <header class="ga-wb-bar">
+        <div class="ga-wb-row">
+            <a class="ga-wb-iconbtn dm-back-link" href="{% if back_url %}{{ back_url }}{% else %}{% url 'gel_analyzer:comparison_list' %}{% endif %}" title="Back" aria-label="Back">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i>
             </a>
-            <div class="dm-title-group">
-                <h1 class="dm-title">Sample Comparison</h1>
-                <span class="dm-subtitle" id="sample-count">{{ items_data|length }} item(s)</span>
+            <nav class="ga-wb-crumbs" aria-label="Breadcrumb">
+                <a href="{% url 'gel_analyzer:image_list' %}">Gel Analyzer</a><i class="bi bi-chevron-right" aria-hidden="true"></i>
+                {# The list is the back button's own target unless the page came from elsewhere (?back=). #}
+                {% if back_url %}<a href="{% url 'gel_analyzer:comparison_list' %}">Comparisons</a>{% else %}<span>Comparisons</span>{% endif %}<i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </nav>
+            <h1 class="ga-wb-title" title="{{ saved_comparison_name|default:'Comparison' }}">{{ saved_comparison_name|default:"Comparison" }}</h1>
+            <span class="ga-wb-badge" id="sample-count">{{ items_data|length }} item(s)</span>
+            {# One assay at a time (owner, 2026-10-12): filled by comparison-kinds.js, hidden with one assay. #}
+            <div class="ga-wb-kinds" id="ga-cmp-kinds" role="group" aria-label="Assay compared" hidden></div>
+            <div class="ga-wb-right">
+                {% include 'gel_analyzer/workbench/_theme_toggle.html' %}
             </div>
         </div>
-        <div class="dm-header-right">
-            <div class="dm-normalization-control">
-                <label for="mw-tolerance">MW Tol:</label>
-                <input type="number" id="mw-tolerance" class="dm-input-sm"
-                       value="5" min="1" max="20" step="1">
-                <span class="dm-tolerance-unit">%</span>
+        <div class="ga-wb-row ga-wb-row--cmd">
+            <div class="ga-wb-field">
+                <label for="mw-tolerance" class="ga-wb-label">MW tolerance</label>
+                <input type="number" id="mw-tolerance" class="ga-wb-select ga-wb-num dm-input-sm"
+                       value="5" min="1" max="20" step="1" aria-describedby="mw-tolerance-unit">
+                <span class="ga-wb-unit" id="mw-tolerance-unit">%</span>
             </div>
-            <div class="dm-normalization-control">
-                <label for="normalization-mode">Normalize:</label>
-                <select id="normalization-mode" class="dm-select">
+            <div class="ga-wb-field">
+                <label for="normalization-mode" class="ga-wb-label">Normalize</label>
+                <select id="normalization-mode" class="ga-wb-select dm-select">
                     <option value="raw">Raw (no normalization)</option>
                     <option value="total">Total Lane (sum=100%)</option>
                     <option value="max_peak">Max Peak (max=100%)</option>
                 </select>
             </div>
-            <button id="save-comparison-btn" class="dm-btn dm-btn-secondary">
-                <i class="bi bi-floppy me-1"></i>
-                <span id="save-btn-text">{% if saved_comparison_id %}Saved{% else %}Save{% endif %}</span>
-            </button>
-            <button id="add-sample-btn" class="dm-btn dm-btn-primary" {% if not can_add_more %}disabled{% endif %}>
-                <i class="bi bi-plus-circle me-1"></i> Add Sample
-            </button>
-            <button id="export-btn" class="dm-btn dm-btn-secondary">
-                <i class="bi bi-download me-1"></i> Export CSV
-            </button>
-            <button id="generate-report-btn" class="dm-btn dm-btn-report" data-tooltip="Generate comparison report" data-tooltip-pos="bottom" {% if not saved_comparison_id %}disabled{% endif %}>
-                <span class="dm-btn-spinner"></span>
-                <i class="bi bi-file-earmark-text dm-btn-icon-static"></i>
-                <span class="dm-btn-label">Report</span>
-            </button>
+            <div class="ga-wb-right">
+                <button id="add-sample-btn" class="ga-wb-btn ga-wb-btn--primary" {% if not can_add_more %}disabled{% endif %}>
+                    <i class="bi bi-plus-circle" aria-hidden="true"></i><span>Add lanes</span>
+                </button>
+                <button id="save-comparison-btn" class="ga-wb-btn">
+                    <i class="bi bi-floppy" aria-hidden="true"></i>
+                    <span id="save-btn-text">{% if saved_comparison_id %}Saved{% else %}Save{% endif %}</span>
+                </button>
+                <div class="ga-wb-more" id="ga-cmp-more">
+                    <button type="button" class="ga-wb-iconbtn" id="ga-cmp-more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More actions" title="More actions">
+                        <i class="bi bi-three-dots" aria-hidden="true"></i>
+                    </button>
+                    <div class="ga-wb-more-pop" role="menu" aria-labelledby="ga-cmp-more-btn">
+                        <button id="export-btn" title="Export the assay shown to CSV">
+                            <i class="bi bi-download" aria-hidden="true"></i>Export CSV
+                        </button>
+                        <button id="generate-report-btn" class="dm-btn-report" title="{% if saved_comparison_id %}Generate comparison report{% else %}Save the comparison first{% endif %}" {% if not saved_comparison_id %}disabled{% endif %}>
+                            <span class="dm-btn-spinner"></span>
+                            <i class="bi bi-file-earmark-text dm-btn-icon-static" aria-hidden="true"></i>
+                            <span class="dm-btn-label">Report</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </header>
+    {# The lanes of the other assays: one chip per assay, a click shows it (comparison-kinds.js). #}
+    <div class="ga-wb-others" id="ga-cmp-others" hidden></div>
 
-    <!-- Sample Cards Row -->
-    <div class="dm-sample-cards" id="samples-container">
-        {% if not items_data %}
-        <div class="dm-sample-cards-empty">
-            <i class="bi bi-plus-circle me-2"></i> Click "Add Sample" to start comparing
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Main Panels -->
-    <main class="dm-main">
-        <!-- Top Row -->
-        <div class="dm-panel-row dm-row-top">
-            <!-- Gel Overview Panel -->
-            <div class="dm-panel dm-panel-gel-overview" id="gel-overview-panel">
-                <div class="dm-panel-header">
-                    <span class="dm-panel-title">
-                        <i class="bi bi-image me-2"></i>Gel Overview
-                    </span>
-                    <div class="dm-panel-actions">
-                        <button class="dm-gel-enhance-btn" id="gel-auto-enhance" title="Auto-enhance all images">
-                            <i class="bi bi-magic"></i>
-                        </button>
-                        <button class="dm-gel-invert-btn" id="gel-invert-toggle" title="Invert image colors">
-                            <i class="bi bi-circle-half"></i>
-                        </button>
-                        <button class="dm-gel-bands-toggle active" id="gel-bands-toggle" title="Toggle band overlays">
-                            <i class="bi bi-layers"></i>
-                        </button>
-                        <button class="dm-panel-expand-btn" data-panel="gel-overview-panel" title="Expand to fullscreen">
-                            <i class="bi bi-arrows-fullscreen"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="dm-panel-content" id="gel-canvas-container"></div>
-            </div>
-
-            <!-- Graphical View Panel -->
-            <div class="dm-panel dm-panel-chromatogram" id="chromatogram-panel">
-                <div class="dm-panel-header">
-                    <span class="dm-panel-title">
-                        <i class="bi bi-graph-up me-2"></i>Graphical View
-                    </span>
-                    <div class="dm-panel-actions">
-                        <!-- View toggle -->
-                        <div class="dm-view-toggle me-2">
-                            <button class="dm-view-btn active" data-view="electropherogram" title="Electropherogram overlay">
-                                <i class="bi bi-activity"></i> Electropherogram
-                            </button>
-                            <button class="dm-view-btn" data-view="poi-purity" title="POI Purity across samples">
-                                <i class="bi bi-bar-chart-fill"></i> POI Purity
-                            </button>
-                            <button class="dm-view-btn" data-view="content" id="content-view-btn"
-                                    title="Estimated content (requires calibration)" style="display: none;">
-                                <i class="bi bi-currency-exchange"></i> Content
-                            </button>
-                        </div>
-                        <!-- Electropherogram-specific controls -->
-                        <div id="electropherogram-controls" class="dm-ephero-controls">
-                            <div class="dm-mode-toggle me-2">
-                                <button class="dm-mode-btn active" data-mode="mw" title="MW axis (log scale)">
-                                    <i class="bi bi-bar-chart"></i> MW
-                                </button>
-                                <button class="dm-mode-btn" data-mode="position" title="Y position (pixels)">
-                                    <i class="bi bi-rulers"></i> Pos
-                                </button>
-                            </div>
-                            <label class="dm-sync-toggle me-2" title="Show only Protein of Interest bands">
-                                <input type="checkbox" id="poi-only-mode"> POI Only
-                            </label>
-                        </div>
-                        <button class="dm-panel-expand-btn" data-panel="chromatogram-panel" title="Expand to fullscreen">
-                            <i class="bi bi-arrows-fullscreen"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="dm-panel-content">
-                    <div id="chromatogram-container" class="dm-graphical-view-pane"></div>
-                    <div id="poi-purity-container" class="dm-graphical-view-pane" style="display: none;"></div>
-                    <div id="content-chart-container" class="dm-graphical-view-pane" style="display: none;"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bottom Row -->
-        <div class="dm-panel-row dm-row-bottom">
-            <!-- Band Detail Panel -->
-            <div class="dm-panel dm-panel-band-detail" id="band-zoom-panel">
-                <div class="dm-panel-header">
-                    <span class="dm-panel-title">
-                        <i class="bi bi-zoom-in me-2"></i>Band Detail
-                    </span>
-                    <div class="dm-panel-actions">
-                        <button class="dm-panel-expand-btn" data-panel="band-zoom-panel" title="Expand to fullscreen">
-                            <i class="bi bi-arrows-fullscreen"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="dm-panel-content" id="band-detail-container"></div>
-            </div>
-
-            <!-- Results Table Panel -->
-            <div class="dm-panel dm-panel-results" id="results-panel">
-                <div class="dm-panel-header">
-                    <span class="dm-panel-title">
-                        <i class="bi bi-table me-2"></i>Band Comparison
-                    </span>
-                    <div class="dm-panel-actions">
-                        <button class="dm-panel-expand-btn" data-panel="results-panel" title="Expand to fullscreen">
-                            <i class="bi bi-arrows-fullscreen"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="dm-panel-content" id="results-container"></div>
-            </div>
-        </div>
-    </main>
+    <!-- Mount host — the comparison component self-builds its skeleton here.
+         The graphical-view toggles (Electropherogram/POI-Purity view switch +
+         MW/Pos axis-mode toggle + POI-only checkbox) now live inside the
+         generated chromatogram panel header for 100% parity with the baseline. -->
+    <div id="sample-comparison-app" class="dm-viz-host"></div>
 </div>
 
 <!-- Panel Magnify Overlay -->
@@ -203,26 +117,26 @@
         </div>
         <div class="dm-modal-body" style="padding: 20px 24px; overflow-y: visible;">
             <div style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 0.8rem; color: rgba(255,255,255,0.7); margin-bottom: 4px;">Name *</label>
+                <label style="display: block; font-size: 0.8rem; color: var(--dm-fg-70); margin-bottom: 4px;">Name *</label>
                 <input type="text" id="save-comp-name" class="dm-input"
                        placeholder="E.g., Batch 42 vs Batch 43 purity" maxlength="255"
-                       style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 0.9rem;">
+                       style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: var(--dm-wash-5); border: 1px solid var(--dm-line-20); border-radius: 6px; color: var(--dm-fg-100); font-size: 0.9rem;">
             </div>
             <div style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 0.8rem; color: rgba(255,255,255,0.7); margin-bottom: 4px;">Description</label>
+                <label style="display: block; font-size: 0.8rem; color: var(--dm-fg-70); margin-bottom: 4px;">Description</label>
                 <textarea id="save-comp-description" rows="2"
                           placeholder="Optional notes about this comparison..."
-                          style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 0.85rem; resize: vertical;"></textarea>
+                          style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: var(--dm-wash-5); border: 1px solid var(--dm-line-20); border-radius: 6px; color: var(--dm-fg-100); font-size: 0.85rem; resize: vertical;"></textarea>
             </div>
-            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: rgba(255,255,255,0.8); cursor: pointer; margin-bottom: 16px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--dm-fg-80); cursor: pointer; margin-bottom: 16px;">
                 <input type="checkbox" id="save-comp-public" style="accent-color: var(--dm-primary);">
                 <span>Share with all users (public)</span>
             </label>
-            <div id="save-comp-lanes-summary" style="font-size: 0.8rem; color: rgba(255,255,255,0.5); padding: 10px; background: rgba(255,255,255,0.03); border-radius: 6px;">
+            <div id="save-comp-lanes-summary" style="font-size: 0.8rem; color: var(--dm-fg-50); padding: 10px; background: var(--dm-wash-3); border-radius: 6px;">
             </div>
             <div id="save-comp-error" style="display: none; margin-top: 10px; padding: 8px 12px; background: rgba(220,53,69,0.15); border: 1px solid rgba(220,53,69,0.3); border-radius: 6px; color: #ff6b6b; font-size: 0.85rem;"></div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-top: 1px solid var(--dm-line-8);">
             <div id="save-as-link" style="display: none;">
                 <button id="save-comp-save-as" class="dm-btn">
                     Save as new copy
@@ -433,6 +347,18 @@
                                 <input type="checkbox" checked data-section-key="gel_images">
                                 <span>Reconstructed Gel Images</span>
                             </label>
+                            <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-gel-variant-lanes-only-option" data-parent-group="gel_visuals" data-depends-on="gel_images">
+                                <input type="checkbox" data-gel-variant="LANES_ONLY">
+                                <span>Lanes only</span>
+                            </label>
+                            <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-gel-variant-key-bands-option" data-parent-group="gel_visuals" data-depends-on="gel_images">
+                                <input type="checkbox" data-gel-variant="KEY_BANDS">
+                                <span>Key bands</span>
+                            </label>
+                            <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-gel-variant-full-option" data-parent-group="gel_visuals" data-depends-on="gel_images">
+                                <input type="checkbox" checked data-gel-variant="FULL">
+                                <span>Full (all bands)</span>
+                            </label>
                             <label class="dm-report-section-option dm-report-child-option dm-report-sub-option" id="report-band-overlay-option" data-parent-group="gel_visuals" data-depends-on="gel_images">
                                 <input type="checkbox" id="report-band-overlay" checked>
                                 <span>Show band overlays on gel images</span>
@@ -456,6 +382,8 @@
                                 <input type="checkbox" checked data-section-key="lane_details">
                                 <span>Individual Lane Details</span>
                             </label>
+                            {# ds-hub's "Protein Quantification" section (key "quantification") comes back with the report builders' resync: #}
+                            {# today's endpoint (views/report_api.py) answers 400 to a section key it does not know. #}
                         </div>
                     </div>
 
@@ -482,1155 +410,60 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- D3.js -->
-<script src="https://d3js.org/d3.v7.min.js"></script>
-
-<!-- Core EventBus -->
-<script src="{% static 'gel_analyzer/js/core/event-bus.js' %}"></script>
-
-<!-- Shared Utilities (must load before module scripts) -->
-<script src="{% static 'gel_analyzer/js/shared/api-error.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/shared/auto-save.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/shared/chromatogram-utils.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/shared/mw-utils.js' %}"></script>
-
-<!-- Sample Comparison Core Modules -->
-<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-state.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-api.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/mw-utils.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/comparison-metrics.js' %}"></script>
-
-<!-- Sample Comparison Utilities -->
-<script src="{% static 'gel_analyzer/js/sample-comparison/drag-reorder.js' %}"></script>
-
-<!-- Sample Comparison Panels (load before app) -->
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/sample-cards-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/gel-overview-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/chromatogram-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/poi-purity-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/content-chart-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/band-detail-panel.js' %}"></script>
-<script src="{% static 'gel_analyzer/js/sample-comparison/panels/results-table-panel.js' %}"></script>
-
-<!-- Sample Comparison App (orchestrator) -->
-<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-app.js' %}"></script>
+{% comment %}
+  Comparison component assets (vendored d3 + foundation + sample-comparison
+  panels/app + page-chrome controller) — DRY via the shared partial.
+{% endcomment %}
+{% include "gel_analyzer/viz/_comparison_assets.html" %}
+<script src="{% static 'gel_analyzer/js/viz/lane-strips.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/readout-charts.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/workbench-summary.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/comparison-kinds.js' %}"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Parse initial data
-    const initialSamples = {{ items_json|safe }};
-
-    // API URLs
+document.addEventListener('DOMContentLoaded', function () {
+    // API URLs the component + page chrome share.
     const apiUrls = {
         laneData: '{% url "gel_analyzer:api_lane_comparison_data" pk=0 %}'.replace('/0/', '/{laneId}/'),
         laneProfile: '{% url "gel_analyzer:api_lane_profile" pk=0 %}'.replace('/0/', '/{laneId}/'),
         imagesWithDensitometry: '{% url "gel_analyzer:api_images_with_densitometry" %}',
     };
 
-    // Initialize app
-    const app = new SampleComparison.App({
-        csrfToken: '{{ csrf_token }}',
-        initialSamples: initialSamples,
+    // The roster of every lane, one assay mounted at a time (comparison-kinds.js): it mounts the component
+    // into the empty host with the active assay's lanes, and hands the page chrome a stable handle.
+    const host = document.getElementById('sample-comparison-app');
+    const kinds = GelAnalyzer.SampleComparison.Kinds.create({
+        host: host,
+        items: {{ items_json }},
         apiUrls: apiUrls,
+        csrfToken: '{{ csrf_token }}',
+        purityThresholds: {{ purity_thresholds_json }},
+        switchEl: document.getElementById('ga-cmp-kinds'),
+        otherEl: document.getElementById('ga-cmp-others'),
+    });
+    const handle = kinds.handle;
+
+    // Wire all page chrome (header, toggles, modals, splitters, magnifier,
+    // #sample-count) to the handle; Save reads the roster.
+    GelAnalyzer.SampleComparison.initPageChrome({
+        handle: handle,
+        roster: kinds,
+        hostEl: document.getElementById('sample-comparison-app'),
+        csrfToken: '{{ csrf_token }}',
+        apiUrls: apiUrls,
+        savedComparisonId: '{{ saved_comparison_id|default:"" }}' || null,
+        savedComparison: {{ saved_comparison_json }},
+        urls: {
+            savedComparisons: '{% url "gel_analyzer:api_saved_comparisons" %}',
+            generateReportTemplate: '{% url "gel_analyzer:api_generate_comparison_report" pk="00000000-0000-0000-0000-000000000000" %}',
+        },
     });
 
-    app.init();
-
-    // ============================================
-    // Sample Selector Wizard Modal
-    // ============================================
-    const wizardModal = {
-        modal: document.getElementById('sample-selector-modal'),
-        step1: document.getElementById('wizard-step-1'),
-        step2: document.getElementById('wizard-step-2'),
-        stepIndicator1: document.getElementById('step-indicator-1'),
-        stepIndicator2: document.getElementById('step-indicator-2'),
-        stepConnector: document.getElementById('step-connector'),
-        gelGridContainer: document.getElementById('gel-grid-container'),
-        laneList: document.getElementById('lane-list'),
-        backBtn: document.getElementById('wizard-back-btn'),
-        cancelBtn: document.getElementById('wizard-cancel-btn'),
-        addBtn: document.getElementById('wizard-add-btn'),
-        closeBtn: document.getElementById('modal-close-btn'),
-
-        // State
-        currentStep: 1,
-        gels: [],
-        selectedGel: null,
-        selectedLanes: new Set(),
-        usedSlots: 0,
-        isLoading: false,
-        searchTimeout: null,
-        currentPage: 1,
-        hasMore: false,
-
-        init() {
-            this.setupEventListeners();
-            this.updateUsedSlots();
-        },
-
-        setupEventListeners() {
-            // Modal open via Add Sample button
-            document.getElementById('add-sample-btn')?.addEventListener('click', () => this.open());
-
-            // Close modal
-            this.closeBtn?.addEventListener('click', () => this.close());
-            this.cancelBtn?.addEventListener('click', () => this.close());
-            this.modal?.addEventListener('click', (e) => {
-                if (e.target === this.modal) this.close();
-            });
-
-            // Back button
-            this.backBtn?.addEventListener('click', () => this.goToStep1());
-
-            // Add button
-            this.addBtn?.addEventListener('click', () => this.addSelectedLanes());
-
-            // Gel filters
-            document.getElementById('gel-search')?.addEventListener('input', (e) => {
-                this.debounceSearch(() => this.loadGels(true));
-            });
-            document.getElementById('filter-gel-type')?.addEventListener('change', () => this.loadGels(true));
-            document.getElementById('filter-date-range')?.addEventListener('change', () => this.loadGels(true));
-
-            // Lane filters
-            document.getElementById('lane-search')?.addEventListener('input', () => this.filterLanes());
-            document.getElementById('filter-samples-only')?.addEventListener('change', () => this.filterLanes());
-        },
-
-        debounceSearch(callback, delay = 300) {
-            if (this.searchTimeout) clearTimeout(this.searchTimeout);
-            this.searchTimeout = setTimeout(callback, delay);
-        },
-
-        updateUsedSlots() {
-            this.usedSlots = app.getState().getSamples().length;
-        },
-
-        open() {
-            this.updateUsedSlots();
-            this.modal.style.display = 'flex';
-            this.goToStep1();
-            this.loadGels(true);
-        },
-
-        close() {
-            this.modal.style.display = 'none';
-            this.selectedLanes.clear();
-            this.selectedGel = null;
-        },
-
-        goToStep1() {
-            this.currentStep = 1;
-            this.step1.classList.add('active');
-            this.step2.classList.remove('active');
-            this.stepIndicator1.classList.add('active');
-            this.stepIndicator1.classList.remove('completed');
-            this.stepIndicator2.classList.remove('active');
-            this.stepConnector.classList.remove('completed');
-            this.backBtn.style.display = 'none';
-            this.addBtn.style.display = 'none';
-            this.selectedLanes.clear();
-        },
-
-        goToStep2(gel) {
-            this.selectedGel = gel;
-            this.currentStep = 2;
-            this.step1.classList.remove('active');
-            this.step2.classList.add('active');
-            this.stepIndicator1.classList.remove('active');
-            this.stepIndicator1.classList.add('completed');
-            this.stepIndicator1.querySelector('.dm-step-number').innerHTML = '<i class="bi bi-check"></i>';
-            this.stepIndicator2.classList.add('active');
-            this.stepConnector.classList.add('completed');
-            this.backBtn.style.display = 'flex';
-            this.addBtn.style.display = 'flex';
-            this.loadLanesForGel(gel);
-            this.updatePreview(gel);
-        },
-
-        async loadGels(reset = false) {
-            if (this.isLoading) return;
-            if (reset) {
-                this.currentPage = 1;
-                this.gels = [];
-            }
-
-            this.isLoading = true;
-
-            // Build query params
-            const params = new URLSearchParams();
-            params.set('page', this.currentPage);
-            params.set('page_size', 24);
-
-            const search = document.getElementById('gel-search')?.value?.trim();
-            if (search) params.set('search', search);
-
-            const gelType = document.getElementById('filter-gel-type')?.value;
-            if (gelType) params.set('gel_type', gelType);
-
-            const dateRange = document.getElementById('filter-date-range')?.value;
-            if (dateRange) {
-                const days = parseInt(dateRange);
-                const from = new Date();
-                from.setDate(from.getDate() - days);
-                params.set('date_from', from.toISOString().split('T')[0]);
-            }
-
-            // Show loading
-            if (reset) {
-                this.gelGridContainer.innerHTML = `
-                    <div class="dm-gel-grid-loading">
-                        <div class="dm-spinner"></div>
-                        <span>Loading gel images...</span>
-                    </div>
-                `;
-            }
-
-            try {
-                const response = await fetch(`${apiUrls.imagesWithDensitometry}?${params}`);
-                const data = await response.json();
-
-                this.gels = reset ? data.results : [...this.gels, ...data.results];
-                this.hasMore = !!data.next;
-                this.renderGelGrid();
-            } catch (error) {
-                console.error('Error loading gels:', error);
-                this.gelGridContainer.innerHTML = `
-                    <div class="dm-gel-grid-empty">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        <span>Failed to load gel images</span>
-                    </div>
-                `;
-            } finally {
-                this.isLoading = false;
-            }
-        },
-
-        renderGelGrid() {
-            if (this.gels.length === 0) {
-                this.gelGridContainer.innerHTML = `
-                    <div class="dm-gel-grid-empty">
-                        <i class="bi bi-images"></i>
-                        <span>No gel images found</span>
-                        <p class="dm-text-muted">Try adjusting your filters</p>
-                    </div>
-                `;
-                return;
-            }
-
-            let html = '<div class="dm-gel-grid">';
-
-            this.gels.forEach(gel => {
-                const analysis = gel.analysis || {};
-                const hasCalibration = analysis.has_calibration;
-                const mwRange = analysis.mw_range;
-                const mwRangeStr = mwRange && mwRange.min && mwRange.max
-                    ? `${mwRange.min}-${mwRange.max} kDa`
-                    : 'Not calibrated';
-
-                html += `
-                    <div class="dm-gel-card" data-gel-id="${gel.id}">
-                        <div class="dm-gel-thumbnail">
-                            ${gel.thumbnail_url
-                                ? `<img src="${gel.thumbnail_url}" alt="${gel.original_filename}">`
-                                : '<div class="dm-placeholder-icon"><i class="bi bi-image"></i></div>'
-                            }
-                        </div>
-                        <div class="dm-gel-info">
-                            <div class="dm-gel-filename" title="${gel.original_filename}">${gel.original_filename}</div>
-                            <div class="dm-gel-meta">
-                                <span class="dm-gel-type-badge">${gel.gel_type_display || gel.gel_type}</span>
-                                <span>${gel.uploaded_at ? new Date(gel.uploaded_at).toLocaleDateString() : '-'}</span>
-                            </div>
-                            <div class="dm-gel-stats">
-                                <span class="dm-gel-stat">
-                                    <i class="bi bi-list-ol"></i> ${analysis.lane_count || 0} lanes
-                                </span>
-                                <span class="dm-gel-stat ${hasCalibration ? 'calibrated' : 'uncalibrated'}">
-                                    <i class="bi bi-${hasCalibration ? 'check-circle' : 'exclamation-triangle'}"></i>
-                                    ${hasCalibration ? mwRangeStr : 'No calibration'}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            html += '</div>';
-
-            if (this.hasMore) {
-                html += `<button class="dm-load-more" id="load-more-gels">Load more...</button>`;
-            }
-
-            this.gelGridContainer.innerHTML = html;
-
-            // Attach click handlers to gel cards
-            this.gelGridContainer.querySelectorAll('.dm-gel-card').forEach(card => {
-                card.addEventListener('click', () => {
-                    const gelId = card.dataset.gelId;
-                    const gel = this.gels.find(g => g.id === gelId);
-                    if (gel) this.goToStep2(gel);
-                });
-            });
-
-            // Load more button
-            document.getElementById('load-more-gels')?.addEventListener('click', () => {
-                this.currentPage++;
-                this.loadGels(false);
-            });
-        },
-
-        updatePreview(gel) {
-            const analysis = gel.analysis || {};
-
-            document.getElementById('preview-gel-name').textContent = analysis.name || gel.original_filename;
-            document.getElementById('preview-gel-info').textContent = `${gel.gel_type_display || gel.gel_type} | ${analysis.lane_count || 0} lanes`;
-
-            const imageContainer = document.getElementById('preview-gel-image');
-            if (gel.thumbnail_url) {
-                imageContainer.innerHTML = `<img src="${gel.thumbnail_url}" alt="${gel.original_filename}">`;
-            } else {
-                imageContainer.innerHTML = '<div class="dm-placeholder-icon"><i class="bi bi-image"></i></div>';
-            }
-
-            const mwRange = analysis.mw_range;
-            const calibrationText = analysis.has_calibration && mwRange
-                ? `${mwRange.min}-${mwRange.max} kDa`
-                : 'Not calibrated';
-            document.getElementById('preview-calibration').textContent = calibrationText;
-        },
-
-        async loadLanesForGel(gel) {
-            const analysisId = gel.analysis?.id;
-            if (!analysisId) {
-                this.laneList.innerHTML = '<div class="dm-text-muted">No analysis found for this gel.</div>';
-                return;
-            }
-
-            this.laneList.innerHTML = `
-                <div class="dm-gel-grid-loading">
-                    <div class="dm-spinner"></div>
-                    <span>Loading lanes...</span>
-                </div>
-            `;
-
-            try {
-                // Fetch lanes from analysis data endpoint
-                const response = await fetch(`/api/analyses/${analysisId}/data/`);
-                const data = await response.json();
-
-                if (data.lanes && data.lanes.length > 0) {
-                    this.renderLaneList(data.lanes, gel.analysis);
-                } else {
-                    this.laneList.innerHTML = '<div class="dm-text-muted">No lanes found in this analysis.</div>';
-                }
-            } catch (error) {
-                console.error('Error loading lanes:', error);
-                this.laneList.innerHTML = '<div class="dm-text-muted">Failed to load lanes.</div>';
-            }
-        },
-
-        renderLaneList(lanes, analysis) {
-            let html = '';
-
-            lanes.forEach(lane => {
-                const isLadder = lane.lane_type === 'LADDER';
-                const hasDensitometry = lane.has_densitometry !== false;
-
-                // Build lane name
-                let laneName = `Lane ${lane.lane_number}`;
-                if (lane.sample_name) {
-                    laneName += `: ${lane.sample_name}`;
-                } else if (lane.process_sample) {
-                    laneName += `: ${lane.process_sample.sample_id || 'Sample'}`;
-                }
-
-                // Band count
-                const bandCount = lane.bands?.length || 0;
-
-                html += `
-                    <div class="dm-lane-option"
-                         data-lane-id="${lane.id}"
-                         data-lane-type="${lane.lane_type}"
-                         data-lane-name="${laneName.toLowerCase()}">
-                        <input type="checkbox" class="dm-lane-checkbox"
-                               data-lane-id="${lane.id}">
-                        <div class="dm-lane-details">
-                            <div class="dm-lane-name">${laneName}</div>
-                            <div class="dm-lane-meta-row">
-                                <span>${bandCount} band${bandCount !== 1 ? 's' : ''}</span>
-                                ${isLadder ? '<span class="dm-lane-tag ladder">Ladder</span>' : '<span class="dm-lane-tag">Sample</span>'}
-                                ${hasDensitometry
-                                    ? '<span class="dm-lane-status calibrated"><i class="bi bi-check-circle"></i> Ready</span>'
-                                    : '<span class="dm-lane-status uncalibrated"><i class="bi bi-exclamation-triangle"></i> No data</span>'
-                                }
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            this.laneList.innerHTML = html;
-
-            // Attach click handlers
-            this.laneList.querySelectorAll('.dm-lane-option').forEach(option => {
-                option.addEventListener('click', (e) => {
-                    if (e.target.type === 'checkbox') return;
-                    const checkbox = option.querySelector('.dm-lane-checkbox');
-                    checkbox.checked = !checkbox.checked;
-                    this.toggleLaneSelection(parseInt(option.dataset.laneId), checkbox.checked);
-                });
-
-                option.querySelector('.dm-lane-checkbox').addEventListener('change', (e) => {
-                    this.toggleLaneSelection(parseInt(option.dataset.laneId), e.target.checked);
-                });
-            });
-
-            this.updateSelectionCount();
-        },
-
-        toggleLaneSelection(laneId, selected) {
-            if (selected) {
-                this.selectedLanes.add(laneId);
-            } else {
-                this.selectedLanes.delete(laneId);
-            }
-
-            // Update option styling
-            const option = this.laneList.querySelector(`[data-lane-id="${laneId}"]`);
-            if (option) {
-                option.classList.toggle('selected', selected);
-            }
-
-            this.updateSelectionCount();
-            this.updateDisabledState();
-        },
-
-        updateSelectionCount() {
-            const countEl = document.getElementById('selection-count');
-            if (countEl) {
-                countEl.textContent = this.selectedLanes.size;
-            }
-
-            // Enable/disable add button
-            this.addBtn.disabled = this.selectedLanes.size === 0;
-        },
-
-        updateDisabledState() {
-            // No limit on samples - all lanes remain enabled
-        },
-
-        filterLanes() {
-            const search = document.getElementById('lane-search')?.value?.toLowerCase().trim() || '';
-            const samplesOnly = document.getElementById('filter-samples-only')?.checked;
-
-            this.laneList.querySelectorAll('.dm-lane-option').forEach(option => {
-                const laneName = option.dataset.laneName || '';
-                const laneType = option.dataset.laneType || '';
-
-                const matchSearch = !search || laneName.includes(search);
-                const matchType = !samplesOnly || laneType !== 'LADDER';
-
-                option.style.display = matchSearch && matchType ? '' : 'none';
-            });
-        },
-
-        async addSelectedLanes() {
-            if (this.selectedLanes.size === 0) return;
-
-            this.addBtn.disabled = true;
-            this.addBtn.innerHTML = '<span class="dm-spinner-sm me-1"></span> Adding...';
-
-            let addedCount = 0;
-
-            for (const laneId of this.selectedLanes) {
-                try {
-                    const url = apiUrls.laneData.replace('{laneId}', laneId);
-                    const response = await fetch(url, {
-                        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-                    });
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        const added = app.getState().addSample(data);
-                        if (added) addedCount++;
-                    }
-                } catch (error) {
-                    console.error(`Error adding lane ${laneId}:`, error);
-                }
-            }
-
-            this.addBtn.innerHTML = '<i class="bi bi-plus-circle me-1"></i> Add Selected';
-            this.addBtn.disabled = false;
-
-            if (addedCount > 0) {
-                this.close();
-            }
-        }
-    };
-
-    wizardModal.init();
-
-    // ============================================
-    // View Toggle (Electropherogram / POI Purity)
-    // ============================================
-    const viewToggle = document.querySelector('#chromatogram-panel .dm-view-toggle');
-    if (viewToggle) {
-        const chromatogramPane = document.getElementById('chromatogram-container');
-        const poiPurityPane = document.getElementById('poi-purity-container');
-        const contentPane = document.getElementById('content-chart-container');
-        const epheroControls = document.getElementById('electropherogram-controls');
-
-        const setView = (view) => {
-            viewToggle.querySelectorAll('.dm-view-btn').forEach(b => {
-                b.classList.toggle('active', b.dataset.view === view);
-            });
-
-            chromatogramPane.style.display = view === 'electropherogram' ? '' : 'none';
-            poiPurityPane.style.display = view === 'poi-purity' ? '' : 'none';
-            contentPane.style.display = view === 'content' ? '' : 'none';
-            epheroControls.classList.toggle('hidden', view !== 'electropherogram');
-
-            // Force the matching panel to redraw against the now-visible
-            // container. ResizeObserver alone doesn't fire reliably when a
-            // sibling toggles display:none → display:'' on the same
-            // animation frame.
-            setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-                if (view === 'content' && app && app.panels && app.panels.contentChart) {
-                    app.panels.contentChart.render();
-                }
-            }, 50);
-        };
-
-        viewToggle.querySelectorAll('.dm-view-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                setView(this.dataset.view);
-            });
-        });
-
-        // Show/hide the Content view button based on whether any sample
-        // has quantified POI bands. The panel emits availability whenever
-        // samples change; the button stays hidden until there's something
-        // worth showing.
-        const contentBtn = document.getElementById('content-view-btn');
-        if (contentBtn && app && app.eventBus) {
-            app.eventBus.on('content-chart:availability', (data) => {
-                const isAvailable = !!(data && data.available);
-                contentBtn.style.display = isAvailable ? '' : 'none';
-                // If we hid the active Content view, fall back to electro.
-                if (!isAvailable && contentBtn.classList.contains('active')) {
-                    setView('electropherogram');
-                }
-            });
-        }
-    }
-
-    // ============================================
-    // Chart Controls
-    // ============================================
-
-    // Axis mode toggle
-    const axisToggle = document.querySelector('#chromatogram-panel .dm-mode-toggle');
-    if (axisToggle) {
-        axisToggle.querySelectorAll('.dm-mode-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const mode = this.dataset.mode;
-                app.getState().setXAxisMode(mode);
-                axisToggle.querySelectorAll('.dm-mode-btn').forEach(b => {
-                    b.classList.toggle('active', b.dataset.mode === mode);
-                });
-            });
-        });
-    }
-
-    // MW Tolerance
-    const mwToleranceInput = document.getElementById('mw-tolerance');
-    if (mwToleranceInput) {
-        mwToleranceInput.addEventListener('change', (e) => {
-            const val = parseInt(e.target.value, 10);
-            if (!isNaN(val) && val >= 1 && val <= 20) {
-                app.getState().setMwTolerance(val);
-            }
-        });
-    }
-
-    // Normalization mode
-    const normSelect = document.getElementById('normalization-mode');
-    if (normSelect) {
-        normSelect.addEventListener('change', function() {
-            app.getState().setNormalizationMode(this.value);
-        });
-    }
-
-    // ============================================
-    // Save Comparison Modal
-    // ============================================
-    const saveModal = {
-        overlay: document.getElementById('save-comparison-modal'),
-        nameInput: document.getElementById('save-comp-name'),
-        descInput: document.getElementById('save-comp-description'),
-        publicCheckbox: document.getElementById('save-comp-public'),
-        lanesSummary: document.getElementById('save-comp-lanes-summary'),
-        errorEl: document.getElementById('save-comp-error'),
-        submitBtn: document.getElementById('save-comp-submit'),
-        submitText: document.getElementById('save-comp-submit-text'),
-        saveAsLink: document.getElementById('save-as-link'),
-        saveAsBtn: document.getElementById('save-comp-save-as'),
-        titleEl: document.getElementById('save-modal-title'),
-        saveBtnText: document.getElementById('save-btn-text'),
-        currentComparisonId: '{{ saved_comparison_id|default:"" }}' || null,
-        savedComparison: {{ saved_comparison_json|safe }},
-
-        open() {
-            const state = app.getState();
-            const samples = state.getSamples();
-
-            if (samples.length === 0) {
-                gaToast('Add at least one sample before saving.', 'warning');
-                return;
-            }
-
-            // Populate lanes summary
-            const laneLabels = samples.map(s => s.label).join(', ');
-            this.lanesSummary.textContent = `Lanes: ${laneLabels} (${samples.length} lane${samples.length !== 1 ? 's' : ''})`;
-
-            // If editing existing, pre-fill fields
-            if (this.savedComparison && this.currentComparisonId) {
-                this.nameInput.value = this.savedComparison.name || '';
-                this.descInput.value = this.savedComparison.description || '';
-                this.publicCheckbox.checked = this.savedComparison.is_public || false;
-                this.titleEl.textContent = 'Update Comparison';
-                this.submitText.textContent = 'Update';
-                this.saveAsLink.style.display = 'block';
-            } else {
-                this.nameInput.value = '';
-                this.descInput.value = '';
-                this.publicCheckbox.checked = false;
-                this.titleEl.textContent = 'Save Comparison';
-                this.submitText.textContent = 'Save';
-                this.saveAsLink.style.display = 'none';
-            }
-
-            this.errorEl.style.display = 'none';
-            this.overlay.style.display = 'flex';
-            setTimeout(() => this.nameInput.focus(), 100);
-        },
-
-        close() {
-            this.overlay.style.display = 'none';
-        },
-
-        async submit(saveAsNew = false) {
-            const name = this.nameInput.value.trim();
-            if (!name) {
-                this.showError('Please enter a name.');
-                this.nameInput.focus();
-                return;
-            }
-
-            const state = app.getState();
-            const samples = state.getSamples();
-            const laneIds = samples.map(s => s.lane?.id).filter(Boolean);
-
-            if (laneIds.length === 0) {
-                this.showError('No lanes to save.');
-                return;
-            }
-
-            const payload = {
-                name: name,
-                description: this.descInput.value.trim(),
-                is_public: this.publicCheckbox.checked,
-                lane_ids: laneIds,
-                view_settings: {
-                    normalization_mode: state.normalizationMode || 'raw',
-                    x_axis_mode: state.xAxisMode || 'mw',
-                    poi_only: state.poiOnlyMode || false,
-                    mw_tolerance: state.mwTolerance || 5,
-                },
-            };
-
-            this.submitBtn.disabled = true;
-            this.submitText.textContent = 'Saving...';
-
-            try {
-                let url, method;
-                if (this.currentComparisonId && !saveAsNew) {
-                    // Update existing
-                    url = '{% url "gel_analyzer:api_saved_comparisons" %}' + this.currentComparisonId + '/';
-                    method = 'PUT';
-                } else {
-                    // Create new
-                    url = '{% url "gel_analyzer:api_saved_comparisons" %}';
-                    method = 'POST';
-                }
-
-                const response = await fetch(url, {
-                    method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}',
-                    },
-                    body: JSON.stringify(payload),
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    this.showError(data.error || 'Failed to save.');
-                    return;
-                }
-
-                // Success
-                this.currentComparisonId = data.id;
-                this.savedComparison = {
-                    id: data.id,
-                    name: data.name,
-                    description: data.description,
-                    is_public: data.is_public,
-                    view_settings: data.view_settings,
-                };
-
-                // Update URL without reload
-                const newUrl = new URL(window.location);
-                newUrl.searchParams.delete('lanes');
-                newUrl.searchParams.delete('samples');
-                newUrl.searchParams.set('comparison', data.id);
-                history.replaceState(null, '', newUrl.toString());
-
-                // Update header button
-                this.saveBtnText.textContent = 'Saved';
-
-                this.close();
-            } catch (err) {
-                this.showError('Network error. Please try again.');
-                console.error('Save comparison error:', err);
-            } finally {
-                this.submitBtn.disabled = false;
-                this.submitText.textContent = this.currentComparisonId ? 'Update' : 'Save';
-            }
-        },
-
-        showError(msg) {
-            this.errorEl.textContent = msg;
-            this.errorEl.style.display = 'block';
-        },
-    };
-
-    // Save button click
-    document.getElementById('save-comparison-btn').addEventListener('click', () => saveModal.open());
-    document.getElementById('save-modal-close').addEventListener('click', () => saveModal.close());
-    document.getElementById('save-comp-cancel').addEventListener('click', () => saveModal.close());
-    document.getElementById('save-comp-submit').addEventListener('click', () => saveModal.submit(false));
-    if (saveModal.saveAsBtn) {
-        saveModal.saveAsBtn.addEventListener('click', () => saveModal.submit(true));
-    }
-
-    // Close on overlay click
-    saveModal.overlay.addEventListener('click', function(e) {
-        if (e.target === this) saveModal.close();
-    });
-
-    // Close on Escape
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && saveModal.overlay.style.display === 'flex') {
-            saveModal.close();
-        }
-    });
-
-    // If loaded from saved comparison, apply view settings
-    if (saveModal.savedComparison && saveModal.savedComparison.view_settings) {
-        const settings = saveModal.savedComparison.view_settings;
-        const state = app.getState();
-
-        if (settings.normalization_mode && settings.normalization_mode !== 'raw') {
-            state.setNormalizationMode(settings.normalization_mode);
-            if (normSelect) normSelect.value = settings.normalization_mode;
-        }
-        if (settings.x_axis_mode) {
-            state.setXAxisMode(settings.x_axis_mode);
-        }
-        if (settings.poi_only) {
-            state.setPoiOnlyMode(true);
-        }
-        if (settings.mw_tolerance) {
-            state.setMwTolerance(settings.mw_tolerance);
-            if (mwToleranceInput) mwToleranceInput.value = settings.mw_tolerance;
-        }
-    }
-
-    // ============================================
-    // Generate Report (Modal)
-    // ============================================
-    const reportBtn = document.getElementById('generate-report-btn');
-    const reportModal = {
-        overlay: document.getElementById('report-config-modal'),
-        generateBtn: document.getElementById('report-modal-generate'),
-        generateText: document.getElementById('report-generate-text'),
-        formatNote: document.getElementById('report-format-note'),
-
-        open() {
-            // Reset all group toggles and section checkboxes to checked
-            this.overlay.querySelectorAll('input[data-group-toggle]').forEach(cb => {
-                cb.checked = true;
-            });
-            this.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
-                cb.checked = true;
-            });
-            document.getElementById('report-band-overlay').checked = true;
-
-            // Reset format to docx
-            const docxRadio = this.overlay.querySelector('input[value="docx"]');
-            if (docxRadio) docxRadio.checked = true;
-
-            this.onFormatChange();
-            this.updateAllGroups();
-            this.overlay.style.display = 'flex';
-        },
-
-        close() {
-            this.overlay.style.display = 'none';
-        },
-
-        getFormat() {
-            const checked = this.overlay.querySelector('input[name="report-format"]:checked');
-            return checked ? checked.value : 'docx';
-        },
-
-        getSections() {
-            const sections = [];
-            this.overlay.querySelectorAll('input[data-section-key]:checked').forEach(cb => {
-                // Only include if not disabled (parent group may be off)
-                if (!cb.disabled) {
-                    sections.push(cb.dataset.sectionKey);
-                }
-            });
-            return sections;
-        },
-
-        // --- Group toggle logic ---
-
-        /** Enable/disable all children when a group header is toggled */
-        onGroupToggle(groupName) {
-            const toggle = this.overlay.querySelector(`input[data-group-toggle="${groupName}"]`);
-            const body = this.overlay.querySelector(`[data-group-body="${groupName}"]`);
-            if (!toggle || !body) return;
-
-            const enabled = toggle.checked;
-
-            body.querySelectorAll('input[data-section-key]').forEach(cb => {
-                if (enabled) {
-                    // Re-enable (unless format-disabled)
-                    const opt = cb.closest('.dm-report-section-option');
-                    const isFormatDisabled = opt && opt.classList.contains('format-disabled');
-                    if (!isFormatDisabled) {
-                        cb.disabled = false;
-                        cb.checked = true;
-                    }
-                } else {
-                    cb.disabled = true;
-                    cb.checked = false;
-                }
-            });
-
-            // Also handle the band overlay sub-option
-            const bandOverlay = body.querySelector('#report-band-overlay');
-            if (bandOverlay) {
-                bandOverlay.disabled = !enabled;
-                if (!enabled) bandOverlay.checked = false;
-            }
-
-            // Visual state
-            body.classList.toggle('dm-report-group-disabled', !enabled);
-            const chevron = this.overlay.querySelector(`[data-group="${groupName}"] .dm-report-group-chevron`);
-            if (chevron) {
-                chevron.classList.toggle('collapsed', !enabled);
-            }
-
-            // Update dependency states after group toggle
-            this.updateDependencies();
-        },
-
-        /** Handle parent-child dependency: sub-options that depend on a specific section */
-        updateDependencies() {
-            this.overlay.querySelectorAll('[data-depends-on]').forEach(opt => {
-                const dependsOn = opt.dataset.dependsOn;
-                const parentCb = this.overlay.querySelector(`input[data-section-key="${dependsOn}"]`);
-                const childCb = opt.querySelector('input');
-                if (!parentCb || !childCb) return;
-
-                const parentEnabled = parentCb.checked && !parentCb.disabled;
-                if (!parentEnabled) {
-                    childCb.disabled = true;
-                    childCb.checked = false;
-                    opt.classList.add('disabled-section');
-                } else {
-                    childCb.disabled = false;
-                    opt.classList.remove('disabled-section');
-                }
-            });
-        },
-
-        /** Sync group header checkbox state from children (indeterminate / checked / unchecked) */
-        syncGroupFromChildren(groupName) {
-            const toggle = this.overlay.querySelector(`input[data-group-toggle="${groupName}"]`);
-            const body = this.overlay.querySelector(`[data-group-body="${groupName}"]`);
-            if (!toggle || !body) return;
-
-            const children = body.querySelectorAll('input[data-section-key]');
-            if (children.length === 0) return;
-
-            const checkedCount = Array.from(children).filter(cb => cb.checked && !cb.disabled).length;
-            const enabledCount = Array.from(children).filter(cb => !cb.disabled).length;
-
-            if (checkedCount === 0) {
-                toggle.checked = false;
-                toggle.indeterminate = false;
-            } else if (checkedCount < enabledCount) {
-                toggle.checked = true;
-                toggle.indeterminate = true;
-            } else {
-                toggle.checked = true;
-                toggle.indeterminate = false;
-            }
-        },
-
-        /** Run dependency + group sync for all groups */
-        updateAllGroups() {
-            ['summary', 'gel_visuals', 'detailed'].forEach(g => {
-                this.onGroupToggle(g);
-                this.syncGroupFromChildren(g);
-            });
-            this.updateDependencies();
-        },
-
-        // --- Format change ---
-
-        onFormatChange() {
-            const fmt = this.getFormat();
-            const isExcel = fmt === 'xlsx';
-
-            // Disable image-only sections for Excel
-            this.overlay.querySelectorAll('.dm-report-section-option[data-image-only]').forEach(opt => {
-                const cb = opt.querySelector('input');
-                if (isExcel) {
-                    cb.checked = false;
-                    cb.disabled = true;
-                    opt.classList.add('disabled-section', 'format-disabled');
-                } else {
-                    // Only re-enable if parent group is active
-                    const parentGroup = opt.dataset.parentGroup;
-                    const groupToggle = parentGroup
-                        ? this.overlay.querySelector(`input[data-group-toggle="${parentGroup}"]`)
-                        : null;
-                    const groupEnabled = !groupToggle || groupToggle.checked;
-                    if (groupEnabled) {
-                        cb.disabled = false;
-                    }
-                    opt.classList.remove('disabled-section', 'format-disabled');
-                }
-            });
-
-            // Disable entire gel_visuals group for Excel
-            const gelGroup = this.overlay.querySelector('[data-group="gel_visuals"]');
-            if (gelGroup) {
-                if (isExcel) {
-                    gelGroup.classList.add('disabled-section');
-                    const groupToggle = gelGroup.querySelector('input[data-group-toggle]');
-                    if (groupToggle) {
-                        groupToggle.checked = false;
-                        groupToggle.disabled = true;
-                    }
-                    this.onGroupToggle('gel_visuals');
-                } else {
-                    gelGroup.classList.remove('disabled-section');
-                    const groupToggle = gelGroup.querySelector('input[data-group-toggle]');
-                    if (groupToggle) {
-                        groupToggle.disabled = false;
-                        groupToggle.checked = true;
-                    }
-                    this.onGroupToggle('gel_visuals');
-                }
-            }
-
-            this.formatNote.style.display = isExcel ? 'block' : 'none';
-            this.updateDependencies();
-        },
-
-        // --- Generate ---
-
-        async generate() {
-            const comparisonId = saveModal.currentComparisonId;
-            if (!comparisonId) {
-                gaToast('Please save the comparison first.', 'warning');
-                return;
-            }
-
-            const format = this.getFormat();
-            const sections = this.getSections();
-            const bandOverlayCb = document.getElementById('report-band-overlay');
-            const bandOverlay = bandOverlayCb ? (bandOverlayCb.checked && !bandOverlayCb.disabled) : true;
-
-            if (sections.length === 0) {
-                gaToast('Please select at least one section.', 'warning');
-                return;
-            }
-
-            this.generateBtn.disabled = true;
-            this.generateText.textContent = 'Generating...';
-
-            try {
-                const reportUrl = '{% url "gel_analyzer:api_generate_comparison_report" pk="00000000-0000-0000-0000-000000000000" %}'
-                    .replace('00000000-0000-0000-0000-000000000000', comparisonId);
-
-                const response = await fetch(reportUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}',
-                    },
-                    body: JSON.stringify({ format, sections, band_overlay: bandOverlay }),
-                });
-
-                if (!response.ok) {
-                    const err = await response.json().catch(() => ({}));
-                    throw new Error(err.error || `Server error (${response.status})`);
-                }
-
-                // Download file
-                const blob = await response.blob();
-                const disposition = response.headers.get('Content-Disposition') || '';
-                const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
-                const fallbackExt = { docx: '.docx', xlsx: '.xlsx', pptx: '.pptx' }[format] || '.docx';
-                const filename = filenameMatch ? filenameMatch[1] : `comparison_report${fallbackExt}`;
-
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(url);
-
-                this.close();
-
-                // Brief feedback on the header button
-                const label = reportBtn.querySelector('.dm-btn-label');
-                label.textContent = 'Downloaded';
-                setTimeout(() => { label.textContent = 'Report'; }, 3000);
-
-            } catch (err) {
-                console.error('[Report] Generation failed:', err);
-                gaToast('Report generation failed: ' + err.message, 'danger');
-            } finally {
-                this.generateBtn.disabled = false;
-                this.generateText.textContent = 'Generate Report';
-            }
-        },
-    };
-
-    if (reportBtn) {
-        // Enable the button once a comparison is saved
-        const updateReportBtnState = () => {
-            reportBtn.disabled = !saveModal.currentComparisonId;
-        };
-
-        const saveBtnText = document.getElementById('save-btn-text');
-        if (saveBtnText) {
-            const observer = new MutationObserver(() => updateReportBtnState());
-            observer.observe(saveBtnText, { childList: true, characterData: true, subtree: true });
-        }
-
-        // Open modal instead of direct download
-        reportBtn.addEventListener('click', () => {
-            if (reportBtn.disabled) return;
-            if (!saveModal.currentComparisonId) {
-                gaToast('Please save the comparison first before generating a report.', 'warning');
-                return;
-            }
-            reportModal.open();
-        });
-
-        // Modal event listeners
-        document.getElementById('report-modal-close').addEventListener('click', () => reportModal.close());
-        document.getElementById('report-modal-cancel').addEventListener('click', () => reportModal.close());
-        reportModal.overlay.addEventListener('click', (e) => {
-            if (e.target === reportModal.overlay) reportModal.close();
-        });
-        document.getElementById('report-modal-generate').addEventListener('click', () => reportModal.generate());
-
-        // Format radio change
-        reportModal.overlay.querySelectorAll('input[name="report-format"]').forEach(radio => {
-            radio.addEventListener('change', () => reportModal.onFormatChange());
-        });
-
-        // Group toggle listeners
-        reportModal.overlay.querySelectorAll('input[data-group-toggle]').forEach(toggle => {
-            toggle.addEventListener('change', () => {
-                reportModal.onGroupToggle(toggle.dataset.groupToggle);
-            });
-        });
-
-        // Child checkbox change -> sync parent group + update dependencies
-        reportModal.overlay.querySelectorAll('.dm-report-child-option input[data-section-key]').forEach(cb => {
-            cb.addEventListener('change', () => {
-                const parentGroup = cb.closest('[data-parent-group]')?.dataset.parentGroup;
-                if (parentGroup) {
-                    reportModal.syncGroupFromChildren(parentGroup);
-                }
-                reportModal.updateDependencies();
-            });
-        });
-
-        // Select All / None
-        document.getElementById('report-select-all').addEventListener('click', (e) => {
-            e.preventDefault();
-            reportModal.overlay.querySelectorAll('input[data-group-toggle]').forEach(cb => {
-                if (!cb.disabled) cb.checked = true;
-            });
-            ['summary', 'gel_visuals', 'detailed'].forEach(g => reportModal.onGroupToggle(g));
-            reportModal.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
-                if (!cb.disabled) cb.checked = true;
-            });
-            const bandCb = document.getElementById('report-band-overlay');
-            if (bandCb && !bandCb.disabled) bandCb.checked = true;
-            // Also re-enable standalone items
-            reportModal.overlay.querySelectorAll('.dm-report-section-option:not(.dm-report-child-option) input[data-section-key]').forEach(cb => {
-                if (!cb.disabled) cb.checked = true;
-            });
-            reportModal.updateDependencies();
-        });
-        document.getElementById('report-select-none').addEventListener('click', (e) => {
-            e.preventDefault();
-            reportModal.overlay.querySelectorAll('input[data-group-toggle]').forEach(cb => {
-                if (!cb.disabled) {
-                    cb.checked = false;
-                    cb.indeterminate = false;
-                }
-            });
-            ['summary', 'gel_visuals', 'detailed'].forEach(g => reportModal.onGroupToggle(g));
-            reportModal.overlay.querySelectorAll('input[data-section-key]').forEach(cb => {
-                if (!cb.disabled) cb.checked = false;
-            });
-            const bandCb = document.getElementById('report-band-overlay');
-            if (bandCb) bandCb.checked = false;
-            reportModal.updateDependencies();
-        });
-
-        // Close on Escape
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && reportModal.overlay.style.display === 'flex') {
-                reportModal.close();
-            }
-        });
-    }
-
-    // Expose for debugging
-    window.sampleComparisonApp = app;
-    window.sampleSelectorModal = wizardModal;
-    window.saveComparisonModal = saveModal;
+    GelAnalyzer.Workbench.wireMenu(document.getElementById('ga-cmp-more'));
+
+    // Expose for debugging.
+    window.sampleComparisonHandle = handle;
+    window.sampleComparisonKinds = kinds;
 });
 </script>
+
 {% endblock %}

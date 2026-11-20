@@ -35,13 +35,6 @@ Usage:
     results = service.detect_all_lanes(analysis, user, save_results=True)
 """
 
-from .cross_lane_consensus import (
-    AnchorFit,
-    ConsensusResult,
-    CrossLaneConsensus,
-    CrossLaneConsensusParams,
-    serialize_consensus_result,
-)
 from .derivative_detector import DerivativeDetector
 from .geometry_builder import BandGeometryBuilder
 from .hybrid_detector import GapRegion, HybridDetector
@@ -105,10 +98,4 @@ __all__ = [
     "HybridDetectionParams",
     "HybridDetector",
     "GapRegion",
-    # Cross-lane consensus
-    "CrossLaneConsensus",
-    "CrossLaneConsensusParams",
-    "ConsensusResult",
-    "AnchorFit",
-    "serialize_consensus_result",
 ]

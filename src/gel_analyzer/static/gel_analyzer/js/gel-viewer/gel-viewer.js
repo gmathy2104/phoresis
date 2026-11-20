@@ -17,6 +17,7 @@
     const StateManager = global.GelViewer.StateManager;
     const Viewport = global.GelViewer.Viewport;
     const Renderer = global.GelViewer.Renderer;
+    const CornerHandles = global.GelViewer.CornerHandles;
     const EventHandler = global.GelViewer.EventHandler;
     const ToolManager = global.GelViewer.ToolManager;
     const LaneTool = global.GelViewer.LaneTool;
@@ -36,17 +37,16 @@
     // Phase 3: Auto Detection & MW Calibration
     const DetectionPanel = global.GelViewer.DetectionPanel;
     const CV2DetectionPanel = global.GelViewer.CV2DetectionPanel;
-    const HybridDetectionPanel = global.GelViewer.HybridDetectionPanel;
-    const CrossLaneConsensusPanel = global.GelViewer.CrossLaneConsensusPanel;
+    const BandModelPanel = global.GelViewer.BandModelPanel;
     const CalibrationPanel = global.GelViewer.CalibrationPanel;
-    // UNPLUGGED: Profile Peak Detection deprecated in favour of Auto (d1/d2) detection
-    const ProfileDetectionPanel = null; // was: global.GelViewer.ProfileDetectionPanel;
     // Electropherogram Panel (D3.js)
     const ElectropherogramPanel = global.GelViewer.ElectropherogramPanel;
     // Phase 3: MobileSAM Polygon Refinement
     const SAMDecoderEngine = global.GelViewer.SAMDecoderEngine;
     // Confirmation dialogs
     const ConfirmationManager = global.GelViewer.ConfirmationManager;
+    // A ladder's MW values from a template: the lane form's Apply and the Band editor's
+    const LadderTemplateApply = global.GelViewer.LadderTemplateApply;
 
     /**
      * GelViewer Main Class
@@ -102,6 +102,12 @@
             this.renderer = null;
             this.eventHandler = null;
             this.toolManager = null;
+            // Bottom-right toast stack (top-left covered the header's back arrow) — pending/success/error feedback.
+            // Built lazily here so any code path that runs before _init can
+            // still call this.toasts.* without a null check.
+            this.toasts = (global.GelViewer && global.GelViewer.ToastManager)
+                ? new global.GelViewer.ToastManager({ position: 'bottom-right' })
+                : null;
             this.propertiesPanel = null;
             this.dataTablePanel = null;
             this.bandTablePanel = null;
@@ -115,12 +121,13 @@
             // Phase 3: Auto Detection & MW Calibration
             this.detectionPanel = null;
             this.calibrationPanel = null;
-            // Cross-Lane Consensus Panel
-            this.crossLanePanel = null;
-            // Profile Peak Detection
-            this.profileDetectionPanel = null;
             // Electropherogram Panel
             this.electropherogramPanel = null;
+            // The server's reading of the annotations (/data/ page_summary; slice 3c), its refresh timer and order
+            this.reading = null;
+            this._readingTimer = null;
+            this._readingSeq = 0;
+            this._batchSaving = false;
             // Teacher Panel (band detection calibration)
             this.teacherPanel = null;
 
@@ -140,6 +147,11 @@
             // MW calibration lines state
             this.showMWLines = false;
             this.calibrationData = null;
+
+            // Western readout context, refreshed from every annotations load
+            // (_applyReadoutContext): the image's assay {id, name, readout},
+            // the anti-HCP reference lane id, and whether the user may write.
+            this.readout = { assay: null, referenceLaneId: null, canWrite: false };
 
             // Initialize
             this._init();
@@ -237,6 +249,18 @@
                 onSelectAnnotation: (type, id) => this._selectAnnotation(type, id)
             });
 
+            // A selected 4-point lane is resized by its corners (corner-handles.js, spec 2026-10-10 §3).
+            this.cornerHandles = new CornerHandles({
+                handlesGroup: this.handlesGroup,
+                viewport: this.viewport,
+                renderer: this.renderer,
+                imageWidth: this.options.imageWidth,
+                imageHeight: this.options.imageHeight,
+                onCommit: (id, data) => {
+                    this._updateLane(id, data);
+                }
+            });
+
             // Tool Manager and Tools
             this.toolManager = new ToolManager({
                 viewer: this.viewer,
@@ -278,7 +302,7 @@
                 onToggleCalibrationPanel: () => this.calibrationPanel?.toggle(),
                 onToggleMWLines: () => this.toggleMWLines(),
                 onToggleElectropherogramPanel: () => this.electropherogramPanel?.toggle(),
-                onToggleProfileDetectionPanel: () => this.profileDetectionPanel?.toggle(),
+                onToggleBandModelPanel: () => this.bandModelPanel?.toggle(),
                 onHideDetectionPanel: () => this.detectionPanel?.hide(),
                 onHideCV2DetectionPanel: () => this.cv2DetectionPanel?.hide(),
                 onHideCalibrationPanel: () => this.calibrationPanel?.hide(),
@@ -290,37 +314,77 @@
                 isCV2DetectionPanelVisible: () => this.cv2DetectionPanel?.isOpen() || false,
                 isCalibrationPanelVisible: () => this.calibrationPanel?.isOpen() || false,
                 isElectropherogramPanelVisible: () => this.electropherogramPanel?.isVisible || false,
-                getSelectedAnnotation: () => this.selectedType ? { type: this.selectedType, id: this.selectedId } : null
+                getSelectedAnnotation: () => this.selectedType ? { type: this.selectedType, id: this.selectedId } : null,
+                isContextMenuVisible: () => this.contextMenu?.isVisible() || false
             });
+
+            // The one path that fills a ladder's MW values from a template, for the two buttons that do it (the lane
+            // form's MW Template and the Band editor). The dialog is created after the panels: read when asked.
+            this.ladderTemplateApply = LadderTemplateApply ? new LadderTemplateApply({
+                eventBus: this.eventBus,
+                stateManager: this.stateManager,
+                apiClient: this.apiClient,
+                onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
+                getConfirmationManager: () => this.confirmationManager,
+            }) : null;
 
             // UI Panels
             this.propertiesPanel = new PropertiesPanel({
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 apiClient: this.apiClient,
+                // Forward the toast manager so save failures surface as a
+                // non-blocking top-left toast in addition to the inline
+                // error line + Retry button on the properties panel itself.
+                toasts: this.toasts,
+                // Phoresis's shared AutoSave helper (null when shared/auto-save.js is not loaded).
                 autoSave: this.autoSave,
-                onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
-                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
-                onSelectBand: (bandId) => this._selectAnnotation('band', bandId)
+                onUpdateBand: (id, data) => this._updateBand(id, data),
+                onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
+                onSelectBand: (bandId) => this._selectAnnotation('band', bandId),
+                getReading: () => this.reading,
+                // The lane form's "HCP reference" switch: the context menu's own two (slice 3c).
+                onSetReferenceLane: (id) => this._setReferenceLane(id),
+                getReferenceContext: () => this.readout,
+                ladderTemplateApply: this.ladderTemplateApply,
             });
+
+            // "How this gel is read" (slice 3c): renders itself on READING_CHANGED.
+            this.readingCard = global.GelViewer.ReadingCard
+                ? new global.GelViewer.ReadingCard({ eventBus: this.eventBus, container: document.getElementById('reading-card') })
+                : null;
+            // "Bands by Type | Readout" over the gel (slice 3c): renders itself on READING_CHANGED.
+            this.gelLegend = global.GelViewer.GelLegend
+                ? new global.GelViewer.GelLegend({
+                    eventBus: this.eventBus,
+                    container: document.getElementById('gel-legend'),
+                    viewer: this.container.querySelector('.gv-viewer'),
+                })
+                : null;
 
             this.dataTablePanel = new DataTablePanel({
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 apiClient: this.apiClient,
                 onSelectAnnotation: (type, id) => this._selectAnnotation(type, id),
-                onUpdateLane: (id, data, silent) => this._updateLane(id, data, silent)
+                onUpdateLane: (id, data, silent) => this._updateLane(id, data, silent),
+                // A row's type asks what the form asks (calibration points, ladder template): one path.
+                onChangeLaneType: (id, type, select) => this.propertiesPanel.changeLaneType(id, type, select),
+                onSaveAll: () => this._batchSave(),
             });
 
             this.bandTablePanel = new BandTablePanel({
                 eventBus: this.eventBus,
                 stateManager: this.stateManager,
                 onSelectBand: (bandId) => this._selectAnnotation('band', bandId),
-                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
-                onDeleteBand: (id) => this._deleteBand(id)
+                onUpdateBand: (id, data) => this._updateBand(id, data),
+                // "Calib." asks the loaded amount, the context menu's dialog: the type is saved with it or not at all.
+                onSetCalibration: (id) => this.contextMenu?._promptCalibrationValue(id),
+                onDeleteBand: (id) => this._deleteBand(id),
+                ladderTemplateApply: this.ladderTemplateApply,
             });
 
             this.adjustmentsPanel = new AdjustmentsPanel({
@@ -340,23 +404,18 @@
                 onDeleteLane: (id) => this._deleteLane(id),
                 onDeleteBand: (id) => this._deleteBand(id),
                 onUpdateLane: (id, data) => this._updateLane(id, data),
-                onUpdateBand: (id, data, opts) => this._updateBand(id, data, opts),
-                // Local-only sync for callers that already persisted via
-                // their own endpoint (e.g. _promptCalibrationValue uses
-                // the v1 PATCH so the nested quant_point reaches the
-                // BandSerializer). They still need the SVG class swap +
-                // BAND_UPDATED emit so the rest of the UI catches up.
+                // Lane Type from the menu: the form's path too (calibration points, ladder template). The menu reads
+                // onSetLaneType from `handlers` only; without it, it wrote the type through onUpdateLane.
+                handlers: { onSetLaneType: (id, type) => this.propertiesPanel.changeLaneType(id, type, null) },
+                onUpdateBand: (id, data) => this._updateBand(id, data),
                 onSyncBandLocal: (id, data) => this._syncBandLocally(id, data),
                 onStartResize: (id) => this._startLaneResize(id),
-                // Return null when nothing is selected so ContextMenu's `!selection`
-                // guard short-circuits cleanly. Returning a {type:null,id:null}
-                // object makes the truthy guard pass and downstream lookups
-                // (e.g. stateManager.getBand(null)) silently no-op.
-                getSelectedAnnotation: () =>
-                    this.selectedType ? { type: this.selectedType, id: this.selectedId } : null
+                onSetReferenceLane: (id) => this._setReferenceLane(id),
+                getReferenceContext: () => this.readout,
+                getSelectedAnnotation: () => ({ type: this.selectedType, id: this.selectedId })
             });
 
-// Electropherogram Panel (Plotly.js intensity profile) — init before DetectionPanel
+            // Electropherogram Panel (Plotly.js intensity profile) — init before DetectionPanel
             if (ElectropherogramPanel) {
                 this.electropherogramPanel = new ElectropherogramPanel({
                     eventBus: this.eventBus,
@@ -371,7 +430,6 @@
                     eventBus: this.eventBus,
                     apiClient: this.apiClient,
                     stateManager: this.stateManager,
-                    svg: this.svg,
                     onDetectionComplete: () => this._onDetectionComplete(),
                     electropherogramPanel: this.electropherogramPanel,
                 });
@@ -382,30 +440,20 @@
                     eventBus: this.eventBus,
                     apiClient: this.apiClient,
                     stateManager: this.stateManager,
-                    svg: this.svg,
                     onDetectionComplete: () => this._onDetectionComplete(),
                     electropherogramPanel: this.electropherogramPanel,
                 });
             }
 
-            if (HybridDetectionPanel) {
-                this.hybridDetectionPanel = new HybridDetectionPanel({
+            if (BandModelPanel) {
+                // The YOLO band model, run in the browser after the lane model (band-model-panel.js).
+                this.bandModelPanel = new BandModelPanel({
                     eventBus: this.eventBus,
                     apiClient: this.apiClient,
                     stateManager: this.stateManager,
                     svg: this.svg,
+                    workerUrl: this.options.bandModelWorkerUrl,
                     onDetectionComplete: () => this._onDetectionComplete(),
-                });
-            }
-
-            if (CrossLaneConsensusPanel) {
-                this.crossLanePanel = new CrossLaneConsensusPanel({
-                    eventBus: this.eventBus,
-                    apiClient: this.apiClient,
-                    stateManager: this.stateManager,
-                    svg: this.svg,
-                    analysisId: this.analysisId,
-                    viewerContainer: this.canvasContainer,
                 });
             }
 
@@ -415,19 +463,6 @@
                     apiClient: this.apiClient,
                     stateManager: this.stateManager,
                     onCalibrationApplied: (result) => this._onCalibrationApplied(result)
-                });
-            }
-
-            // Profile Peak Detection panel
-            if (ProfileDetectionPanel) {
-                this.profileDetectionPanel = new ProfileDetectionPanel({
-                    eventBus: this.eventBus,
-                    apiClient: this.apiClient,
-                    stateManager: this.stateManager,
-                    svg: this.svg,
-                    analysisId: this.analysisId,
-                    onDetectionComplete: (bandsCreated) => this._onProfileDetectionComplete(bandsCreated),
-                    electropherogramPanel: this.electropherogramPanel,
                 });
             }
 
@@ -557,12 +592,8 @@
                 this._cancelDrawing();
             });
 
-            // Context menu requested
-            this.eventBus.on(Events.CONTEXT_MENU_REQUESTED, (data) => {
-                if (this.selectedType && this.isEditable) {
-                    this.contextMenu.show(data.x, data.y, this.selectedType, this.selectedId);
-                }
-            });
+            // Context menu requested: a right-click or a long-press (a point), or Shift+F10 / the Menu key
+            this.eventBus.on(Events.CONTEXT_MENU_REQUESTED, (data) => this._openContextMenu(data));
 
             // Table cell changed - sync to properties
             this.eventBus.on(Events.TABLE_CELL_CHANGED, (data) => {
@@ -590,13 +621,19 @@
                 this._reloadAnnotations();
             });
 
-            // Auto-promote the parent lane to CALIBRATION when any band
-            // inside it becomes a CALIBRATION point. Users were having to
-            // do the two-step (lane → CALIBRATION, then band → CALIBRATION)
-            // manually; the band-type alone is enough signal that the lane
-            // is meant to hold calibration data.
-            this.eventBus.on(Events.BAND_UPDATED, (band) => {
-                this._autoPromoteCalibrationLane(band);
+            // A write reached the server: the reading (checks, band roles) is read again once the writes settle.
+            this.eventBus.on(Events.SERVER_WRITTEN, () => this._scheduleReadingRefresh());
+
+            // Signed out: the failed write stays pending (api-client.js); one sticky notice says how to get it saved,
+            // gone as soon as an answer comes through again.
+            this.eventBus.on(Events.SESSION_EXPIRED, ({ message }) => {
+                this._signedOutToast?.dismiss();
+                this._signedOutToast = this.toasts ? this.toasts.error(message) : null;
+                if (!this._signedOutToast) this._showMessage(message, 10000);
+            });
+            this.eventBus.on(Events.SESSION_RESTORED, () => {
+                this._signedOutToast?.dismiss();
+                this._signedOutToast = null;
             });
 
             // Calibration applied - update MW lines if visible
@@ -625,24 +662,20 @@
             });
 
             // ── Detection panel mutual exclusivity ──────────────────────────────────
-            // Only one of the detection / cross-lane panels may be open at a time.
+            // Only one of the detection panels may be open at a time.
             // Centralized here so individual panels stay dumb about each other.
             const hideOtherDetectionPanels = (openedPanel) => {
                 [
                     this.detectionPanel,
                     this.cv2DetectionPanel,
-                    this.hybridDetectionPanel,
-                    this.profileDetectionPanel,
-                    this.crossLanePanel,
+                    this.bandModelPanel,
                 ].forEach(p => {
                     if (p && p !== openedPanel && p.isVisible) p.hide();
                 });
             };
-            this.eventBus.on(Events.DETECTION_PANEL_SHOWN,         () => hideOtherDetectionPanels(this.detectionPanel));
-            this.eventBus.on(Events.CV2_DETECTION_PANEL_SHOWN,     () => hideOtherDetectionPanels(this.cv2DetectionPanel));
-            this.eventBus.on(Events.HYBRID_DETECTION_PANEL_SHOWN,  () => hideOtherDetectionPanels(this.hybridDetectionPanel));
-            this.eventBus.on(Events.PROFILE_DETECTION_PANEL_SHOWN, () => hideOtherDetectionPanels(this.profileDetectionPanel));
-            this.eventBus.on(Events.CROSS_LANE_PANEL_SHOWN,        () => hideOtherDetectionPanels(this.crossLanePanel));
+            this.eventBus.on(Events.DETECTION_PANEL_SHOWN,     () => hideOtherDetectionPanels(this.detectionPanel));
+            this.eventBus.on(Events.CV2_DETECTION_PANEL_SHOWN, () => hideOtherDetectionPanels(this.cv2DetectionPanel));
+            this.eventBus.on(Events.BAND_MODEL_PANEL_SHOWN,    () => hideOtherDetectionPanels(this.bandModelPanel));
 
             // Crop requested
             this.eventBus.on(Events.CROP_REQUESTED, (cropData) => this._handleCropRequested(cropData));
@@ -655,6 +688,17 @@
             this.eventBus.on(Events.SELECTION_CHANGED, () => this._updateToolbarState());
             this.eventBus.on(Events.SELECTION_CLEARED, () => this._updateToolbarState());
             this.eventBus.on(Events.ANNOTATIONS_LOADED, () => this._updateToolbarState());
+            // Every change tracked, saved at once or forgotten: the toolbar's rules (they call _refreshStatus).
+            this.eventBus.on(Events.PENDING_CHANGED, () => this._updateToolbarState());
+
+            // Corner handles keep their screen size through a zoom and a fit (the Fit button, a window resize).
+            const refreshCornerHandles = () => {
+                if (this.cornerHandles.laneId !== null) {
+                    this.cornerHandles.refresh(this.stateManager.getLane(this.cornerHandles.laneId));
+                }
+            };
+            this.eventBus.on(Events.ZOOM_CHANGED, refreshCornerHandles);
+            this.eventBus.on(Events.VIEWPORT_CHANGED, refreshCornerHandles);
         }
 
         /**
@@ -731,21 +775,12 @@
                 });
             }
 
-            // Hybrid Detection panel toggle
-            const hybridDetectionToggle = document.getElementById('toggle-hybrid-detection');
-            if (hybridDetectionToggle) {
-                hybridDetectionToggle.addEventListener('click', (e) => {
+            // Band model panel toggle (the YOLO band model, after the lane model)
+            const bandModelToggle = document.getElementById('toggle-band-model');
+            if (bandModelToggle) {
+                bandModelToggle.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.hybridDetectionPanel?.toggle();
-                });
-            }
-
-            // Cross-Lane Consensus panel toggle
-            const crossLaneToggle = document.getElementById('toggle-cross-lane-consensus');
-            if (crossLaneToggle) {
-                crossLaneToggle.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.crossLanePanel?.toggle();
+                    this.bandModelPanel?.toggle();
                 });
             }
 
@@ -755,15 +790,6 @@
                 calibrationToggle.addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.calibrationPanel?.toggle();
-                });
-            }
-
-            // Profile Peak Detection panel toggle
-            const profileDetectionToggle = document.getElementById('toggle-profile-detection');
-            if (profileDetectionToggle) {
-                profileDetectionToggle.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.profileDetectionPanel?.toggle();
                 });
             }
 
@@ -797,25 +823,21 @@
                 tableClose.addEventListener('click', () => this.dataTablePanel?.hide());
             }
 
-            // Table panel apply button - just close (changes are already applied locally)
-            const tableApply = document.getElementById('apply-table-changes');
-            if (tableApply) {
-                tableApply.addEventListener('click', () => {
-                    this.dataTablePanel?.hide();
-                    this._showMessage('Changes applied locally');
+            // Window resize: the viewport's ResizeObserver re-fits a gel shown whole (with its last fit's options) and
+            // keeps a zoom (slice 3c); without ResizeObserver, the old re-fit.
+            if (!global.ResizeObserver) {
+                let resizeTimeout;
+                window.addEventListener('resize', () => {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => this.viewport.fitToView(), 150);
                 });
             }
-
-            // Window resize
-            let resizeTimeout;
-            window.addEventListener('resize', () => {
-                clearTimeout(resizeTimeout);
-                resizeTimeout = setTimeout(() => this.viewport.fitToView(), 150);
-            });
 
             // Warn before leaving with unsaved changes
             window.addEventListener('beforeunload', (e) => {
                 if (this.stateManager.isDirty) {
+                    // The last change may still wait out the backup's delay: write it now, whatever the user answers.
+                    this.stateManager.saveToLocalStorage();
                     e.preventDefault();
                     e.returnValue = '';
                 }
@@ -844,9 +866,13 @@
         // =====================================================================
 
         async _loadAnnotations() {
+            let loaded = false;
             try {
                 this._showLoading('Loading annotations...');
                 const data = await this.apiClient.loadAnnotations();
+
+                // Before the lanes: renderLane draws the REF badge.
+                this._applyReadoutContext(data);
 
                 // Render lanes and bands
                 if (data.lanes) {
@@ -863,21 +889,24 @@
                     });
                 }
 
-                this.renderer.updateAnnotationsList();
                 this.eventBus.emit(Events.ANNOTATIONS_LOADED, data);
+                // Once the lanes and bands exist: the reading card, the forms and the legend read them.
+                this.eventBus.emit(Events.READING_CHANGED, this.reading);
 
                 // Load calibration data if available (enables MW lines and auto MW calculation)
                 this._loadCalibrationData();
-
-                // Try to recover from localStorage
-                this.stateManager.loadFromLocalStorage();
-                this._applyRecoveredChanges();
+                loaded = true;
 
             } catch (error) {
                 console.error('Failed to load annotations:', error);
                 this._showMessage(`❌ Failed to load annotations: ${(error && error.message) || error}`);
             } finally {
                 this._hideLoading();
+            }
+
+            // Only against what the server returned: a backup is never offered over a load that failed.
+            if (loaded) {
+                await this._offerBackup();
             }
         }
 
@@ -903,42 +932,169 @@
         }
 
         /**
-         * Apply changes recovered from localStorage.
+         * Offer the backup of unsaved changes an earlier visit left (a crash, a tab closed without saving), never
+         * apply it silently: what still fits the lanes and bands just loaded is listed, Restore replays it as unsaved
+         * changes (Save sends them), Discard deletes the backup. A read-only analysis offers nothing (nothing could
+         * be saved): its backup waits out its 24 h.
          */
-        _applyRecoveredChanges() {
-            const pending = this.stateManager.pendingChanges;
+        async _offerBackup() {
+            if (!this.isEditable) return;
+            const backup = this.stateManager.loadFromLocalStorage();
+            if (!backup) return;
 
-            // Hide deleted lanes
-            for (const laneId of pending.lanes.deleted) {
+            const { changes, dropped } = this.stateManager.recoverable(backup);
+            const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+            const kept = StateManager.countChanges(changes);
+            if (kept === 0) {
+                this.stateManager.clearLocalStorage();
+                const msg = `A local backup of ${count(dropped, 'unsaved change')} was discarded: the lanes or bands it changed no longer exist.`;
+                if (this.toasts) this.toasts.info(msg); else this._showMessage(msg);
+                return;
+            }
+
+            const { lanes, bands } = changes;
+            const newLanes = new Set(lanes.created.map(([id]) => String(id)));
+            const bandsInNewLanes = bands.created.filter(([, b]) => newLanes.has(String(b._parentLaneId))).length;
+            const items = [
+                lanes.created.length && count(lanes.created.length, 'new lane')
+                    + (bandsInNewLanes ? ` (with ${count(bandsInNewLanes, 'band')})` : ''),
+                bands.created.length - bandsInNewLanes && `${count(bands.created.length - bandsInNewLanes, 'new band')} on saved lanes`,
+                lanes.updated.length && `${count(lanes.updated.length, 'lane')} edited`,
+                bands.updated.length && `${count(bands.updated.length, 'band')} edited`,
+                lanes.deleted.length && `${count(lanes.deleted.length, 'lane')} deleted`,
+                bands.deleted.length && `${count(bands.deleted.length, 'band')} deleted`,
+            ].filter(Boolean);
+            const when = new Date(backup.timestamp).toLocaleString();
+
+            // Only the Discard button deletes the backup. Esc (which the page also reads as "leave the editor") or a
+            // click beside the dialog decides nothing: the offer comes back at the next load, unless a new change
+            // rewrites the backup first. Captured on the dialog, so the flag is set before the button's own handler
+            // resumes this function.
+            let discarded = false;
+            const onDiscard = (e) => { if (e.target.closest('#gv-confirm-cancel')) discarded = true; };
+            const cm = this.confirmationManager;
+            // No dialog to ask with: nothing is decided, the offer comes back at the next load.
+            if (!(cm && cm.modal)) return;
+            cm.modal.addEventListener('click', onDiscard, true);
+            const restore = await cm.show({
+                title: 'Restore unsaved changes?',
+                body:
+                    `<p>This browser kept changes to this analysis that were never saved (last change ${when}):</p>` +
+                    `<ul>${items.map(item => `<li>${item}</li>`).join('')}</ul>` +
+                    (dropped ? `<p class="text-muted">${count(dropped, 'other change')} left out: the lane or band no longer exists.</p>` : '') +
+                    '<p class="mb-0"><strong>Restore</strong> puts them back as unsaved changes: check them, then Save. ' +
+                    '<strong>Discard</strong> deletes this backup.</p>',
+                confirmText: 'Restore',
+                cancelText: 'Discard',
+                danger: false,
+                icon: 'clock-history',
+            });
+            cm.modal.removeEventListener('click', onDiscard, true);
+
+            if (restore) {
+                this._restoreChanges(changes);
+                const msg = `${count(kept, 'unsaved change')} restored: check them, then Save.`;
+                if (this.toasts) this.toasts.success(msg); else this._showMessage(msg);
+            } else if (discarded) {
+                this.stateManager.clearLocalStorage();
+            }
+        }
+
+        /**
+         * Replay a backup's changes (StateManager.recoverable) through the editor's own tracking: they are drawn, count
+         * as unsaved, and Save sends them, as if they had just been made.
+         */
+        _restoreChanges(changes) {
+            const sm = this.stateManager;
+            const removeBand = (id) => {
+                sm.trackBandDeletion(id);
+                this.renderer.removeBand(id);
+                sm.deleteBand(id);
+            };
+
+            for (const laneId of changes.lanes.deleted) {
+                sm.getBandsForLane(laneId).forEach(band => removeBand(band.id));
+                sm.trackLaneDeletion(laneId);
                 this.renderer.removeLane(laneId);
-                this.stateManager.deleteLane(laneId);
+                sm.deleteLane(laneId);
+            }
+            for (const bandId of changes.bands.deleted) {
+                if (sm.getBand(bandId)) removeBand(bandId);
+            }
+            for (const [laneId, data] of changes.lanes.updated) {
+                this._updateLane(laneId, data, true);
+            }
+            for (const [laneId, lane] of changes.lanes.created) {
+                lane.bands = [];  // refilled below with the very band objects the state holds
+                this.renderer.renderLane(lane);
+                sm.trackLaneCreation(laneId, lane);
+            }
+            for (const [bandId, band] of changes.bands.created) {
+                band._isSaving = false;
+                const lane = sm.getLane(band._parentLaneId);
+                lane.bands = lane.bands || [];
+                lane.bands.push(band);
+                this.renderer.renderBand(band);
+                sm.trackBandCreation(bandId, band);
+            }
+            for (const [bandId, data] of changes.bands.updated) {
+                const band = this._syncBandLocally(bandId, data);
+                if (!band) continue;  // went with a lane deleted above
+                this.renderer.updateBand(band);
+                sm.trackBandUpdate(bandId, data);
+            }
+
+            this._recalculateLaneNumbers();
+        }
+
+        /**
+         * Draw the unsaved changes over the server's lanes and bands _reloadAnnotations just drew: hide what is deleted,
+         * draw what is new, each band in its lane's list.
+         */
+        _redrawPendingChanges() {
+            const sm = this.stateManager;
+            const pending = sm.pendingChanges;
+            const laneOf = (band) => sm.getLane(band._parentLaneId || band.lane_id);
+
+            // Hide deleted lanes, with their bands
+            for (const laneId of pending.lanes.deleted) {
+                for (const band of sm.getLane(laneId)?.bands || []) {
+                    this.renderer.removeBand(band.id);
+                    sm.deleteBand(band.id);
+                }
+                this.renderer.removeLane(laneId);
+                sm.deleteLane(laneId);
             }
 
             // Hide deleted bands
             for (const bandId of pending.bands.deleted) {
+                const band = sm.getBand(bandId);
+                const lane = band && laneOf(band);
+                if (lane && lane.bands) lane.bands = lane.bands.filter(b => b.id !== bandId);
                 this.renderer.removeBand(bandId);
-                this.stateManager.deleteBand(bandId);
+                sm.deleteBand(bandId);
             }
 
-            // Render created lanes
+            // Render created lanes; a lane never saved holds only new bands, put back below
             for (const [id, laneData] of pending.lanes.created) {
-                this.stateManager.setLane(id, laneData);
+                laneData.bands = [];
+                sm.setLane(id, laneData);
                 this.renderer.renderLane(laneData);
             }
 
             // Render created bands
             for (const [id, bandData] of pending.bands.created) {
-                this.stateManager.setBand(id, bandData);
+                const lane = laneOf(bandData);
+                if (lane) {
+                    lane.bands = lane.bands || [];
+                    lane.bands.push(bandData);
+                }
+                sm.setBand(id, bandData);
                 this.renderer.renderBand(bandData);
             }
 
             // Recalculate and update
             this._recalculateLaneNumbers();
-            this.renderer.updateAnnotationsList();
-
-            if (this.stateManager.isDirty) {
-                this._showMessage('Previous session restored. Remember to save your changes.');
-            }
         }
 
         // =====================================================================
@@ -959,6 +1115,18 @@
             if (type === 'lane') {
                 this.dataTablePanel?.highlightRow(id);
             }
+
+            const lane = type === 'lane' ? this.stateManager.getLane(id) : null;
+            if (this._showsCorners(lane)) {
+                this.cornerHandles.show(lane);
+            } else {
+                this.cornerHandles.hide();
+            }
+        }
+
+        /** A selected 4-point lane shows its corner handles -- on an analysis that can still be edited. */
+        _showsCorners(lane) {
+            return !!lane && this.isEditable && CornerHandles.fits(lane);
         }
 
         _deselect() {
@@ -970,6 +1138,7 @@
             this.stateManager.clearSelection();
 
             this.renderer.clearSelection();
+            this.cornerHandles.hide();
         }
 
         _deleteSelected() {
@@ -1002,7 +1171,6 @@
             this.stateManager.trackLaneCreation(tempId, lane);
             this.renderer.renderLane(lane);
             this._recalculateLaneNumbers();
-            this.renderer.updateAnnotationsList();
             this.stateManager.markDirty();
 
             this._selectAnnotation('lane', tempId);
@@ -1016,6 +1184,29 @@
             const lane = this.stateManager.getLane(id);
             if (!lane) return;
 
+            const G = GelAnalyzer.LaneGeometry;
+            const boxKeys = ['x', 'y', 'width', 'height'];
+            if (!('polygon' in data) && boxKeys.some(k => k in data) && G.hasOutline(lane)) {
+                // The properties panel and the box handles change the box only; the server maps the stored polygon
+                // onto the new box (shape.py::normalize_lane_write, D12). Do the same here, or the outline snaps back
+                // until a reload. Always from the polygon as it was before the first box-only edit, never from a
+                // rounded intermediate: typing W 85 -> 6 -> 62 must give what one 85 -> 62 mapping gives.
+                if (!lane._boxEditBase) {
+                    lane._boxEditBase = {
+                        polygon: lane.polygon.map(p => [p[0], p[1]]),
+                        box: [lane.x, lane.y, lane.width, lane.height],
+                    };
+                }
+                const base = lane._boxEditBase;
+                const newBox = boxKeys.map(k => (k in data ? data[k] : lane[k]));
+                const polygon = G.clampRound(G.mapPolygonToBox(base.polygon, base.box, newBox),
+                    this.options.imageWidth, this.options.imageHeight);
+                const [x, y, width, height] = G.outerBox(polygon);
+                data = { ...data, polygon, x, y, width, height };
+            } else if ('polygon' in data) {
+                delete lane._boxEditBase;  // a new outline (corners, normalize): the next box edit maps from it
+            }
+
             Object.assign(lane, data);
 
             // Update type display if changed
@@ -1027,7 +1218,7 @@
                 if (element) {
                     element.removeClass('sample').removeClass('ladder')
                            .removeClass('control').removeClass('calibration')
-                           .removeClass('empty');
+                           .removeClass('empty').removeClass('dot');
                     element.addClass(data.lane_type.toLowerCase());
                 }
             }
@@ -1038,10 +1229,13 @@
                 if ('x' in data) {
                     this._recalculateLaneNumbers();
                 }
+                this.cornerHandles.refresh(lane);
             }
 
             this.stateManager.trackLaneUpdate(id, data);
             this.stateManager.markDirty();
+
+            this.eventBus.emit(Events.LANE_UPDATED, lane);
 
             if (!silent) {
                 this._showMessage('Lane updated (unsaved)');
@@ -1056,49 +1250,206 @@
             const lane = this.stateManager.getLane(id);
             if (!lane) return;
 
+            // A tilted 4-point lane is resized by its corners: selecting it shows them. An upright one (a Straight
+            // accept) gets the box handles, so it can be widened or shortened without being tilted; its polygon is
+            // mapped onto the new box (_updateLane) and stays upright.
+            if (CornerHandles.fits(lane) && !GelAnalyzer.LaneGeometry.isUprightBox(lane.polygon)) {
+                this._selectAnnotation('lane', id);
+                return;
+            }
+
+            this.cornerHandles.hide();
             const scale = this.viewport.getScale();
+            // A copy: the handles write their preview into the lane they are given, and _updateLane must still see
+            // the box before the drag to map a polygon lane's outline onto the new one (D12).
             this.contextMenu.showResizeHandles(
-                lane, this.svg, this.handlesGroup, scale,
+                { ...lane }, this.svg, this.handlesGroup, scale,
                 (laneId, dims) => {
                     this._updateLane(laneId, dims);
-                    this.renderer.updateAnnotationsList();
                 }
             );
         }
 
         async _deleteLane(id) {
-            const lane = this.stateManager.getLane(id);
+            let lane = this.stateManager.getLane(id);
             if (!lane) return;
 
-            // Show confirmation dialog
-            const bandCount = lane.bands?.length || 0;
+            // Every path asks here, once: Delete key, toolbar, context menu, properties panel, Lane Editor. A saved
+            // lane is deleted on the server at once, with its bands, below -- as a saved band is (_deleteBand). Until
+            // 2026-10-17 it waited for Save, under a dialog saying "permanently" and "cannot be undone" (owner).
             if (this.confirmationManager) {
+                const bandCount = lane.bands?.length || 0;
                 const confirmed = await this.confirmationManager.confirmDeleteLane(lane.lane_number, bandCount);
                 if (!confirmed) return;
+                // While the dialog was open: a reload replaced it, a Delete elsewhere removed it.
+                id = lane.id;
+                lane = this.stateManager.getLane(id);
+                if (!lane) return;
             }
 
-            // Delete associated bands
-            if (lane.bands) {
-                lane.bands.forEach(band => {
-                    this.stateManager.trackBandDeletion(band.id);
-                    this.renderer.removeBand(band.id);
-                    this.stateManager.deleteBand(band.id);
-                });
+            const sm = this.stateManager;
+            const isTempLane = String(id).startsWith('temp_');
+            const laneNumber = lane.lane_number;
+
+            // Its bands leave the canvas with it. A band never saved is forgotten (a POST still in flight deletes what
+            // it created, _createBand). A saved band goes with the lane on the server (CASCADE): nothing of it waits
+            // for Save, and no pending edit may PUT to it.
+            for (const band of lane.bands || []) {
+                band._removed = true;
+                if (String(band.id).startsWith('temp_')) {
+                    sm.trackBandDeletion(band.id);
+                } else {
+                    sm.forgetBandUpdate(band.id);
+                }
+                this.renderer.removeBand(band.id);
+                sm.deleteBand(band.id);
             }
 
-            this.stateManager.trackLaneDeletion(id);
+            if (isTempLane) {
+                // Never saved: forgetting it is the whole deletion.
+                sm.trackLaneDeletion(id);
+            } else {
+                sm.forgetLaneUpdate(id);
+            }
             this.renderer.removeLane(id);
-            this.stateManager.deleteLane(id);
+            sm.deleteLane(id);
 
             this._recalculateLaneNumbers();
-            this.renderer.updateAnnotationsList();
-            this.stateManager.markDirty();
 
             if (this.selectedId === id) {
                 this._deselect();
             }
 
-            this._showMessage('Lane deleted (unsaved)');
+            if (isTempLane) {
+                if (this.toasts) this.toasts.info(`Lane ${laneNumber} removed`);
+            } else {
+                const toast = this.toasts ? this.toasts.pending(`Deleting lane ${laneNumber}…`) : null;
+                this.apiClient.deleteLane(id).then(() => {
+                    if (toast) toast.success(`Lane ${laneNumber} deleted`);
+                }).catch(error => {
+                    console.error('Failed to delete lane on server:', error);
+                    if (error && error.name === 'SessionExpiredError') {
+                        // Signed out: the server never saw the delete. It waits for the next Save, once logged in
+                        // again, like every other change (the Save's lane DELETE takes the bands with it).
+                        sm.trackLaneDeletion(id);
+                        if (toast) toast.info(`Not deleted on the server yet: ${error.message}. Save deletes it.`);
+                        return;
+                    }
+                    if (toast) {
+                        toast.error(`Delete failed: ${error.message || error}. The lane reappeared because the server rejected the change.`);
+                    }
+                    // The server refused (an analysis no longer editable, an error): the canvas is wrong, the server
+                    // is the truth.
+                    this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
+                });
+            }
+            // Nothing emitted LANE_DELETED before 2026-10-17, as BAND_DELETED before 2026-10-13: the toolbar refreshes,
+            // the Lane Editor drops the row, a ladder lane marks the MW calibration stale. Once the lane has left the
+            // state; the lane itself is the payload.
+            this.eventBus.emit(Events.LANE_DELETED, lane);
+        }
+
+        // =====================================================================
+        // Anti-HCP reference lane (western readouts)
+        // =====================================================================
+
+        /**
+         * Store the readout context of an /data/ payload and hand the
+         * reference to the renderer. Called by _loadAnnotations AND
+         * _reloadAnnotations before the lanes are rendered. The badge is only
+         * meaningful on an anti-HCP western: another assay draws none.
+         */
+        _applyReadoutContext(data) {
+            const analysis = data?.analysis || {};
+            const assay = data?.gel_image?.assay || null;
+            // The server's reading (slice 3c): null when its summary failed (the API serves null, logged there).
+            this.reading = data?.page_summary || null;
+            this.readout = {
+                assay,
+                referenceLaneId: analysis.readout_reference_lane_id ?? null,
+                canWrite: analysis.can_write === true,
+                editable: analysis.is_editable !== false,
+            };
+            this.renderer.setReferenceLane(
+                assay?.readout === 'HOST_CELL_PROTEINS' ? this.readout.referenceLaneId : null
+            );
+        }
+
+        /**
+         * Read the reading again once the writes settle (~400 ms after the last). A refresh already on its way read
+         * the server before this write: it is dropped (it would put the old reference, the old roles back). During
+         * a batch Save nothing is read: its end schedules one refresh (a write slower than 400 ms would otherwise
+         * read the gel half saved).
+         */
+        _scheduleReadingRefresh() {
+            this._readingSeq++;
+            clearTimeout(this._readingTimer);
+            if (this._batchSaving) return;
+            this._readingTimer = setTimeout(() => this._refreshReading(), 400);
+        }
+
+        /**
+         * The server's reading after a write: page_summary and the bands' roles, nothing else -- no canvas rebuild,
+         * no selection change, no pending edit touched (a quiet /data/: the panels that reload on DATA_LOADED stay).
+         * A newer refresh wins; a failure keeps the last reading.
+         */
+        async _refreshReading() {
+            const seq = ++this._readingSeq;
+            let data;
+            try {
+                data = await this.apiClient.loadAnnotations({ quiet: true });
+            } catch (error) {
+                console.warn('GelViewer: reading refresh failed, the last one stays', error);
+                return;
+            }
+            if (seq !== this._readingSeq) return;
+            this._applyReadoutContext(data);
+            (data.lanes || []).forEach((lane) => {
+                (lane.bands || []).forEach((band) => {
+                    const local = this.stateManager.getBand(band.id);
+                    if (!local) return;
+                    const role = band.role ?? null;
+                    if ((local.role ?? null) === role) return;
+                    local.role = role;
+                    this.renderer.setBandRole(band.id, role);
+                });
+            });
+            this.eventBus.emit(Events.READING_CHANGED, this.reading);
+        }
+
+        /**
+         * "Use as HCP reference" on lane ``id``: saved at once (not with the
+         * batch save) through POST readout-reference, which republishes the
+         * readouts. Clicking the current reference clears it. A lane not saved
+         * yet has no server id: refused with a toast, no call.
+         */
+        async _setReferenceLane(id) {
+            if (String(id).startsWith('temp_')) {
+                const msg = 'Save the lane first, then set it as the reference.';
+                if (this.toasts) this.toasts.error(msg); else this._showMessage(msg);
+                return;
+            }
+
+            const laneId = Number(id);
+            const current = this.readout.referenceLaneId;
+            const clearing = current !== null && current !== undefined && Number(current) === laneId;
+
+            const toast = this.toasts
+                ? this.toasts.pending(clearing ? 'Clearing the HCP reference…' : 'Setting the HCP reference…')
+                : null;
+            try {
+                const result = await this.apiClient.setReadoutReferenceLane(clearing ? null : laneId);
+                this.readout.referenceLaneId = result.reference_lane_id ?? null;
+                this.renderer.setReferenceLane(this.readout.referenceLaneId);
+                const msg = this.readout.referenceLaneId === null
+                    ? 'HCP reference cleared'
+                    : `Lane ${result.reference_lane_number} is the HCP reference`;
+                if (toast) toast.success(msg); else this._showMessage(msg);
+            } catch (error) {
+                console.error('Failed to set the HCP reference lane:', error);
+                const msg = `Could not change the HCP reference: ${error.message || error}`;
+                if (toast) toast.error(msg); else this._showMessage(msg);
+            }
         }
 
         // =====================================================================
@@ -1148,31 +1499,36 @@
 
             // Render immediately (optimistic UI)
             this.renderer.renderBand(band);
-            this.renderer.updateAnnotationsList();
             this.stateManager.markDirty();
 
             this._selectAnnotation('band', tempId);
-            this._showMessage('Band created');
 
             // Switch back to select tool after creating
             this.toolManager.setTool('select');
 
-            // Async server call (fire-and-forget, like delete).
-            // Routes through this.autoSave for the toast/AUTOSAVE_FAILED
-            // event on errors. The band-specific BAND_SAVE_COMPLETE /
-            // BAND_SAVE_FAILED events stay alongside — they carry the
-            // tempId → real-id swap that AutoSave's generic events
-            // can't represent.
+            // Async server call (fire-and-forget, like delete)
+            // Resolve lane ID (could be temp ID if lane was just created)
             const realLaneId = lane?._isNew ? lane.id : laneId;
             if (!String(realLaneId).startsWith('temp_')) {
-                const createPromise = this.apiClient.createBand(realLaneId, {
+                // Pending toast morphs into success/error when the server lands.
+                const toast = this.toasts ? this.toasts.pending('Saving band…') : null;
+                this.apiClient.createBand(realLaneId, {
                     polygon: data.polygon,
                     position_y: data.position_y,
                     band_type: band.band_type,
                     estimated_mw_kda: band.estimated_mw_kda,
                     mw_estimation_method: band.mw_estimation_method,
-                });
-                const onCreateSuccess = (result) => {
+                }).then(result => {
+                    if (band._removed) {
+                        // Deleted or split while this POST was in flight: the server's copy would come back at the next load.
+                        this.apiClient.deleteBand(result.id).then(
+                            () => { if (toast) toast.info('Band removed'); },
+                            (error) => { if (toast) toast.error(`Band removed here, not on the server: ${error.message || error}`); }
+                        );
+                        return;
+                    }
+
+                    // Replace temp ID with real server ID
                     const oldId = tempId;
                     band.id = result.id;
                     band._isNew = false;
@@ -1180,38 +1536,33 @@
                     this.stateManager.replaceBandId(oldId, result.id);
                     const element = this.svg.findOne(`#band-${oldId}`);
                     if (element) element.attr('id', `band-${result.id}`);
-                    this.stateManager.pendingChanges.bands.created.delete(oldId);
-                    if (!this.stateManager.hasPendingChanges()) {
-                        this.stateManager.markClean();
-                    }
+
+                    // No longer needs the batch save, nor the backup; clean if nothing else is pending.
+                    this.stateManager.confirmBandCreated(oldId);
+
+                    // Update selection if this band was selected
                     if (this.selectedId === oldId) {
                         this.selectedId = result.id;
                     }
-                    this.renderer.updateAnnotationsList();
+
+                    // Emit event so UI can re-enable type selector
                     this.eventBus.emit(Events.BAND_SAVE_COMPLETE, {
                         id: result.id,
                         tempId: oldId,
                     });
-                };
-                const onCreateError = (error) => {
+
+                    if (toast) toast.success(`Band saved (#${result.id})`);
+                }).catch(error => {
+                    console.error('Failed to create band on server:', error);
+                    // Clear saving state even on error - allow user to retry
                     band._isSaving = false;
                     this.eventBus.emit(Events.BAND_SAVE_FAILED, {
                         id: tempId,
                         error: (error && error.message) || 'Save failed',
                     });
-                    // Band stays local with temp ID, will be created on Save.
-                };
-                if (this.autoSave) {
-                    this.autoSave.run({
-                        operation: 'Band create',
-                        promise: createPromise,
-                        context: { kind: 'band', id: tempId },
-                        onSuccess: onCreateSuccess,
-                        onError: onCreateError,
-                    });
-                } else {
-                    createPromise.then(onCreateSuccess).catch(onCreateError);
-                }
+                    // Band stays local with temp ID, will be created on Save
+                    if (toast) toast.error(`Band save failed: ${error.message || error}`);
+                });
             } else {
                 // Lane is new (temp ID), band will be saved in batch save
                 // Clear saving state immediately - no race condition here
@@ -1221,6 +1572,9 @@
                     tempId: tempId,
                     deferred: true,  // Indicates save was deferred to batch
                 });
+                if (this.toasts) {
+                    this.toasts.info('Band created (will save with lane)');
+                }
             }
         }
 
@@ -1325,24 +1679,30 @@
 
         /**
          * Apply a band patch locally — mutate state, refresh the SVG class
-         * if band_type changed, and emit BAND_UPDATED so panels (properties,
-         * band table, calibration, ...) can refresh. Does NOT call the
-         * server. Reusable from any caller that has already persisted via
-         * its own endpoint (e.g. context menu's PATCH for calibration
-         * quant_point).
+         * if band_type changed, and emit BAND_UPDATED so panels refresh.
+         * Does NOT call the server. Reusable from any caller that already
+         * persisted via its own endpoint (e.g. context menu's PATCH for
+         * calibration quant_point).
+         *
+         * Every band edit of the editor ends here, so this is where the band's previous type is known: when the type
+         * changes, and only then, the lane follows it (_autoPromoteLaneForBand) or, a CALIBRATION lane, is asked
+         * (_askLaneTypeForBand) -- owner, 2026-10-13. The promote once listened to BAND_UPDATED, which every edit
+         * fires (an MW, a label, a ladder template's Apply): a POI band left in a lane retyped MW Ladder turned it back
+         * into a Sample lane at its first edit, and the lane PUT made the server drop its ladder template.
+         * @param {Object} [options]
+         * @param {boolean} [options.askLaneType=true] - false: the caller asks the lane question itself
+         *     (_updateBand, once its PUT is saved)
          */
-        _syncBandLocally(id, data) {
+        _syncBandLocally(id, data, { askLaneType = true } = {}) {
             const band = this.stateManager.getBand(id);
             if (!band) return null;
 
+            const typeChanged = 'band_type' in data && data.band_type !== band.band_type;
             Object.assign(band, data);
 
             if (data.band_type) {
                 const element = this.svg.findOne(`#band-${id}`);
                 if (element) {
-                    // Strip every band-type class we know about, otherwise
-                    // CALIBRATION → OTHER (or any other transition) leaves
-                    // the previous color stuck on the element.
                     element
                         .removeClass('other')
                         .removeClass('mw_reference')
@@ -1354,31 +1714,75 @@
             }
 
             this.eventBus.emit(Events.BAND_UPDATED, band);
+            if (typeChanged) {
+                this._autoPromoteLaneForBand(band);
+                if (askLaneType) this._askLaneTypeForBand(band);
+            }
             return band;
         }
 
         /**
-         * Mirror the server's auto-promote of the parent lane to
-         * CALIBRATION when one of its bands becomes a CALIBRATION point.
-         * The server side persists the lane change atomically with the
-         * band update (BandSerializer.update + the legacy PUT view both
-         * call _auto_promote_lane_for_band), so this method only handles
-         * the *local* visual sync — state + SVG class — to give the user
-         * instant feedback. No extra HTTP round-trip needed.
+         * Semantic mapping: when a band gets a specific type, what lane type
+         * does it imply?
          *
-         * Idempotent: no-op if the band isn't CALIBRATION or if the lane
-         * is already CALIBRATION.
+         * - CALIBRATION band → CALIBRATION lane (server also enforces this)
+         * - MW_REFERENCE band → LADDER lane (MW ref bands belong to ladders)
+         * - POI band → SAMPLE lane (POI = point of interest in a sample)
+         *
+         * OTHER is intentionally absent: it's a generic catch-all and a band
+         * being re-typed to OTHER doesn't imply anything about the lane.
+         * Auto-promoting OTHER → SAMPLE silently downgraded LADDER lanes
+         * whenever a user re-typed an MW_REFERENCE band to OTHER (e.g. to
+         * remove a spurious marker), wiping the LADDER classification. The
+         * neutral mapping respects user intent on the band without dragging
+         * the lane along.
+         *
+         * Guards in _autoPromoteLaneForBand still skip the promotion if the
+         * lane is CONTROL (deliberate choice) or already at the target type.
+         * A CALIBRATION lane is never left automatically: _askLaneTypeForBand
+         * asks, when a band there is given another type.
          */
-        _autoPromoteCalibrationLane(band) {
-            if (!band || band.band_type !== 'CALIBRATION') return;
-            const laneId = band.lane_id;
+        static get BAND_TO_LANE_PROMOTE() {
+            return {
+                CALIBRATION: 'CALIBRATION',
+                MW_REFERENCE: 'LADDER',
+                POI: 'SAMPLE',
+            };
+        }
+
+        /**
+         * Auto-promote the parent lane when a band's type implies a specific
+         * lane type. Run by _syncBandLocally when the band's type changes,
+         * never on another edit of the band. Skips:
+         *  - bands with no implied lane type (OTHER)
+         *  - lanes already at the target type (idempotent)
+         *  - CONTROL lanes (deliberate analytical choice — a CONTROL band
+         *    in a CONTROL lane stays as a control point, not a promotion)
+         *  - CALIBRATION lanes: leaving one may discard its calibration
+         *    points, which is asked, never automatic (_askLaneTypeForBand);
+         *    the lane PUT below refuses it (409) while the lane holds points
+         *
+         * For CALIBRATION the server already promotes via
+         * apply_band_type (every band_type write); this is purely the local visual sync.
+         * For MW_REFERENCE / POI the local change is also pushed via
+         * apiClient.updateLane so the lane_type persists.
+         */
+        _autoPromoteLaneForBand(band) {
+            if (!band) return;
+            const targetType = GelViewerApp.BAND_TO_LANE_PROMOTE[band.band_type];
+            if (!targetType) return;
+
+            const laneId = band.lane_id || band._parentLaneId;
             if (!laneId) return;
             const lane = this.stateManager.getLane(laneId);
-            if (!lane || lane.lane_type === 'CALIBRATION') return;
+            if (!lane) return;
+            if (lane.lane_type === targetType) return;
+            if (lane.lane_type === 'CONTROL') return;
+            if (lane.lane_type === 'CALIBRATION') return;
 
-            lane.lane_type = 'CALIBRATION';
+            lane.lane_type = targetType;
             if (typeof StateManager !== 'undefined' && StateManager.getLaneTypeDisplay) {
-                lane.lane_type_display = StateManager.getLaneTypeDisplay('CALIBRATION');
+                lane.lane_type_display = StateManager.getLaneTypeDisplay(targetType);
             }
             const element = this.svg.findOne(`#lane-${laneId}`);
             if (element) {
@@ -1387,65 +1791,122 @@
                     .removeClass('ladder')
                     .removeClass('control')
                     .removeClass('calibration')
-                    .removeClass('empty');
-                element.addClass('calibration');
+                    .removeClass('empty')
+                    .removeClass('dot');
+                element.addClass(targetType.toLowerCase());
             }
-            this._showMessage(`Lane ${lane.lane_number} → Calibration (auto)`);
+            const displayLabel = (StateManager && StateManager.getLaneTypeDisplay)
+                ? StateManager.getLaneTypeDisplay(targetType)
+                : targetType;
+            this._showMessage(`Lane ${lane.lane_number} → ${displayLabel} (auto)`);
             this.eventBus.emit(Events.LANE_UPDATED, lane);
+
+            // The server already auto-promotes CALIBRATION via the band PATCH
+            // (band_type_change.apply_band_type) — re-PUTting the
+            // lane there would be redundant. For MW_REFERENCE → LADDER and
+            // POI → SAMPLE the server doesn't auto-promote, so persist the
+            // lane change explicitly. Fire-and-forget; if it fails the
+            // optimistic UI is already updated and the next batch save will
+            // pick it up via the dirty tracker.
+            if (band.band_type !== 'CALIBRATION'
+                && this.apiClient
+                && typeof this.apiClient.updateLane === 'function'
+                && !String(laneId).startsWith('temp_')) {
+                const change = { lane_type: targetType };
+                this.stateManager.trackLaneUpdate(laneId, change);
+                this.apiClient.updateLane(laneId, change).then(() => {
+                    // Only the type was saved: a resize of this lane waiting for Save stays pending.
+                    this.stateManager.confirmUpdateSaved('lanes', laneId, change);
+                }).catch((err) => {
+                    console.warn(`Auto-promote lane PUT failed for lane ${laneId}:`, err);
+                    this.stateManager.markDirty();
+                });
+            }
         }
 
-        _updateBand(id, data, opts = {}) {
-            const band = this._syncBandLocally(id, data);
+        /**
+         * A band just typed POI or MW_REFERENCE in a CALIBRATION lane: the lane type it implies goes through the lane
+         * form's own path, PropertiesPanel.changeLaneType, which asks before discarding calibration points and purges
+         * them on the server (the v1 PATCH, ?force=true). "Keep calibration" leaves the lane as it is. Asked when the
+         * band's type changes only (_syncBandLocally), never on another edit of the band: an answer is not asked
+         * again at every label or drag.
+         * @param {Object} band - The band, its new type already set
+         */
+        _askLaneTypeForBand(band) {
+            const targetType = GelViewerApp.BAND_TO_LANE_PROMOTE[band.band_type];
+            if (!targetType || targetType === 'CALIBRATION' || !this.propertiesPanel) return;
+            const lane = this.stateManager.getLane(band.lane_id || band._parentLaneId);
+            if (!lane || lane.lane_type !== 'CALIBRATION') return;
+            this.propertiesPanel.changeLaneType(lane.id, targetType, null);
+        }
+
+        _updateBand(id, data) {
+            const stored = this.stateManager.getBand(id);
+            const typeChanged = !!stored && 'band_type' in data && data.band_type !== stored.band_type;
+            // The lane question waits for the PUT: leaving CALIBRATION, the PUT deletes the band's calibration point,
+            // which the lane's guard would otherwise still count ("Discard calibration points?" for a point no band
+            // shows any more).
+            const band = this._syncBandLocally(id, data, { askLaneType: false });
             if (!band) return;
 
             this.stateManager.trackBandUpdate(id, data);
 
-            // Async server call for persisted bands (fire-and-forget, like delete).
-            // Routes through this.autoSave so the user sees a real toast on
-            // failure (instead of a silent console.error) and panels can
-            // listen to AUTOSAVE_OK to flash the source input green.
+            // Async server call for persisted bands (fire-and-forget, like delete)
             const isTempBand = String(id).startsWith('temp_');
             if (!isTempBand) {
-                if (this.autoSave) {
-                    this.autoSave.run({
-                        operation: 'Band update',
-                        promise: this.apiClient.updateBand(id, data),
-                        context: { kind: 'band', id },
-                        source: opts.source || null,
-                        onSuccess: () => {
-                            this.stateManager.pendingChanges.bands.updated.delete(id);
-                            if (!this.stateManager.hasPendingChanges()) {
-                                this.stateManager.markClean();
-                            }
-                        },
-                        onError: () => {
-                            // Band stays in pending updates so the next batch Save can retry.
-                            this.stateManager.markDirty();
-                        },
-                    });
-                } else {
-                    // Defensive fallback (shouldn't happen — AutoSave is wired at boot).
-                    this.apiClient.updateBand(id, data).then(() => {
-                        this.stateManager.pendingChanges.bands.updated.delete(id);
-                        if (!this.stateManager.hasPendingChanges()) {
-                            this.stateManager.markClean();
-                        }
-                    }).catch(error => {
-                        console.error('Failed to update band on server:', error);
-                        this.stateManager.markDirty();
-                    });
-                }
+                // "Band updated" once the server has it, never before: signed out, it was said over a change the
+                // server never got (api-client.js, SessionExpiredError).
+                this.apiClient.updateBand(id, data).then(() => {
+                    // Only these fields were saved: an earlier edit whose PUT failed stays pending.
+                    this.stateManager.confirmUpdateSaved('bands', id, data);
+                    this._showMessage('Band updated');
+                    if (typeChanged) this._askLaneTypeForBand(band);
+                }).catch(error => {
+                    console.error('Failed to update band on server:', error);
+                    // Band stays in pending updates, will sync on Save. No lane question: the PUT did not land (signed
+                    // out or refused), so the band's calibration point is still there.
+                    this.stateManager.markDirty();
+                    this._showMessage(`Band changed here, not saved: ${error.message}. The next Save sends it.`, 6000);
+                });
             } else {
                 this.stateManager.markDirty();
                 this._showMessage('Band updated (unsaved)');
+                // An unsaved band holds no calibration point.
+                if (typeChanged) this._askLaneTypeForBand(band);
             }
         }
 
-        _deleteBand(id) {
-            const band = this.stateManager.getBand(id);
+        async _deleteBand(id) {
+            let band = this.stateManager.getBand(id);
             if (!band) return;
 
+            // Every path asks here, once: Delete key, toolbar, context menu, properties panel, Band Editor. A saved
+            // band is deleted on the server at once, below.
+            if (this.confirmationManager) {
+                const laneId = band._parentLaneId || band.lane_id;
+                const lane = this.stateManager.getLane(laneId);
+                // "Band N" as the properties panel and the Band Editor number it (top to bottom in its lane).
+                const index = this.stateManager.getBandsForLane(laneId).findIndex(b => b.id === id);
+                const name = band.label || (index >= 0 ? `Band ${index + 1}` : 'this band');
+                const confirmed = await this.confirmationManager.confirmDeleteBand(name, lane ? lane.lane_number : null);
+                if (!confirmed) return;
+                // While the dialog was open: a just-drawn band's POST may have landed (same object, server id now,
+                // _createBand), a reload replaced it, the lane's delete removed it.
+                id = band.id;
+                band = this.stateManager.getBand(id);
+                if (!band) return;
+            }
+
             const isTempBand = String(id).startsWith('temp_');
+
+            // Leave the pending sets first. Never saved: forgotten, or the next Save creates it again. Saved: deleted
+            // on the server below, so no pending edit may PUT to it.
+            band._removed = true;  // a POST still in flight deletes what it created (_createBand)
+            if (isTempBand) {
+                this.stateManager.trackBandDeletion(id);
+            } else {
+                this.stateManager.forgetBandUpdate(id);
+            }
 
             // Remove from parent lane
             const laneId = band._parentLaneId || band.lane_id;
@@ -1457,58 +1918,99 @@
             // Update UI immediately (optimistic)
             this.renderer.removeBand(id);
             this.stateManager.deleteBand(id);
-            this.renderer.updateAnnotationsList();
 
             if (this.selectedId === id) {
                 this._deselect();
             }
 
-            this._showMessage('Band deleted');
-
-            // Delete on server in background (non-blocking).
-            // The band is already gone from the UI, so a server failure
-            // can't be visually rolled back without restore logic — but
-            // the user still needs to *see* that the delete didn't land,
-            // hence the AutoSave toast.
+            // Delete on server in background — pending toast morphs into
+            // success/error so the user actually knows whether the server
+            // confirmed (the previous fire-and-forget showed "Band deleted"
+            // even when the DELETE silently failed in the background).
             if (!isTempBand) {
-                if (this.autoSave) {
-                    this.autoSave.run({
-                        operation: 'Band delete',
-                        promise: this.apiClient.deleteBand(id),
-                        context: { kind: 'band', id, deleted: true },
-                    });
-                } else {
-                    this.apiClient.deleteBand(id).catch(error => {
-                        console.error('Failed to delete band on server:', error);
-                    });
-                }
+                const toast = this.toasts ? this.toasts.pending('Deleting band…') : null;
+                this.apiClient.deleteBand(id).then(() => {
+                    if (toast) toast.success('Band deleted');
+                }).catch(error => {
+                    console.error('Failed to delete band on server:', error);
+                    if (error && error.name === 'SessionExpiredError') {
+                        // Signed out: the server never saw the delete, and a reload would fail the same way. The
+                        // delete waits for the next Save, once logged in again, like every other change (info, not a
+                        // sticky error: the session notice and the unsaved count say it until then).
+                        this.stateManager.trackBandDeletion(id);
+                        if (toast) toast.info(`Not deleted on the server yet: ${error.message}. Save deletes it.`);
+                        return;
+                    }
+                    if (toast) {
+                        toast.error(`Delete failed: ${error.message || error}. The band reappeared because the server rejected the change.`);
+                    }
+                    // Server rejected the delete — the local optimistic
+                    // removal is now wrong. Reload from server so state
+                    // matches the truth. Cheaper + safer than trying to
+                    // restore the band from a cached copy.
+                    this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
+                });
             } else {
-                // For temp bands, track for cleanup
-                this.stateManager.trackBandDeletion(id);
-                this.stateManager.markDirty();
+                if (this.toasts) this.toasts.info('Band removed (unsaved)');
             }
+            // The one emitter of BAND_DELETED (nothing emitted it before 2026-10-13), once the band has left the state:
+            // the Band Editor drops its row, the toolbar refreshes counts, Split and Densitometry (a saved band leaves
+            // no pending change), and a ladder band marks the MW calibration stale -- as editing one does (owner,
+            // 2026-10-13). The band itself is the payload: its lane_id names the lane.
+            this.eventBus.emit(Events.BAND_DELETED, band);
         }
 
         async _splitBand(bandId, splitY) {
             const band = this.stateManager.getBand(bandId);
             if (!band) {
-                this._showMessage('Band not found');
-                return;
-            }
-
-            // Reject splits on bands that haven't been persisted yet — the
-            // server roundtrip we use below would have nothing to delete and
-            // the resulting state would diverge from the DB.
-            if (String(bandId).startsWith('temp_')) {
-                this._showMessage('Save the analysis before splitting new bands');
+                if (this.toasts) this.toasts.error('Band not found');
                 return;
             }
 
             // Get the band's polygon points
             const polygon = band.polygon;
             if (!polygon || polygon.length < 3) {
-                this._showMessage('Cannot split: invalid band polygon');
+                if (this.toasts) this.toasts.error('Cannot split: invalid band polygon');
                 return;
+            }
+
+            // If splitting a CALIBRATION band: the backend cascade-deletes
+            // the attached ProteinQuantCalibrationPoint (OneToOne CASCADE)
+            // and the two halves would inherit band_type=CALIBRATION but
+            // with no point — an orphan state. Prompt the user, then on
+            // confirm flip both halves to OTHER so they're at least
+            // self-consistent. The user can re-tag whichever half belongs
+            // to the curve afterwards.
+            const isCalibrationSplit = band.band_type === 'CALIBRATION';
+            if (isCalibrationSplit) {
+                const cm = this.confirmationManager;
+                let confirmed = false;
+                if (cm && cm.modal) {
+                    confirmed = await cm.show({
+                        title: 'Split a calibration band?',
+                        body:
+                            '<p>This band is tagged <strong>Calibration</strong> and ' +
+                            'carries a calibration point used by the quantification curve.</p>' +
+                            '<p>Splitting it will:</p>' +
+                            '<ul>' +
+                            '<li>Discard the attached calibration point</li>' +
+                            '<li>Re-tag both halves as <strong>Other</strong></li>' +
+                            '</ul>' +
+                            '<p class="mb-0"><em>Re-mark whichever half belongs to the ' +
+                            'curve afterwards. This cannot be undone.</em></p>',
+                        confirmText: 'Split & discard point',
+                        cancelText: 'Keep band intact',
+                        danger: true,
+                        icon: 'exclamation-triangle-fill',
+                    });
+                }
+                // No dialog to ask with: nothing is split.
+                if (!confirmed) {
+                    // Drop the split tool — the user has acknowledged, no
+                    // sense leaving them stuck mid-gesture.
+                    this.toolManager.setTool('select');
+                    return;
+                }
             }
 
             // Split the polygon into upper and lower portions
@@ -1533,7 +2035,7 @@
 
             // Need exactly 2 intersections to split
             if (intersections.length < 2) {
-                this._showMessage('Cannot split at this position');
+                if (this.toasts) this.toasts.error('Cannot split at this position');
                 return;
             }
 
@@ -1575,7 +2077,7 @@
             const sortedLower = sortPolygonPoints(lowerPoints);
 
             if (sortedUpper.length < 3 || sortedLower.length < 3) {
-                this._showMessage('Cannot split: resulting shapes invalid');
+                if (this.toasts) this.toasts.error('Cannot split: resulting shapes invalid');
                 return;
             }
 
@@ -1597,12 +2099,17 @@
             // Get the parent lane ID
             const parentLaneId = band.lane_id || band._parentLaneId;
             if (!parentLaneId) {
-                this._showMessage('Cannot split: unknown parent lane');
+                if (this.toasts) this.toasts.error('Cannot split: unknown parent lane');
                 return;
             }
 
-            // Build the two band payloads up-front so we don't half-commit if
-            // serialization throws.
+            // Halves inherit the original's band_type, except for a confirmed
+            // CALIBRATION split (which loses its point — see the prompt
+            // above): in that case downgrade both halves to OTHER so they
+            // aren't stranded as point-less calibration bands.
+            const halfBandType = isCalibrationSplit ? 'OTHER' : (band.band_type || 'OTHER');
+
+            // Build payloads for the two halves
             const upperBandData = {
                 polygon: sortedUpper,
                 position_y: Math.round(upperBbox.y + upperBbox.height / 2),
@@ -1610,7 +2117,7 @@
                 bbox_y: Math.round(upperBbox.y),
                 bbox_width: Math.round(upperBbox.width),
                 bbox_height: Math.round(upperBbox.height),
-                band_type: band.band_type || 'OTHER',
+                band_type: halfBandType,
                 label: band.label ? `${band.label} (upper)` : '',
                 notes: band.notes || ''
             };
@@ -1621,33 +2128,104 @@
                 bbox_y: Math.round(lowerBbox.y),
                 bbox_width: Math.round(lowerBbox.width),
                 bbox_height: Math.round(lowerBbox.height),
-                band_type: band.band_type || 'OTHER',
+                band_type: halfBandType,
                 label: band.label ? `${band.label} (lower)` : '',
                 notes: band.notes || ''
             };
 
-            // Drive all three calls through awaited apiClient calls (NOT the
-            // optimistic-fire-and-forget _deleteBand/_createBand helpers). Their
-            // background DELETE only console.errors on failure, which is what
-            // led to "split creates new bands but old one stays" bugs visible
-            // after a reload. We then DATA_RELOAD_REQUESTED so the renderer,
-            // electropherogram, calibration panel, band table, etc. all rebuild
-            // from canonical server state in one shot.
-            this._showMessage('Splitting band…');
-            try {
-                await this.apiClient.deleteBand(bandId);
-                await this.apiClient.createBand(parentLaneId, upperBandData);
-                await this.apiClient.createBand(parentLaneId, lowerBandData);
+            // Single atomic POST /api/bands/<id>/split/ — the backend
+            // deletes the original + creates the two halves in a single
+            // transaction and returns both new band dicts. Replaces the
+            // legacy DELETE → CREATE → CREATE → reload chain (4 RTTs) with
+            // 1 RTT. Also removes the "DELETE arrives after the CREATEs"
+            // race that motivated the previous sequential await pattern.
+            const toast = this.toasts ? this.toasts.pending('Splitting band…') : null;
+            const isTempBand = String(bandId).startsWith('temp_');
 
-                this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
-                this._showMessage('Band split into two');
+            // Temp bands aren't on the server yet — DATA_RELOAD_REQUESTED
+            // would re-fetch the server state which doesn't know about
+            // them, so the split would silently vanish. Apply the split
+            // entirely locally: remove the original from state + SVG,
+            // create two new temp bands with the computed polygons, push
+            // them into the lane, and mark the analysis dirty so the
+            // batch save persists all three operations together.
+            if (isTempBand) {
+                // 1. Drop the original temp band from state + SVG
+                const parentLane = this.stateManager.getLane(parentLaneId);
+                if (parentLane && parentLane.bands) {
+                    parentLane.bands = parentLane.bands.filter(b => b.id !== bandId);
+                }
+                this.renderer.removeBand(bandId);
+                this.stateManager.deleteBand(bandId);
+                // It never reached the server: forgetting its pending creation is the whole deletion. A POST still in
+                // flight deletes what it created (_createBand).
+                band._removed = true;
+                this.stateManager.trackBandDeletion(bandId);
+
+                // 2. Insert the two halves as fresh temp bands
+                const makeTempHalf = (halfData) => {
+                    const tempId = this.stateManager.generateTempId();
+                    const half = {
+                        id: tempId,
+                        _isNew: true,
+                        _parentLaneId: parentLaneId,
+                        lane_id: parentLaneId,
+                        ...halfData,
+                    };
+                    this.stateManager.setBand(tempId, half);
+                    this.stateManager.trackBandCreation(tempId, half);
+                    if (parentLane) {
+                        parentLane.bands = parentLane.bands || [];
+                        parentLane.bands.push(half);
+                    }
+                    this.renderer.renderBand(half);
+                    return half;
+                };
+                const upperHalf = makeTempHalf(upperBandData);
+                const lowerHalf = makeTempHalf(lowerBandData);
+
+                this.stateManager.markDirty();
+                if (toast) {
+                    toast.info('Band split (will save with lane)');
+                }
+                // Select the upper half so the user has a meaningful focus
+                // after the split, mirroring the post-split UX on persisted
+                // bands (which select via the reload's natural flow).
+                this._selectAnnotation('band', upperHalf.id);
+                this.toolManager.setTool('select');
+                return;
+            }
+
+            try {
+                const result = await this.apiClient.splitBand(bandId, {
+                    upper: upperBandData,
+                    lower: lowerBandData,
+                });
+                if (toast) {
+                    toast.success(
+                        `Band split into 2 (#${result.upper?.id || '?'}, #${result.lower?.id || '?'})`
+                    );
+                }
             } catch (error) {
                 console.error('[GelViewer] Split failed:', error);
-                this._showMessage(`Split failed: ${error.message || error}`);
-                // Server may be in a half-state (delete OK, one create failed).
-                // Reload to surface ground truth rather than leave stale UI.
+                if (toast) {
+                    toast.error(`Split failed: ${error.message || error}. Reloading from server…`);
+                }
+                // Atomic endpoint rolled back on its side, but the local
+                // state may have already drifted (e.g. user kept editing).
+                // Reload to be safe — matches the old behaviour.
                 this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
+                this.toolManager.setTool('select');
+                return;
             }
+
+            // Reload from server so local state picks up the new band IDs
+            // for the two halves and drops the deleted original. Cheaper
+            // than splicing the result into the optimistic state by hand
+            // (we'd have to update lane.bands, the SVG, the band table,
+            // the densitometry view…). The single reload is fast enough
+            // and keeps every panel in sync the same way as before.
+            this.eventBus.emit(Events.DATA_RELOAD_REQUESTED);
 
             // Switch back to select tool
             this.toolManager.setTool('select');
@@ -1685,7 +2263,15 @@
                 try {
                     await this.apiClient.deleteAllLanes();
                     this.stateManager.clearAll();
+                    // Nothing pending can still apply: the saved lanes are gone with their bands, the unsaved ones
+                    // with the canvas. Left pending, a lane drawn by hand came back at the next Save beside the
+                    // detected ones, an edit of a replaced lane failed every Save, and the backup offered them again.
+                    this.stateManager.markClean();
                     this.renderer.clearAll();
+                    // Every lane is gone server-side, the HCP reference with it (SET_NULL).
+                    this.readout.referenceLaneId = null;
+                    this.renderer.setReferenceLane(null);
+                    this._updateToolbarState();
                 } catch (error) {
                     console.error('Failed to clear existing lanes:', error);
                     this._hideLoading();
@@ -1703,7 +2289,10 @@
                         eventBus: this.eventBus,
                         modelUrl: '/static/gel_analyzer/ml/gel_analysis.onnx',
                         imageWidth: this.options.imageWidth,
-                        imageHeight: this.options.imageHeight
+                        imageHeight: this.options.imageHeight,
+                        // A 25 % floor: the review's slider starts at 50 %, the old cut, and can bring back
+                        // a lane the model saw below it (review-panel.js).
+                        confidenceThreshold: 0.25
                     });
 
                     await this.inferenceEngine.initialize();
@@ -1714,8 +2303,9 @@
                     this.reviewPanel = new ReviewPanel({
                         eventBus: this.eventBus,
                         stateManager: this.stateManager,
-                        renderer: this.renderer,
                         svg: this.svg,
+                        viewport: this.viewport,
+                        apiClient: this.apiClient,
                         onAccept: (detections) => this._acceptDetections(detections)
                     });
                 }
@@ -1748,8 +2338,9 @@
                 if (detections && detections.length > 0) {
                     console.log('Auto-detect: Processing', detections.length, 'detections');
 
-                    // Show review panel
+                    // Show the review; a click on the gel is a click on a detected lane, not a lane being drawn
                     console.log('Auto-detect: Showing review panel...');
+                    this.toolManager.setTool('select');
                     this.reviewPanel.show(detections, gelType);
 
                     // Save raw YOLO results to server
@@ -1764,7 +2355,8 @@
                         // Don't block the UI if saving fails
                     }
 
-                    this._showMessage(`${detections.length} lanes detected - review and accept`);
+                    const kept = this.reviewPanel.getSelectedDetections().length;
+                    this._showMessage(`${kept} lanes detected - review them on the gel`);
                 } else {
                     console.log('Auto-detect: No detections returned');
                     this._showMessage('No lanes detected');
@@ -1792,7 +2384,8 @@
             const lanesData = detections.map((det, index) => ({
                 lane_number: index + 1,  // Will be recalculated by server
                 lane_type: det.lane_type || 'SAMPLE',
-                lane_shape: det.polygon ? 'POLYGON' : 'RECTANGLE',
+                // The review's shape: QUADRILATERAL when it follows a tilted lane, else today's 4-point POLYGON
+                lane_shape: det.lane_shape || (det.polygon ? 'POLYGON' : 'RECTANGLE'),
                 polygon: det.polygon || null,
                 x: det.bbox ? Math.round(det.bbox[0]) : 0,
                 y: det.bbox ? Math.round(det.bbox[1]) : 0,
@@ -1823,13 +2416,13 @@
                     this.renderer.renderLane(serverLane);
                 }
 
-                // Auto-normalize lane heights after detection
-                this._normalizeLaneHeights();
+                // No height normalisation afterwards: the review already cut every lane at the common top and bottom
+                // of the kept lanes, and saved what it showed (spec 2026-10-10 §10).
 
-                // Update annotations list
-                this.renderer.updateAnnotationsList();
-
-                this._showMessage(`${result.count} lanes created from detection (heights normalized)`);
+                const tilted = detections.filter(d => d.lane_shape === 'QUADRILATERAL').length;
+                this._showMessage(tilted
+                    ? `${result.count} lanes created, ${tilted} following their tilt`
+                    : `${result.count} lanes created from detection`);
 
                 // Update toolbar state (e.g., disable crop button now that lanes exist)
                 this._updateToolbarState();
@@ -1885,16 +2478,28 @@
                 return;
             }
 
+            const saveBtn = document.getElementById('save-btn');
+            this._batchSaving = true;  // the reading is read once, at the end (_scheduleReadingRefresh)
             try {
+                saveBtn?.classList.add('saving');
                 this._showLoading('Saving...');
 
                 const pending = this.stateManager.pendingChanges;
                 const idMapping = { lanes: {}, bands: {} };
 
+                // Every entry leaves `pending` as soon as the server has it, and a created one leaves the backup at
+                // once: a save that fails half way (or a tab closed during it) must not make a retry or a restored
+                // backup create it twice.
+
                 // Save created lanes
                 for (const [tempId, data] of pending.lanes.created) {
                     const result = await this.apiClient.createLane(data);
                     idMapping.lanes[tempId] = result.id;
+                    pending.lanes.created.delete(tempId);
+                    for (const band of pending.bands.created.values()) {
+                        if (band._parentLaneId === tempId) band._parentLaneId = band.lane_id = result.id;
+                    }
+                    this.stateManager.saveToLocalStorage();
 
                     // Update local state with real ID
                     const lane = this.stateManager.getLane(tempId);
@@ -1910,6 +2515,11 @@
                         const label = this.svg.findOne(`#lane-label-${tempId}`);
                         if (label) label.attr('id', `lane-label-${result.id}`);
                     }
+                    // The selection and the form shown follow the new id (a temp_ id finds no lane any more).
+                    if (this.selectedId === tempId) this.selectedId = result.id;
+                    if (this.propertiesPanel?.currentType === 'lane' && this.propertiesPanel.currentId === tempId) {
+                        this.propertiesPanel.currentId = result.id;
+                    }
                 }
 
                 // Bulk update lanes
@@ -1919,6 +2529,7 @@
                     if (lanesToUpdate.length > 0) {
                         await this.apiClient.updateLanesBulk(lanesToUpdate);
                     }
+                    pending.lanes.updated.clear();
                 }
 
                 // Bulk delete lanes
@@ -1926,7 +2537,15 @@
                     .filter(id => !String(id).startsWith('temp_'));
                 if (laneIdsToDelete.length > 0) {
                     await this.apiClient.deleteLanesBulk(laneIdsToDelete);
+                    // The server nulls the reference of a deleted lane (SET_NULL):
+                    // follow it, or the menu would keep checking a ghost.
+                    const ref = this.readout.referenceLaneId;
+                    if (ref !== null && laneIdsToDelete.some(id => Number(id) === Number(ref))) {
+                        this.readout.referenceLaneId = null;
+                        this.renderer.setReferenceLane(null);
+                    }
                 }
+                pending.lanes.deleted.clear();
 
                 // Save created bands
                 for (const [tempId, data] of pending.bands.created) {
@@ -1935,6 +2554,8 @@
 
                     const result = await this.apiClient.createBand(realLaneId, data);
                     idMapping.bands[tempId] = result.id;
+                    pending.bands.created.delete(tempId);
+                    this.stateManager.saveToLocalStorage();
 
                     // Update local state
                     const band = this.stateManager.getBand(tempId);
@@ -1948,11 +2569,17 @@
                         const element = this.svg.findOne(`#band-${tempId}`);
                         if (element) element.attr('id', `band-${result.id}`);
                     }
+                    // The selection and the form shown follow the new id, as a lane's do above.
+                    if (this.selectedId === tempId) this.selectedId = result.id;
+                    if (this.propertiesPanel?.currentType === 'band' && this.propertiesPanel.currentId === tempId) {
+                        this.propertiesPanel.currentId = result.id;
+                    }
                 }
 
                 // Save updated bands
                 for (const [id, data] of pending.bands.updated) {
                     await this.apiClient.updateBand(id, data);
+                    pending.bands.updated.delete(id);
                 }
 
                 // Delete bands
@@ -1960,20 +2587,30 @@
                     if (!String(id).startsWith('temp_')) {
                         await this.apiClient.deleteBand(id);
                     }
+                    pending.bands.deleted.delete(id);
                 }
 
                 // Mark clean
                 this.stateManager.markClean();
-                this.renderer.updateAnnotationsList();
 
                 this._showMessage('All changes saved successfully');
                 this.eventBus.emit(Events.SAVE_COMPLETED);
+                if (saveBtn) {
+                    saveBtn.classList.add('saved');
+                    clearTimeout(this._savedTimer);
+                    this._savedTimer = setTimeout(() => saveBtn.classList.remove('saved'), 1500);
+                }
 
             } catch (error) {
                 console.error('Save failed:', error);
                 this._showMessage('Save failed: ' + error.message);
+                this.stateManager.saveToLocalStorage();  // what did not reach the server, and only that
             } finally {
+                saveBtn?.classList.remove('saving');
                 this._hideLoading();
+                this._refreshStatus();
+                this._batchSaving = false;
+                this._scheduleReadingRefresh();
             }
         }
 
@@ -2001,23 +2638,23 @@
         }
 
         /**
-         * Handle profile peak detection complete callback.
-         * @param {number} bandsCreated - Number of bands created
-         */
-        _onProfileDetectionComplete(bandsCreated) {
-            console.log('GelViewer: _onProfileDetectionComplete called, bands created:', bandsCreated);
-            this._showMessage(`Profile detection completed: ${bandsCreated} band${bandsCreated !== 1 ? 's' : ''} created`);
-        }
-
-        /**
          * Reload annotations from server.
          * Used after band detection or calibration to refresh display.
          */
         async _reloadAnnotations() {
             console.log('GelViewer: _reloadAnnotations called');
+            // A reading refresh already on its way (or waiting) read the server before this reload: it must not land
+            // after it, nor read again what the reload reads.
+            this._readingSeq++;
+            clearTimeout(this._readingTimer);
             try {
                 const data = await this.apiClient.loadAnnotations();
                 console.log('GelViewer: loaded data', { laneCount: data.lanes?.length, totalBands: data.lanes?.reduce((sum, l) => sum + (l.bands?.length || 0), 0) });
+
+                // The unsaved changes still applicable ride through the reload and are drawn again below; the others
+                // are dropped, so the next Save writes what the canvas shows. Before the maps are cleared: it reads them.
+                const dropped = this.stateManager.keepPendingApplicable(data.lanes || []);
+                const pending = this.stateManager.pendingChanges;
 
                 // Clear existing state
                 this.stateManager.lanes.clear();
@@ -2028,14 +2665,23 @@
                 this.bandsGroup.clear();
                 this.handlesGroup.clear();
 
-                // Re-render from fresh data
+                // Before the lanes: renderLane draws the REF badge.
+                this._applyReadoutContext(data);
+
+                // Re-render from fresh data, with the edits still waiting for Save
                 if (data.lanes) {
                     data.lanes.forEach(lane => {
+                        const laneEdit = pending.lanes.updated.get(lane.id);
+                        if (laneEdit) {
+                            Object.assign(lane, laneEdit);
+                            if (laneEdit.lane_type) lane.lane_type_display = StateManager.getLaneTypeDisplay(laneEdit.lane_type);
+                        }
                         this.stateManager.setLane(lane.id, lane);
                         this.renderer.renderLane(lane);
 
                         if (lane.bands) {
                             lane.bands.forEach(band => {
+                                Object.assign(band, pending.bands.updated.get(band.id));
                                 this.stateManager.setBand(band.id, band);
                                 this.renderer.renderBand(band);
                             });
@@ -2043,10 +2689,26 @@
                     });
                 }
 
-                this.renderer.updateAnnotationsList();
+                // Hides the deletions, draws the new lanes and bands, refreshes the list.
+                this._redrawPendingChanges();
+                if (dropped > 0 && this.toasts) {
+                    this.toasts.info(`Reload: ${dropped} unsaved change${dropped > 1 ? 's' : ''} dropped (no longer applicable)`);
+                }
+                // The handles layer was cleared: a 4-point lane still selected gets its corners back, as drawn.
+                const selected = this.selectedType === 'lane' ? this.stateManager.getLane(this.selectedId) : null;
+                if (this._showsCorners(selected)) {
+                    this.cornerHandles.show(selected);
+                } else {
+                    this.cornerHandles.hide();
+                }
+                // The SVG nodes were drawn again: the selection's outline too (.gv-selected).
+                if (this.selectedType !== null) {
+                    this.renderer.selectAnnotation(this.selectedType, this.selectedId);
+                }
                 this.eventBus.emit(Events.DATA_LOADED, data);
                 // Also emit ANNOTATIONS_LOADED so toolbar state updates
                 this.eventBus.emit(Events.ANNOTATIONS_LOADED, data);
+                this.eventBus.emit(Events.READING_CHANGED, this.reading);
 
             } catch (error) {
                 console.error('Failed to reload annotations:', error);
@@ -2092,8 +2754,10 @@
             let globalTop = Infinity;
             let globalBottom = -Infinity;
 
+            // Rule 2: a lane is read by its polygon unless it is a RECTANGLE (which may still store one).
+            const G = GelAnalyzer.LaneGeometry;
             for (const lane of lanes) {
-                if (lane.polygon && lane.polygon.length >= 3) {
+                if (G.hasOutline(lane)) {
                     // Use polygon Y extents
                     const ys = lane.polygon.map(p => p[1]);
                     globalTop = Math.min(globalTop, Math.min(...ys));
@@ -2115,8 +2779,8 @@
                     height: normalizedHeight
                 };
 
-                // Update polygon points if the lane has one
-                if (lane.polygon && lane.polygon.length >= 3) {
+                // Update polygon points if the lane is drawn by one
+                if (G.hasOutline(lane)) {
                     const ys = lane.polygon.map(p => p[1]);
                     const oldTop = Math.min(...ys);
                     const oldBottom = Math.max(...ys);
@@ -2126,12 +2790,21 @@
                         continue;
                     }
 
-                    // Remap polygon Y coords: top points -> normalizedY, bottom points -> normalizedBottom
-                    const midY = (oldTop + oldBottom) / 2;
-                    updateData.polygon = lane.polygon.map(p => {
-                        const newY = p[1] < midY ? normalizedY : normalizedBottom;
-                        return [p[0], newY];
-                    });
+                    if (lane.polygon.length === 4) {
+                        // A 4-point lane (the wand's, a tilted one, a Q-drawn one): its sides extended or cut as
+                        // lines, so a tilted lane keeps its slope (spec 2026-10-10 §3); the box follows (Rule 1).
+                        updateData.polygon = this._extendQuad(lane.polygon, normalizedY, normalizedBottom);
+                        const xs = updateData.polygon.map(p => p[0]);
+                        updateData.x = Math.min(...xs);
+                        updateData.width = Math.max(...xs) - updateData.x;
+                    } else {
+                        // Remap polygon Y coords: top points -> normalizedY, bottom points -> normalizedBottom
+                        const midY = (oldTop + oldBottom) / 2;
+                        updateData.polygon = lane.polygon.map(p => {
+                            const newY = p[1] < midY ? normalizedY : normalizedBottom;
+                            return [p[0], newY];
+                        });
+                    }
                 } else {
                     if (lane.y === normalizedY && lane.height === normalizedHeight) {
                         continue;
@@ -2145,24 +2818,28 @@
             this._hideLoading();
 
             if (updatedCount > 0) {
-                this.renderer.updateAnnotationsList();
                 this._showMessage(`${updatedCount} lane${updatedCount !== 1 ? 's' : ''} normalized (y=${normalizedY}, h=${normalizedHeight}px)`);
             } else {
                 this._showMessage('All lanes already have the same height');
             }
         }
 
+        /**
+         * A 4-point lane's sides extended or cut, as lines, to yTop / yBottom; corners found by geometry (a Q-drawn
+         * lane's come in click order), clamped to the image, rounded; TL, TR, BR, BL
+         * (services/lane_geometry/shape.py::extend_quad + order_corners).
+         */
+        _extendQuad(points, yTop, yBottom) {
+            const G = GelAnalyzer.LaneGeometry;
+            return G.clampRound(G.extendQuad(points, yTop, yBottom), this.options.imageWidth || Infinity, Infinity);
+        }
+
+        /** The lane under a point, by its outline (Rule 2: a RECTANGLE lane is hit by its box, whatever it stores). */
         _findLaneAtPoint(x, y) {
+            const G = GelAnalyzer.LaneGeometry;
             for (const [id, lane] of this.stateManager.lanes) {
-                if (lane.polygon && lane.polygon.length >= 3) {
-                    if (this._pointInPolygon(x, y, lane.polygon)) {
-                        return id;
-                    }
-                } else {
-                    if (x >= lane.x && x <= lane.x + lane.width &&
-                        y >= lane.y && y <= lane.y + lane.height) {
-                        return id;
-                    }
+                if (G.pointInPolygon(x, y, G.outline(lane))) {
+                    return id;
                 }
             }
             return null;
@@ -2177,18 +2854,101 @@
             return null;
         }
 
-        _pointInPolygon(x, y, polygon) {
-            let inside = false;
-            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-                const xi = polygon[i][0], yi = polygon[i][1];
-                const xj = polygon[j][0], yj = polygon[j][1];
+        // =====================================================================
+        // Context menu
+        // =====================================================================
 
-                if (((yi > y) !== (yj > y)) &&
-                    (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
-                    inside = !inside;
+        /**
+         * Open the context menu on what it was asked for (owner brief, 2026-10-13). A right-click or a long-press
+         * (`point`) selects the band under it, else the lane, and opens that one's menu there; on bare gel it opens
+         * nothing and the selection stays. Shift+F10 / the Menu key (`keyboard`) open the selection's menu over it,
+         * the focus in the menu. Never while a shape is being drawn, nor on an analysis that cannot be edited.
+         * @param {{x?: number, y?: number, point?: {x: number, y: number}, keyboard?: boolean}} request
+         */
+        _openContextMenu({ x, y, point, keyboard }) {
+            if (!this.isEditable || this._isDrawing()) {
+                this.contextMenu.hide();
+                return;
+            }
+            if (keyboard) {
+                if (!this.selectedType) return;
+                const selected = this.selectedType === 'lane'
+                    ? this.stateManager.getLane(this.selectedId)
+                    : this.stateManager.getBand(this.selectedId);
+                if (!selected) {
+                    // A selection left behind by a reload that took its lane or band away: no menu for nothing.
+                    this._deselect();
+                    this._showMessage('Select a lane or band first');
+                    return;
+                }
+                const anchor = this._contextMenuAnchor(this.selectedType, this.selectedId);
+                this.contextMenu.show(anchor.x, anchor.y, this.selectedType, { keyboard: true });
+                return;
+            }
+            const target = point ? this._annotationAtPoint(point.x, point.y) : null;
+            if (!target) {
+                this.contextMenu.hide();
+                return;
+            }
+            if (target.type !== this.selectedType || target.id !== this.selectedId) {
+                this._selectAnnotation(target.type, target.id);
+            }
+            this.contextMenu.show(x, y, target.type);
+        }
+
+        /** A shape under way: no context menu over it, and Esc cancels it first (isIdle). */
+        _isDrawing() {
+            const tool = this.toolManager?.getActiveTool();
+            if (tool && (tool.isDrawing || tool.startPoint || tool.points?.length || tool.shapePoints?.length)) {
+                return true;
+            }
+            return Boolean(this.drawingGroup && this.drawingGroup.children().length > 0);
+        }
+
+        /**
+         * What a click at this image point lands on: a band (drawn as the renderer draws it: its polygon, else its
+         * box; the last one in the list when two overlap, as they stack), else the lane by its outline (Rule 2,
+         * _findLaneAtPoint), else null.
+         * @returns {{type: 'band'|'lane', id: *}|null}
+         */
+        _annotationAtPoint(x, y) {
+            let bandId = null;
+            for (const [id, band] of this.stateManager.bands) {
+                if (band.polygon && band.polygon.length >= 3) {
+                    if (this._pointInPolygon(x, y, band.polygon)) bandId = id;
+                } else if (band.bbox_x != null && band.bbox_y != null && band.bbox_width && band.bbox_height) {
+                    if (x >= band.bbox_x && x <= band.bbox_x + band.bbox_width
+                        && y >= band.bbox_y && y <= band.bbox_y + band.bbox_height) bandId = id;
                 }
             }
-            return inside;
+            if (bandId !== null) return { type: 'band', id: bandId };
+            const laneId = this._findLaneAtPoint(x, y);
+            return laneId !== null ? { type: 'lane', id: laneId } : null;
+        }
+
+        /**
+         * Where Shift+F10 / the Menu key open the menu: the middle of the part of the selected shape that is on
+         * screen, inside the gel's view (zoomed in, panned) and the window (on a phone the page scrolls the gel away);
+         * else the middle of what is left of the view, else of the window. Never off screen: the menu takes the keys.
+         */
+        _contextMenuAnchor(type, id) {
+            const clip = (a, b) => ({
+                left: Math.max(a.left, b.left),
+                right: Math.min(a.right, b.right),
+                top: Math.max(a.top, b.top),
+                bottom: Math.min(a.bottom, b.bottom),
+            });
+            const empty = (r) => r.left > r.right || r.top > r.bottom;
+            const screen = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+            const view = clip((this.viewer || this.container).getBoundingClientRect(), screen);
+            const shape = this.svg.findOne(`#${type}-${id}`);
+            const part = shape ? clip(shape.node.getBoundingClientRect(), view) : null;
+            const box = part && !empty(part) ? part : (!empty(view) ? view : screen);
+            return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+        }
+
+        _pointInPolygon(x, y, polygon) {
+            return GelAnalyzer.LaneGeometry.pointInPolygon(x, y, polygon);
         }
 
         _showMessage(text, duration = 2000) {
@@ -2236,6 +2996,39 @@
 
         hasUnsavedChanges() {
             return this.stateManager.isDirty;
+        }
+
+        /**
+         * True when Esc has nothing left to close, cancel or deselect: no selection, no drawing under way, no panel,
+         * menu, dialog, overlay or toast open (each by the marker its own show / hide sets). The page's Esc leaves
+         * the editor only then; it reads this in the capture phase, before the handlers that close things run.
+         * @returns {boolean}
+         */
+        isIdle() {
+            if (this.selectedType !== null) return false;
+            if (this._isDrawing()) return false;
+
+            const open = [
+                this.dataTablePanel?.isVisible(),
+                this.bandTablePanel?.isVisible(),
+                this.adjustmentsPanel?.isVisible(),
+                this.contextMenu?.isVisible(),
+                this.detectionPanel?.isOpen(),
+                this.cv2DetectionPanel?.isOpen(),
+                this.calibrationPanel?.isOpen(),
+                this.reviewPanel?.isOpen(),
+                this.electropherogramPanel?.isVisible,
+                this.bandModelPanel?.isVisible,
+                this.teacherPanel?.isOpen,
+                this.toasts?.hasOpen?.(),
+            ];
+            if (open.some(Boolean)) return false;
+
+            // The confirm dialog (crash-backup restore included), the Remove-all and loading overlays, the lane-shape
+            // menu: their own classes.
+            return !document.querySelector(
+                '#gv-confirm-modal.show, #action-modal.visible, #loading-overlay.visible, .gv-tool-dropdown.open'
+            );
         }
 
         save() {
@@ -2532,7 +3325,7 @@
                 this._hideLoading();
                 console.warn('Crop rejected:', error.message);
                 const msg = 'Failed to crop image: ' + error.message;
-                if (window.gaToast) gaToast(msg, 'danger'); else alert(msg);
+                if (this.toasts) this.toasts.error(msg); else this._showMessage(msg);
                 this.toolManager.setTool('select');
             }
         }
@@ -2591,20 +3384,10 @@
                     enabled: laneCount > 0,
                     disabledTooltip: 'Create lanes first to detect bands'
                 },
-                // Hybrid Detection: requires lanes
-                'toggle-hybrid-detection': {
+                // Band model: requires lanes (the bands go to the saved lanes)
+                'toggle-band-model': {
                     enabled: laneCount > 0,
                     disabledTooltip: 'Create lanes first to detect bands'
-                },
-                // Cross-Lane Consensus: requires lanes (post-processes existing bands)
-                'toggle-cross-lane-consensus': {
-                    enabled: laneCount > 0,
-                    disabledTooltip: 'Create lanes first'
-                },
-                // Profile Peak Detection: requires lanes
-                'toggle-profile-detection': {
-                    enabled: laneCount > 0,
-                    disabledTooltip: 'Create lanes first to detect peaks'
                 },
                 // Electropherogram: requires lanes
                 'toggle-electropherogram': {
@@ -2624,17 +3407,18 @@
                     disabledTooltip: 'Calibrate MW first'
                 },
                 // Band tool: requires lanes
-                'tool-band': {
+                '[data-tool="band"]': {
                     enabled: laneCount > 0,
                     disabledTooltip: 'Create a lane first'
                 },
-                // Split tool: requires selected band
-                'tool-split': {
-                    enabled: hasSelectedBand,
-                    disabledTooltip: 'Select a band first'
+                // Split tool: a band to split (the tool finds the band under the click; only the S key needs a
+                // band selected first)
+                '[data-tool="split"]': {
+                    enabled: totalBands > 0,
+                    disabledTooltip: 'No band to split'
                 },
                 // Delete button: requires selection
-                'btn-delete': {
+                '#delete-selected': {
                     enabled: hasSelection,
                     disabledTooltip: 'Select an annotation first'
                 },
@@ -2655,50 +3439,71 @@
                 this._setButtonState(buttonId, rule.enabled, rule.disabledTooltip);
             });
 
-            // Densitometry button (action bar <a> tag — uses different disabled pattern)
-            const densitometryBtn = document.getElementById('btn-densitometry');
-            if (densitometryBtn) {
-                if (totalBands > 0) {
-                    densitometryBtn.classList.remove('gv-action-btn-disabled');
+            // Densitometry, in the header's views (workbench/_identity.html): greyed while the gel has no band.
+            // The page refuses a click on it greyed, with its title as the reason.
+            const densitometry = document.getElementById('ga-wb-view-densitometry');
+            if (densitometry) {
+                const off = totalBands === 0;
+                densitometry.classList.toggle('is-off', off);
+                if (off) {
+                    densitometry.setAttribute('aria-disabled', 'true');
+                    densitometry.removeAttribute('href');
                 } else {
-                    densitometryBtn.classList.add('gv-action-btn-disabled');
+                    densitometry.removeAttribute('aria-disabled');
+                    densitometry.setAttribute('href', densitometry.dataset.href);
                 }
+                densitometry.title = off ? densitometry.dataset.titleOff : densitometry.dataset.titleOn;
             }
+
+            this._refreshStatus();
         }
 
         /**
-         * Set a toolbar button's enabled/disabled state.
-         * @param {string} buttonId - Button element ID
+         * The editor's live status: "N unsaved changes" beside Save (StateManager.pendingCount, hidden at 0), Save's
+         * look, the status bar's lane and band counts. On every move of the pending changes (PENDING_CHANGED) and
+         * from _updateToolbarState (annotations loaded or reloaded, selection, lanes or bands added or removed).
+         */
+        _refreshStatus() {
+            const count = this.stateManager.pendingCount();
+            const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+            const indicator = document.getElementById('unsaved-indicator');
+            if (indicator) {
+                indicator.hidden = count === 0;
+                const label = indicator.querySelector('span');
+                if (label) label.textContent = plural(count, 'unsaved change');
+            }
+            document.getElementById('save-btn')?.classList.toggle('has-changes', count > 0);
+
+            const lanes = document.getElementById('lane-count');
+            if (lanes) lanes.textContent = plural(this.stateManager.getLaneCount(), 'lane');
+            const bands = document.getElementById('band-count');
+            if (bands) bands.textContent = plural(this.stateManager.getBandCount(), 'band');
+        }
+
+        /**
+         * Set a toolbar button's enabled/disabled state. Its tooltip (data-tooltip) says why it is disabled, and
+         * comes back to the template's text (kept once in data-tooltip-default) when it is enabled again.
+         * @param {string} target - The button's id, else a selector ('[data-tool="band"]')
          * @param {boolean} enabled - Whether button should be enabled
          * @param {string} disabledTooltip - Tooltip to show when disabled
          */
-        _setButtonState(buttonId, enabled, disabledTooltip) {
-            const button = document.getElementById(buttonId);
+        _setButtonState(target, enabled, disabledTooltip) {
+            const button = document.getElementById(target) || document.querySelector(target);
             if (!button) return;
 
-            const originalTooltip = button.dataset.tooltip || '';
+            if (button.dataset.tooltipDefault === undefined) {
+                button.dataset.tooltipDefault = button.dataset.tooltip || '';
+            }
 
             if (enabled) {
                 button.disabled = false;
                 button.classList.remove('gv-toolbar-btn-disabled');
-                button.setAttribute('title', originalTooltip);
-                // Store original tooltip for later restoration
-                if (originalTooltip) {
-                    button.dataset.tooltip = originalTooltip;
-                }
+                button.dataset.tooltip = button.dataset.tooltipDefault;
             } else {
                 button.disabled = true;
                 button.classList.add('gv-toolbar-btn-disabled');
-                button.setAttribute('title', disabledTooltip || 'Action not available');
-            }
-
-            // Update MDB tooltip if present
-            if (typeof mdb !== 'undefined' && mdb.Tooltip) {
-                const tooltipInstance = mdb.Tooltip.getInstance(button);
-                if (tooltipInstance) {
-                    tooltipInstance.dispose();
-                    new mdb.Tooltip(button);
-                }
+                button.dataset.tooltip = disabledTooltip || 'Action not available';
             }
         }
 

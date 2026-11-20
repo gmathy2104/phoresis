@@ -134,9 +134,27 @@
         DATA_UPDATED: 'data:updated',
         PROFILE_LOADED: 'profile:loaded',
 
+        // Western readout block refreshed (state.setReadouts): the readout
+        // sub-view and the gel overview's REF tag redraw. Emitted after a
+        // reference-lane change WITHOUT a loadResults (no full re-render).
+        READOUTS_UPDATED: 'readouts:updated',
+
+        // The page summary (cards, checks, status hint, lane cells) replaced (state.setPageSummary): the
+        // summary strip and the Measurements › Lanes view redraw.
+        PAGE_SUMMARY_UPDATED: 'page-summary:updated',
+
+        // AutoSave events (Phase 4 - shared error UX)
+        AUTOSAVE_OK: 'autosave:ok',
+        AUTOSAVE_FAILED: 'autosave:failed',
+
         // View events
         ZOOM_CHANGED: 'zoom:changed',
         VIEW_MODE_CHANGED: 'view:mode:changed',
+
+        // Quantification calibration save/apply broadcast — emitted by the
+        // QuantificationModal after a successful save; consumed by the
+        // ChromatogramPanel to refresh the curve sub-view.
+        QUANT_CALIBRATION_CHANGED: 'quant:calibration:changed',
 
         // Chart events
         CHART_READY: 'chart:ready',

@@ -3,17 +3,23 @@
  *
  * Provides a Promise-based API for showing confirmation dialogs
  * before destructive actions. Uses CSS classes from gel_viewer.css
- * (#gv-confirm-modal) — no MDB5 dependency.
+ * (#gv-confirm-modal) — no MDB5 dependency. prompt() asks for one value
+ * on the window kit: the editor never calls the browser's confirm / alert / prompt.
  */
 
 (function(global) {
     'use strict';
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     class ConfirmationManager {
         constructor() {
             this.modal = null;
             this.resolvePromise = null;
-            this._escHandler = null;
             this._setup();
         }
 
@@ -44,13 +50,8 @@
                 });
             }
 
-            // ESC key handler (attached only while open)
-            this._escHandler = (e) => {
-                if (e.key === 'Escape' && this.resolvePromise) {
-                    e.stopPropagation();
-                    this._resolve(false);
-                }
-            };
+            // Esc: GelViewer.Layers (show) calls _resolve(false) - never a click on Cancel, which the backup
+            // restore reads as Discard (GelViewerApp._offerBackup).
         }
 
         _resolve(result) {
@@ -66,7 +67,7 @@
             if (!this.modal) return;
             this.modal.classList.remove('show');
             this.modal.setAttribute('aria-hidden', 'true');
-            document.removeEventListener('keydown', this._escHandler);
+            if (global.GelViewer && global.GelViewer.Layers) global.GelViewer.Layers.close(this.modal);
         }
 
         /**
@@ -89,6 +90,10 @@
                     return;
                 }
 
+                // A dialog shown over one still open: the first one is answered "cancel", never left pending. A value
+                // window too: drawn above this one (z 11000), it would hide the dialog that now takes Esc and the keys.
+                if (this.resolvePromise) this._resolve(false);
+                if (this._cancelPrompt) this._cancelPrompt();
                 this.resolvePromise = resolve;
 
                 // Update content
@@ -122,10 +127,109 @@
                         (options.icon || 'exclamation-triangle-fill') + ' me-2';
                 }
 
-                // Show
+                // Show. The focus goes to Cancel on a destructive confirm; on the others (the backup restore, where
+                // Cancel is Discard) to the dialog box, so Enter or Space decides nothing by accident.
                 this.modal.classList.add('show');
                 this.modal.removeAttribute('aria-hidden');
-                document.addEventListener('keydown', this._escHandler);
+                if (global.GelViewer && global.GelViewer.Layers) {
+                    global.GelViewer.Layers.open(this.modal, {
+                        modal: true,
+                        close: () => this._resolve(false),
+                        isOpen: () => this.modal.classList.contains('show'),
+                        initialFocus: options.danger !== false ? cancelBtn : this.modal.querySelector('.modal-content'),
+                    });
+                }
+            });
+        }
+
+        /**
+         * Ask for one value - the editor's window.prompt, on the window kit (night and day, a phone). It answers what
+         * window.prompt answered: the text as typed (the caller parses it, as before), or null when cancelled - Cancel,
+         * the close button, a click beside it, Esc (GelViewer.Layers: Esc never decides). Enter in the field is OK.
+         *
+         * @param {Object} options
+         * @param {string} options.title - Window title
+         * @param {string} options.label - The field's label
+         * @param {string|number} [options.value=''] - Pre-filled and selected
+         * @param {string} [options.hint] - A line under the field
+         * @param {string} [options.inputMode='text'] - 'decimal' gives a phone its number pad (the field stays text:
+         *        a number field would answer '' for "12,5" where window.prompt answered "12,5")
+         * @param {string} [options.confirmText='OK'] - OK button text
+         * @param {string} [options.icon='input-cursor-text'] - Bootstrap icon
+         * @returns {Promise<string|null>}
+         */
+        prompt(options = {}) {
+            return new Promise((resolve) => {
+                // One at a time, as show(): one still open is answered "cancel", never left pending.
+                if (this._cancelPrompt) this._cancelPrompt();
+
+                const layer = document.createElement('div');
+                layer.className = 'gv-win-layer';
+                layer.innerHTML = `
+                    <div class="gv-win-backdrop"></div>
+                    <div class="gv-win" role="dialog" aria-modal="true" aria-labelledby="gv-prompt-title">
+                        <header class="gv-win-head">
+                            <h3 class="gv-win-title" id="gv-prompt-title"><i class="bi"></i><span></span></h3>
+                            <button type="button" class="gv-win-close" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+                        </header>
+                        <div class="gv-win-body">
+                            <label class="gv-win-label" for="gv-prompt-input"></label>
+                            <input type="text" class="gv-win-input" id="gv-prompt-input" autocomplete="off" spellcheck="false">
+                            <div class="gv-win-hint gv-prompt-hint"></div>
+                        </div>
+                        <footer class="gv-win-foot">
+                            <button type="button" class="gv-win-btn" data-prompt="cancel">Cancel</button>
+                            <button type="button" class="gv-win-btn gv-win-btn--primary" data-prompt="ok"></button>
+                        </footer>
+                    </div>
+                `;
+
+                // Text only: a title or a value may carry a band's own label.
+                layer.querySelector('.gv-win-title i').className = 'bi bi-' + (options.icon || 'input-cursor-text');
+                layer.querySelector('.gv-win-title span').textContent = options.title || 'Enter a value';
+                layer.querySelector('.gv-win-label').textContent = options.label || '';
+                layer.querySelector('.gv-prompt-hint').textContent = options.hint || '';
+                layer.querySelector('[data-prompt="ok"]').textContent = options.confirmText || 'OK';
+                const input = layer.querySelector('.gv-win-input');
+                input.value = options.value == null ? '' : String(options.value);
+                input.inputMode = options.inputMode || 'text';
+
+                const finish = (answer) => {
+                    this._cancelPrompt = null;
+                    if (global.GelViewer && global.GelViewer.Layers) global.GelViewer.Layers.close(layer);
+                    layer.remove();
+                    resolve(answer);
+                };
+                const cancel = () => finish(null);
+                this._cancelPrompt = cancel;
+
+                layer.querySelector('.gv-win-backdrop').addEventListener('click', cancel);
+                layer.querySelector('.gv-win-close').addEventListener('click', cancel);
+                layer.querySelector('[data-prompt="cancel"]').addEventListener('click', cancel);
+                layer.querySelector('[data-prompt="ok"]').addEventListener('click', () => finish(input.value));
+                // Enter answers from the field only: on Cancel or the close button it presses them.
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.isComposing) {
+                        e.preventDefault();
+                        finish(input.value);
+                    }
+                });
+
+                document.body.appendChild(layer);
+                if (global.GelViewer && global.GelViewer.Layers) {
+                    global.GelViewer.Layers.open(layer, {
+                        modal: true,
+                        close: cancel,
+                        isOpen: () => layer.isConnected,
+                        initialFocus: input,
+                    });
+                } else {
+                    input.focus();
+                }
+                // Selected once the focus has landed (Layers moves it after layout), as window.prompt selects its value.
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    if (document.activeElement === input) input.select();
+                }));
             });
         }
 
@@ -262,6 +366,26 @@
                     </p>
                 `,
                 confirmText: 'Delete Lane',
+                cancelText: 'Cancel',
+                danger: true,
+                icon: 'trash3-fill',
+            });
+        }
+
+        // The label is the user's own text (or "Band N"): escaped, the body is HTML.
+        confirmDeleteBand(label, laneNumber = null) {
+            const where = laneNumber != null ? ` in <strong>Lane ${escapeHtml(laneNumber)}</strong>` : '';
+
+            return this.show({
+                title: 'Delete Band',
+                body: `
+                    <p>Delete <strong>${escapeHtml(label)}</strong>${where} permanently?</p>
+                    <p class="text-muted">
+                        <i class="bi bi-exclamation-circle me-1"></i>
+                        This action cannot be undone.
+                    </p>
+                `,
+                confirmText: 'Delete Band',
                 cancelText: 'Cancel',
                 danger: true,
                 icon: 'trash3-fill',

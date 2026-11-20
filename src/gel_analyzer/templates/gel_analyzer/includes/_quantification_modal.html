@@ -5,7 +5,8 @@ Shows a 2x2 grid:
   - top-left:    calibration points + R² / N / equation stats
   - top-right:   calibration curve canvas
   - bottom-left: controls / QC table (out-of-spec rows highlighted)
-  - bottom-right: samples projected table
+  - bottom-right: samples projected table, each flagged in / above / below the
+                  calibration range (the standards' areas; outside = extrapolated)
 
 The header carries the fit Method + amount Unit + a "Show controls on curve"
 toggle. Footer offers Cancel / Refit / Save & apply. Backed by
@@ -53,22 +54,26 @@ QuantificationModal in panels/quantification-modal.js.
             <section class="dm-modal-cell">
                 <h4>Controls / QC</h4>
                 <table class="dm-table" id="qcm-controls-table">
-                    <thead><tr><th>Lane</th><th>Known</th><th>Predicted</th><th>%Recovery</th></tr></thead>
+                    <thead><tr><th>Lane</th><th>Known</th><th>Predicted</th><th>%Recovery</th><th>Range</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </section>
             <section class="dm-modal-cell">
                 <h4>Samples projected</h4>
                 <table class="dm-table" id="qcm-samples-table">
-                    <thead><tr><th>Lane</th><th>Sample</th><th>Area</th><th>Estimated</th></tr></thead>
+                    <thead><tr><th>Lane</th><th>Sample</th><th>Area</th><th>Estimated</th><th>Range</th></tr></thead>
                     <tbody></tbody>
                 </table>
+                <p class="dm-form-hint" id="qcm-samples-range"></p>
             </section>
         </div>
         <footer class="dm-modal-footer">
+            {% if quant_locked_reason %}
+            <span class="dm-form-hint" id="qcm-locked-reason">{{ quant_locked_reason }}</span>
+            {% endif %}
             <button class="dm-btn dm-btn-secondary" data-close>Cancel</button>
             <button class="dm-btn dm-btn-outline" id="qcm-refit">Refit</button>
-            <button class="dm-btn dm-btn-primary" id="qcm-save">Save &amp; apply</button>
+            <button class="dm-btn dm-btn-primary" id="qcm-save"{% if quant_locked_reason %} data-locked disabled{% endif %}>Save &amp; apply</button>
         </footer>
     </div>
 </div>

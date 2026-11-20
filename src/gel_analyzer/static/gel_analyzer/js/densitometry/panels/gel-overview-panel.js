@@ -54,31 +54,44 @@
             this.showBands = true;
 
             // Colors — kept in sync with the annotation gel-viewer
-            // (gel_viewer.css / gel_viewer_standalone.css). Adding a
-            // CALIBRATION/CONTROL/LADDER differentiation here so users
-            // see the same colour story across annotate → densito; the
-            // panel used to fall through everything to "lane" blue and
-            // any non-POI/MW_REFERENCE band to "bandOther" green, which
-            // hid the CALIBRATION points completely.
+            // (gel_viewer.css / gel_viewer_standalone.css). CALIBRATION /
+            // CONTROL / LADDER differentiation: the panel used to fall
+            // through everything to "lane" blue and any non-POI/MW_REFERENCE
+            // band to "bandOther" green, which hid the CALIBRATION points
+            // completely.
             this.colors = {
                 // Lane colors by lane_type
-                laneSample:      'rgba(59, 130, 246, 0.35)',  // Blue
-                laneSelected:    'rgba(59, 130, 246, 0.55)',  // Brighter blue when selected
+                laneSample:            'rgba(59, 130, 246, 0.35)',  // Blue
+                laneSelected:          'rgba(59, 130, 246, 0.55)',  // Brighter blue
                 laneSampleBorder:      '#3b82f6',
-                laneLadder:      'rgba(249, 115, 22, 0.35)',  // Orange
+                laneLadder:            'rgba(249, 115, 22, 0.35)',  // Orange
                 laneLadderBorder:      '#f97316',
-                laneCalibration: 'rgba(248, 113, 113, 0.35)', // Red-400 (matches calibration band)
+                laneCalibration:       'rgba(248, 113, 113, 0.35)', // Red-400
                 laneCalibrationBorder: '#f87171',
-                laneControl:     'rgba(6, 182, 212, 0.35)',   // Cyan
-                laneControlBorder:     '#06b6d4',
-                laneEmpty:       'rgba(107, 114, 128, 0.20)', // Grey
+                // CONTROL is green, as in the annotation editor and the analysis page (one gel palette).
+                laneControl:           'rgba(34, 197, 94, 0.30)',
+                laneControlBorder:     '#22c55e',
+                laneEmpty:             'rgba(107, 114, 128, 0.20)', // Grey
                 laneEmptyBorder:       '#6b7280',
+                // Anti-HCP reference lane: outline + "REF" tag, the editor's
+                // amber (gel_viewer_standalone.css --gv-ref-color)
+                laneReferenceBorder:   '#f59e0b',                   // Amber-500
+                laneReferenceInk:      '#0f172a',
+                // Legacy aliases (kept so any direct reference still works
+                // until the call sites switch to lane-type-specific keys)
+                lane:                  'rgba(59, 130, 246, 0.35)',
+                laneBorder:            '#3b82f6',
                 // Band colors by band_type
-                bandPOI:         'rgba(168, 85, 247, 0.35)',  // Purple
-                bandOther:       'rgba(34, 197, 94, 0.35)',   // Green
-                bandRef:         'rgba(249, 115, 22, 0.35)',  // Orange (MW_REFERENCE)
-                bandCalibration: 'rgba(248, 113, 113, 0.45)', // Red-400 (slightly stronger fill so CALIBRATION points stand out on top of a CALIBRATION lane)
-                bandSelected:    '#ef4444',                   // Red border on selection
+                bandPOI:               'rgba(168, 85, 247, 0.35)',  // Purple
+                bandOther:             'rgba(34, 197, 94, 0.35)',   // Green
+                bandRef:               'rgba(249, 115, 22, 0.35)',  // Orange
+                bandCalibration:       'rgba(248, 113, 113, 0.45)', // Red-400 (slightly stronger so CALIBRATION points stand out)
+                bandSelected:          '#ef4444',                   // Red border
+                // A western band's role (services/readouts.py::band_roles, from the server)
+                bandAggregate:         'rgba(244, 114, 182, 0.45)',
+                bandMain:              'rgba(168, 85, 247, 0.40)',
+                bandClipping:          'rgba(56, 189, 248, 0.45)',
+                bandLeftOut:           'rgba(100, 116, 139, 0.40)',
             };
 
             // ResizeObserver with debouncing
@@ -349,6 +362,7 @@
             this.eventBus.on(Events.BAND_SELECTED, () => this._render());
             this.eventBus.on(Events.DATA_UPDATED, () => this._render());
             this.eventBus.on(Events.BANDS_CREATED, () => this._render());  // Re-render when new bands are created
+            this.eventBus.on(Events.READOUTS_UPDATED, () => this._render());  // HCP reference moved: redraw the REF tag
 
             // Image adjustments
             this.eventBus.on(Events.IMAGE_ADJUSTED, (data) => {
@@ -587,21 +601,16 @@
         }
 
         /**
-         * Get lane at point.
+         * Get lane at point: inside its outline (the server's Rule 2), not its box -- a tilted lane's box takes in
+         * its neighbours.
          */
         _getLaneAtPoint(point) {
+            const G = GelAnalyzer.LaneGeometry;
             const lanes = this.state.getAllLanes();
 
             for (const lane of lanes) {
-                if (!lane.bbox) continue;
-
-                const bbox = lane.bbox;
-                if (
-                    point.x >= bbox.x &&
-                    point.x <= bbox.x + bbox.width &&
-                    point.y >= bbox.y &&
-                    point.y <= bbox.y + bbox.height
-                ) {
+                if (!lane.bbox && !lane.outline) continue;
+                if (G.pointInPolygon(point.x, point.y, G.outlineOfPayload(lane))) {
                     return lane;
                 }
             }
@@ -669,19 +678,35 @@
             const ctx = this.ctx;
             const lanes = this.state.getAllLanes();
             const selectedLaneId = this.state.selectedLaneId;
+            // Anti-HCP western only (null otherwise); redrawn on READOUTS_UPDATED.
+            const referenceLaneId = typeof this.state.getHcpReferenceLaneId === 'function'
+                ? this.state.getHcpReferenceLaneId()
+                : null;
+
+            const G = GelAnalyzer.LaneGeometry;
 
             lanes.forEach(lane => {
-                if (!lane.bbox) return;
+                if (!lane.bbox && !lane.outline) return;
 
-                const topLeft = this._imageToCanvas({ x: lane.bbox.x, y: lane.bbox.y });
-                const width = lane.bbox.width * this.scale;
-                const height = lane.bbox.height * this.scale;
+                // The lane's outline (a rectangle's four corners), its label at the left end of its top row.
+                const outline = G.outlineOfPayload(lane);
+                const [labelX, labelY] = G.topLeft(outline);
+                const topLeft = this._imageToCanvas({ x: labelX, y: labelY });
+                const tracePath = () => {
+                    ctx.beginPath();
+                    outline.forEach(([x, y], i) => {
+                        const p = this._imageToCanvas({ x, y });
+                        if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+                    });
+                    ctx.closePath();
+                };
 
                 const isSelected = lane.id === selectedLaneId;
+                const isReference = referenceLaneId !== null && Number(lane.id) === referenceLaneId;
 
-                // Fill + border colors keyed off lane_type so a
-                // CALIBRATION lane reads red, CONTROL reads cyan,
-                // LADDER reads orange — matching the annotation page.
+                // Fill + border colors keyed off lane_type so a CALIBRATION
+                // lane reads red, CONTROL reads cyan, LADDER reads orange —
+                // matching the annotation page.
                 let fill, border;
                 switch (lane.lane_type) {
                     case 'CALIBRATION':
@@ -706,20 +731,37 @@
                         border = this.colors.laneSampleBorder;
                 }
                 ctx.fillStyle = isSelected ? this.colors.laneSelected : fill;
-                ctx.fillRect(topLeft.x, topLeft.y, width, height);
+                tracePath();
+                ctx.fill();
 
-                ctx.strokeStyle = border;
-                ctx.lineWidth = isSelected ? 2 : 1;
-                ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+                // Border (the HCP reference gets its own, whatever its type)
+                ctx.strokeStyle = isReference ? this.colors.laneReferenceBorder : border;
+                ctx.lineWidth = isReference ? 2.5 : (isSelected ? 2 : 1);
+                tracePath();
+                ctx.stroke();
 
                 // Lane number label
+                const label = `L${lane.lane_number}`;
                 ctx.fillStyle = '#fff';
                 ctx.font = '12px sans-serif';
                 ctx.fillText(
-                    `L${lane.lane_number}`,
+                    label,
                     topLeft.x + 5,
                     topLeft.y + 15
                 );
+
+                // "REF" tag under the label, inside the lane: right of the label it ran over the next
+                // lane's number on a gel with narrow lanes
+                if (isReference) {
+                    const tagX = topLeft.x + 4;
+                    const tagY = topLeft.y + 20;
+                    ctx.font = 'bold 9px sans-serif';
+                    const tagWidth = ctx.measureText('REF').width + 6;
+                    ctx.fillStyle = this.colors.laneReferenceBorder;
+                    ctx.fillRect(tagX, tagY, tagWidth, 12);
+                    ctx.fillStyle = this.colors.laneReferenceInk;
+                    ctx.fillText('REF', tagX + 3, tagY + 9.5);
+                }
             });
         }
 
@@ -747,7 +789,16 @@
                 // points indistinguishable from regular bands once the
                 // user crossed over from annotate to densito.
                 let fillColor;
-                switch (band.band_type) {
+                const roleFill = {
+                    aggregate: this.colors.bandAggregate,
+                    main: this.colors.bandMain,
+                    clipping: this.colors.bandClipping,
+                    left_out: this.colors.bandLeftOut,
+                    hcp: this.colors.bandOther,
+                }[band.role];
+                if (roleFill) {
+                    fillColor = roleFill;
+                } else switch (band.band_type) {
                     case 'POI':
                         fillColor = this.colors.bandPOI;
                         break;

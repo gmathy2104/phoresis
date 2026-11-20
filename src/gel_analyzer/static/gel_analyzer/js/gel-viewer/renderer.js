@@ -10,6 +10,12 @@
 
     const Events = global.GelViewer.Events;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * Renderer Class
      */
@@ -31,6 +37,12 @@
             this.stateManager = options.stateManager;
             this.eventBus = options.eventBus;
             this.onSelectAnnotation = options.onSelectAnnotation;
+
+            // Anti-HCP reference lane (server id, a number) or null. Set by
+            // GelViewerApp before each (re)render through setReferenceLane;
+            // renderLane draws the "REF" badge, so load, reload and recovery
+            // all get it.
+            this.referenceLaneId = null;
         }
 
         // =====================================================================
@@ -73,17 +85,16 @@
             }
 
             // Add label
-            const labelX = data.polygon && data.polygon.length > 0
-                ? Math.min(...data.polygon.map(p => p[0])) + 4
-                : data.x + 4;
-            const labelY = data.polygon && data.polygon.length > 0
-                ? Math.min(...data.polygon.map(p => p[1])) + 4
-                : data.y + 4;
+            const { x: labelX, y: labelY } = this._labelAnchor(data);
 
             this.lanesGroup.text(String(data.lane_number))
                 .move(labelX, labelY)
                 .addClass('gv-lane-label')
                 .attr('id', `lane-label-${data.id}`);
+
+            if (this._isReference(data.id)) {
+                this._drawRefBadge(data.id, { x: labelX, y: labelY }, data.lane_number);
+            }
 
             // Click handler
             shape.on('click', (e) => {
@@ -92,6 +103,18 @@
                     this.onSelectAnnotation('lane', data.id);
                 }
             });
+        }
+
+        /**
+         * Where a lane's number goes: inside the left end of the top row of the shape drawn (a rectangle's top-left
+         * corner). Rule 2 (shared/lane-geometry.js): a RECTANGLE lane is drawn and labelled by its box whatever polygon
+         * it stores, and a tilted lane's label sits at its own top, not over its foot's minimum x.
+         */
+        _labelAnchor(lane) {
+            const G = GelAnalyzer.LaneGeometry;
+            const drawn = lane.lane_shape ? lane : { ...lane, lane_shape: 'RECTANGLE' };
+            const [x, y] = G.topLeft(G.outline(drawn));
+            return { x: x + 4, y: y + 4 };
         }
 
         /**
@@ -105,22 +128,19 @@
             if (lane.lane_shape !== 'RECTANGLE' && lane.polygon && lane.polygon.length >= 3) {
                 // Update polygon shape
                 element.plot(lane.polygon);
-
-                // Update label position
-                const label = this.svg.findOne(`#lane-label-${lane.id}`);
-                if (label) {
-                    const minX = Math.min(...lane.polygon.map(p => p[0]));
-                    const minY = Math.min(...lane.polygon.map(p => p[1]));
-                    label.move(minX + 4, minY + 4);
-                }
             } else {
                 // Update rectangle position/size
                 element.move(lane.x, lane.y).size(lane.width, lane.height);
+            }
+            const labelAnchor = this._labelAnchor(lane);
+            const label = this.svg.findOne(`#lane-label-${lane.id}`);
+            if (label) {
+                label.move(labelAnchor.x, labelAnchor.y);
+            }
 
-                const label = this.svg.findOne(`#lane-label-${lane.id}`);
-                if (label) {
-                    label.move(lane.x + 4, lane.y + 4);
-                }
+            // The REF badge follows the label.
+            if (this._isReference(lane.id)) {
+                this._drawRefBadge(lane.id, labelAnchor, lane.lane_number);
             }
         }
 
@@ -134,6 +154,17 @@
             if (label) {
                 label.text(String(number));
             }
+
+            // A wider number pushes the REF badge right: redraw it at the
+            // anchor it was drawn from.
+            if (this._isReference(id)) {
+                const badge = this.lanesGroup.findOne('.gv-ref-badge');
+                const lane = this.stateManager.getLane(id);
+                const anchor = badge
+                    ? { x: Number(badge.attr('data-anchor-x')), y: Number(badge.attr('data-anchor-y')) }
+                    : (lane ? this._labelAnchor(lane) : null);
+                if (anchor) this._drawRefBadge(id, anchor, number);
+            }
         }
 
         /**
@@ -146,6 +177,72 @@
 
             const label = this.svg.findOne(`#lane-label-${id}`);
             if (label) label.remove();
+
+            // The reference itself stays the server's (an unsaved delete can
+            // be undone by a reload); only its badge goes with the lane.
+            if (this._isReference(id)) {
+                this._clearRefBadge();
+            }
+        }
+
+        // =====================================================================
+        // HCP reference lane badge
+        // =====================================================================
+
+        /**
+         * Mark lane ``id`` as the anti-HCP reference (null clears). Exactly
+         * one badge at a time; drawn now if the lane is already rendered,
+         * otherwise by renderLane when it is.
+         * @param {number|string|null} id - Server lane id
+         */
+        setReferenceLane(id) {
+            this.referenceLaneId = (id === null || id === undefined || id === '') ? null : Number(id);
+            this._clearRefBadge();
+            if (this.referenceLaneId === null) return;
+
+            const lane = this.stateManager.getLane(this.referenceLaneId);
+            if (lane && this.svg.findOne(`#lane-${lane.id}`)) {
+                this._drawRefBadge(lane.id, this._labelAnchor(lane), lane.lane_number);
+            }
+        }
+
+        _isReference(id) {
+            return this.referenceLaneId !== null && Number(id) === this.referenceLaneId;
+        }
+
+        /**
+         * Draw the "REF" tag right of the lane number and outline the lane.
+         * A class on the lane shape and a class on the badge -- never an id
+         * starting "lane-" (the lane lookups use #lane-<id>). The badge is
+         * pointer-events: none (CSS) so the lane under it stays clickable.
+         */
+        _drawRefBadge(laneId, anchor, laneNumber) {
+            this._clearRefBadge();
+
+            const element = this.svg.findOne(`#lane-${laneId}`);
+            if (element) element.addClass('gv-lane--reference');
+
+            const digits = String(laneNumber ?? '').length || 1;
+            const x = anchor.x + digits * 7 + 4;   // the label is 12px, ~7px per digit
+            const y = anchor.y + 1;
+            const width = 22;
+            const height = 12;
+
+            const badge = this.lanesGroup.group()
+                .addClass('gv-ref-badge')
+                .attr({ 'data-ref-lane': laneId, 'data-anchor-x': anchor.x, 'data-anchor-y': anchor.y });
+            badge.rect(width, height).move(x, y).radius(2).addClass('gv-ref-badge-bg');
+            badge.plain('REF').addClass('gv-ref-badge-text').attr({
+                x: x + width / 2,
+                y: y + height / 2,
+                'text-anchor': 'middle',
+                'dominant-baseline': 'central',
+            });
+        }
+
+        _clearRefBadge() {
+            this.lanesGroup.find('.gv-ref-badge').forEach(el => el.remove());
+            this.lanesGroup.find('.gv-lane--reference').forEach(el => el.removeClass('gv-lane--reference'));
         }
 
         // =====================================================================
@@ -175,6 +272,8 @@
                     .attr('id', `band-${data.id}`)
                     .addClass('gv-band')
                     .addClass((data.band_type || 'OTHER').toLowerCase());
+                // Its part in the reading (the server's, /data/): drawn when the gel is coloured by readout (3c).
+                if (data.role) element.addClass(`role-${data.role}`);
 
                 // Hybrid-phase visual marker: if the band came from a split
                 // (metadata.hybrid_phase === 'split'), add a CSS class so the
@@ -222,6 +321,18 @@
         }
 
         /**
+         * A band's part in the reading changed (a fresh /data/): its `role-*` class follows.
+         * @param {string} id - Band ID
+         * @param {?string} role - The server's role, or null
+         */
+        setBandRole(id, role) {
+            const element = this.svg.findOne(`#band-${id}`);
+            if (!element) return;
+            (element.classes() || []).filter((name) => name.startsWith('role-')).forEach((name) => element.removeClass(name));
+            if (role) element.addClass(`role-${role}`);
+        }
+
+        /**
          * Remove a band from rendering.
          * @param {string} id - Band ID
          */
@@ -255,57 +366,6 @@
          */
         clearSelection() {
             this.svg.find('.gv-selected').forEach(el => el.removeClass('gv-selected'));
-        }
-
-        // =====================================================================
-        // Annotations List
-        // =====================================================================
-
-        /**
-         * Update the annotations sidebar list.
-         */
-        updateAnnotationsList() {
-            const container = document.getElementById('annotations-list');
-            if (!container) return;
-
-            const lanes = this.stateManager.getLanesSortedByPosition();
-
-            if (lanes.length === 0) {
-                container.innerHTML = '<p class="text-muted small p-2">No annotations yet</p>';
-                return;
-            }
-
-            let html = '';
-            lanes.forEach(lane => {
-                const bandCount = lane.bands ? lane.bands.length : 0;
-                const typeClass = (lane.lane_type || 'sample').toLowerCase();
-
-                html += `
-                    <div class="gv-annotation-item" data-type="lane" data-id="${lane.id}">
-                        <div class="gv-annotation-item-header">
-                            <span class="gv-annotation-number">${lane.lane_number}</span>
-                            <span class="gv-annotation-type badge-${typeClass}">${lane.lane_type_display || 'Sample'}</span>
-                            <span class="gv-annotation-count">${bandCount} bands</span>
-                        </div>
-                        ${(lane.process_sample?.sample_id || lane.sample_name) ? `<div class="gv-annotation-sample">${lane.process_sample ? '<i class="bi bi-flask"></i> ' : ''}${lane.process_sample?.sample_id || lane.sample_name}</div>` : ''}
-                    </div>
-                `;
-            });
-
-            container.innerHTML = html;
-
-            // Add click handlers
-            container.querySelectorAll('.gv-annotation-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const type = item.dataset.type;
-                    const id = item.dataset.id;
-                    if (this.onSelectAnnotation) {
-                        this.onSelectAnnotation(type, id);
-                    }
-                });
-            });
-
-            this.eventBus.emit(Events.ANNOTATIONS_LIST_UPDATED);
         }
 
         // =====================================================================

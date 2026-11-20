@@ -1,0 +1,19 @@
+/* GelAnalyzer.Viz.SampleLaneGel (js/viz/sample-lane-gel.js). Colours are --slg-* custom properties with
+   night defaults; a host maps them onto its own tokens (process_development/css/sample_detail.css).
+   Strokes do not scale with the image (vector-effect), so lines stay crisp whatever the gel's size. */
+.ga-slg { display: block; width: 100%; }
+.ga-slg-svg { display: block; width: 100%; height: auto; max-height: 620px; }
+.ga-slg-slab { fill: var(--slg-slab, #0b1220); }
+.ga-slg-lane { fill: none; stroke: var(--slg-lane, rgba(148, 163, 184, 0.55)); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ga-slg-veil { fill: var(--slg-veil, rgba(15, 23, 42, 0.45)); }
+.ga-slg-self { fill: none; stroke: var(--slg-accent, #3b82f6); stroke-width: 2.4; vector-effect: non-scaling-stroke; }
+.ga-slg-band { fill: none; stroke: var(--slg-other, #f59e0b); stroke-width: 1.2; stroke-opacity: 0.55; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+.ga-slg-band.is-poi { stroke: var(--slg-poi, #22c55e); stroke-width: 1.6; stroke-opacity: 1; stroke-dasharray: none; }
+.ga-slg-lane-num, .ga-slg-axis, .ga-slg-note { fill: var(--slg-muted, #64748b); font-family: ui-sans-serif, system-ui, sans-serif; }
+.ga-slg-lane-num.is-self { fill: var(--slg-accent-text, #93c5fd); font-weight: 700; }
+.ga-slg-axis-title { fill: var(--slg-text-2, #94a3b8); font-family: ui-sans-serif, system-ui, sans-serif; }
+.ga-slg-tick { stroke: var(--slg-border, #334155); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ga-slg-pill { fill: var(--slg-accent, #3b82f6); }
+.ga-slg-pill-text { fill: var(--slg-on-accent, #f1f5f9); font-weight: 700; font-family: ui-sans-serif, system-ui, sans-serif; }
+.ga-slg-profile { fill: none; stroke: var(--slg-profile, #94a3b8); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.ga-slg-profile-poi { fill: var(--slg-poi-fill, rgba(34, 197, 94, 0.28)); }

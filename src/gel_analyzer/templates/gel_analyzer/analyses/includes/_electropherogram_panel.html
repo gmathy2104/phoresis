@@ -1,5 +1,10 @@
 <!-- Electropherogram Panel - Intensity Profile Visualization -->
 <div class="gv-electropherogram-panel" id="electropherogram-panel" style="display: none;">
+    <!-- Docked under the gel only (CSS): its top edge, dragged, shares the height between the gel and the profile -->
+    <div class="gv-profile-dock-splitter" id="electropherogram-dock-splitter" role="separator"
+         aria-orientation="horizontal" tabindex="0"
+         aria-label="Profile height: drag, or the up and down arrows; double-click resets"
+         title="Drag to resize the profile · double-click resets"></div>
     <!-- Header -->
     <div class="gv-electropherogram-header">
         <div class="gv-electropherogram-title">

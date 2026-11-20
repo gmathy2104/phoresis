@@ -12,14 +12,18 @@
     const ComparisonEvents = global.SampleComparison?.Events;
     const DragReorder = global.SampleComparison?.DragReorder;
 
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     /**
      * BandDetailPanel Class
      */
-    class BandDetailPanel {
+    class BandDetailPanel extends GelAnalyzer.Viz.Panel {
         constructor(options) {
-            this.container = options.container;
-            this.eventBus = options.eventBus;
-            this.state = options.state;
+            super(options);  // sets this.container/eventBus/state/options/tooltipLayer/_disposers
 
             this.contentElement = null;
             this.currentBandId = null;
@@ -28,16 +32,25 @@
 
             this.digitalLaneMode = 'bands';
 
-            this.colors = {
+            // Day mode (`data-theme="light"` on <html>, set only by hosts that offer it:
+            // the PD dashboard) paints the lanes light, so the bands take darker shades of
+            // the same hues. Read once: the host rebuilds the panel when the mode switches.
+            const day = document.documentElement.getAttribute('data-theme') === 'light';
+            this._day = day;
+            this.colors = day ? {
+                poi: '#9333ea',
+                other: '#166534',
+                mwReference: '#c2410c',
+                calibration: '#f87171',  // red-400 in both modes: the CALIBRATION colour everywhere
+            } : {
                 poi: '#a855f7',
                 other: '#22c55e',
                 mwReference: '#f97316',
+                calibration: '#f87171',  // Red-400 — CALIBRATION (matches annotation)
             };
-
-            this._init();
         }
 
-        _init() {
+        init() {
             if (!this.container) return;
 
             this.contentElement = this.container.querySelector('.dm-panel-content');
@@ -173,28 +186,28 @@
         }
 
         _setupEvents() {
-            this.eventBus.on(ComparisonEvents.BAND_SELECTED, (data) => {
+            this._on(ComparisonEvents.BAND_SELECTED, (data) => {
                 this._onBandSelected(data);
             });
 
-            this.eventBus.on(ComparisonEvents.SAMPLE_SELECTED, (data) => {
+            this._on(ComparisonEvents.SAMPLE_SELECTED, (data) => {
                 this.currentSampleId = data.sampleId;
                 this._renderDigitalLanes();
             });
 
-            this.eventBus.on(ComparisonEvents.DATA_LOADED, () => {
+            this._on(ComparisonEvents.DATA_LOADED, () => {
                 this._renderDigitalLanes();
             });
 
-            this.eventBus.on(ComparisonEvents.SAMPLE_ADDED, () => {
+            this._on(ComparisonEvents.SAMPLE_ADDED, () => {
                 this._renderDigitalLanes();
             });
 
-            this.eventBus.on(ComparisonEvents.SAMPLE_REMOVED, () => {
+            this._on(ComparisonEvents.SAMPLE_REMOVED, () => {
                 this._renderDigitalLanes();
             });
 
-            this.eventBus.on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => {
+            this._on(ComparisonEvents.SAMPLE_ORDER_CHANGED, () => {
                 this._renderDigitalLanes();
             });
         }
@@ -251,9 +264,12 @@
                 this.laneReorder.attach();
             }
 
-            // Render shared MW scale
-            if (mwScaleContainer && mwRange.minMW < mwRange.maxMW) {
-                mwScaleContainer.innerHTML = this._renderSharedMWScale(mwRange);
+            // Render shared MW scale -- none when no band carries an MW: every band then
+            // sits on its own lane's position_y range, which no kDa tick describes.
+            if (mwScaleContainer) {
+                mwScaleContainer.innerHTML = mwRange
+                    ? this._renderSharedMWScale(mwRange)
+                    : this._renderNoMWScale();
             }
         }
 
@@ -264,7 +280,7 @@
             if (!bands || bands.length === 0) {
                 return `
                     <div class="dm-lane-column ${isSelected ? 'selected' : ''}" data-sample-id="${sampleId}" style="border-top: 3px solid ${color};">
-                        <div class="dm-lane-header" data-sample-id="${sampleId}">${label || 'Sample'}</div>
+                        <div class="dm-lane-header" data-sample-id="${sampleId}">${escapeHtml(label || 'Sample')}</div>
                         <div class="dm-lane-body">
                             <div class="dm-lane-empty">No bands</div>
                         </div>
@@ -272,82 +288,95 @@
                 `;
             }
 
-            // If no band on this lane has an estimated MW, every band would
-            // collapse to topPercent=50% and produce the "stray bar in the
-            // middle" the user (rightly) called out. Render an explicit
-            // notice instead so the cause is obvious — the user needs to
-            // run MW calibration on the source analysis before bands can
-            // be aligned across samples.
-            const hasAnyMw = bands.some(b => b.estimated_mw_kda != null);
-            if (!hasAnyMw || mwRange.maxMW <= mwRange.minMW) {
-                return `
-                    <div class="dm-lane-column ${isSelected ? 'selected' : ''}" data-sample-id="${sampleId}" style="border-top: 3px solid ${color};">
-                        <div class="dm-lane-header" data-sample-id="${sampleId}">${label || 'Sample'}</div>
-                        <div class="dm-lane-body">
-                            <div class="dm-lane-no-mw">
-                                <i class="bi bi-rulers" aria-hidden="true"></i>
-                                <span class="dm-lane-no-mw-title">No MW calibration</span>
-                                <span class="dm-lane-no-mw-hint">${bands.length} band${bands.length === 1 ? '' : 's'} detected — calibrate the ladder lane in the source analysis to align them here.</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
             let bandsHtml = '';
-            let bandsWithoutMw = 0;
-            const logMin = Math.log10(mwRange.minMW);
-            const logMax = Math.log10(mwRange.maxMW);
+
+            // For bands without an estimated MW, spread them by their actual gel
+            // migration position (position_y) instead of stacking at one spot.
+            // Normalized within this lane's own band position_y range.
+            const laneYs = bands
+                .map(b => b.position_y)
+                .filter(y => y !== null && y !== undefined && !isNaN(y));
+            const laneMinY = laneYs.length ? Math.min(...laneYs) : 0;
+            const laneMaxY = laneYs.length ? Math.max(...laneYs) : 0;
+
+            // Lane is "uncalibrated" when no band carries an estimated MW: bands are
+            // then positioned by raw migration distance, not molecular weight.
+            const isUncalibrated = !bands.some(b => b.estimated_mw_kda);
 
             bands.forEach(band => {
-                if (band.estimated_mw_kda == null) {
-                    // Skip bands that lack an MW — counted below so the user
-                    // knows they're not silently dropped.
-                    bandsWithoutMw += 1;
-                    return;
+                // Position by MW if available
+                let topPercent;
+                if (band.estimated_mw_kda && mwRange && mwRange.maxMW > mwRange.minMW) {
+                    // Log scale positioning: high MW at top (0%), low MW at bottom (100%)
+                    const logMin = Math.log10(mwRange.minMW);
+                    const logMax = Math.log10(mwRange.maxMW);
+                    const logMW = Math.log10(band.estimated_mw_kda);
+                    topPercent = ((logMax - logMW) / (logMax - logMin)) * 100;
+                } else if (band.position_y !== null && band.position_y !== undefined && laneMaxY > laneMinY) {
+                    // No MW: position by actual migration distance (position_y);
+                    // larger position_y = further migrated = lower in the lane.
+                    topPercent = ((band.position_y - laneMinY) / (laneMaxY - laneMinY)) * 100;
+                } else {
+                    // No MW and no usable position_y: center as a last resort.
+                    topPercent = 50;
                 }
-                // Log-scale positioning: high MW at top (0%), low MW at bottom (100%).
-                const logMW = Math.log10(band.estimated_mw_kda);
-                let topPercent = ((logMax - logMW) / (logMax - logMin)) * 100;
+
+                // Clamp to valid range
                 topPercent = Math.max(2, Math.min(98, topPercent));
 
                 const bandColor = this._getBandColor(band.band_type);
-                const isBandSelected = band.id === this.currentBandId;
+                const isSelected = band.id === this.currentBandId;
+                const pseudo = this.digitalLaneMode === 'pseudo-gel';
 
                 let opacity = 0.7;
-                if (band.densitometry?.relative_percent_lane) {
-                    opacity = Math.max(0.4, Math.min(1, band.densitometry.relative_percent_lane / 40));
+                let paint = `background-color: ${bandColor};`;
+                if (pseudo) {
+                    // Pseudo-gel (the densitometry band zoom's look): a glow in the band's colour on a dark
+                    // lane, its intensity on a log scale of the lane share (0-100 % -> 0.3-1).
+                    const percent = band.densitometry?.relative_percent_lane;
+                    opacity = percent ? 0.3 + (Math.log10(1 + percent) / Math.log10(101)) * 0.7 : 0.6;
+                    paint = `background: linear-gradient(to bottom, transparent, ${bandColor} 45%, ${bandColor} 55%, transparent);`;
+                } else {
+                    if (band.densitometry?.relative_percent_lane) {
+                        opacity = Math.max(0.4, Math.min(1, band.densitometry.relative_percent_lane / 40));
+                    }
+                    // A faint band at 0.4 still reads on a dark lane but fades out on a light
+                    // one: by day the same ramp is lifted (0.4 -> 0.61, full stays full).
+                    if (this._day) opacity = 0.35 + 0.65 * opacity;
                 }
 
                 bandsHtml += `
-                    <div class="dm-digital-band ${isBandSelected ? 'selected' : ''}"
+                    <div class="dm-digital-band ${pseudo ? 'dm-digital-band--pseudo ' : ''}${isSelected ? 'selected' : ''}"
                          style="top: ${topPercent}%;
-                                background-color: ${bandColor};
-                                opacity: ${isBandSelected ? 1 : opacity};"
+                                ${paint}
+                                opacity: ${isSelected ? 1 : opacity};"
                          data-band-id="${band.id}"
-                         title="${band.band_type}${band.estimated_mw_kda ? ` (~${band.estimated_mw_kda.toFixed(0)} kDa)` : ''}${band.densitometry?.relative_percent_lane ? ` | ${band.densitometry.relative_percent_lane.toFixed(1)}%` : ''}">
-                        ${isBandSelected ? '<span class="dm-band-marker"></span>' : ''}
+                         title="${escapeHtml(band.band_type)}${band.estimated_mw_kda ? ` (~${band.estimated_mw_kda.toFixed(0)} kDa)` : ''}${band.densitometry?.relative_percent_lane ? ` | ${band.densitometry.relative_percent_lane.toFixed(1)}%` : ''}">
+                        ${isSelected ? '<span class="dm-band-marker"></span>' : ''}
                     </div>
                 `;
             });
 
-            // Footer notice when some bands had no MW.
-            const partialNotice = bandsWithoutMw > 0
-                ? `<div class="dm-lane-no-mw-partial">${bandsWithoutMw} band${bandsWithoutMw === 1 ? '' : 's'} hidden (no MW)</div>`
+            const uncalWarn = isUncalibrated
+                ? ` <i class="bi bi-exclamation-triangle-fill dm-lane-uncal-warn" style="color:#f59e0b;margin-left:3px;cursor:help;font-size:0.85em;" title="No MW calibration — bands positioned by raw migration distance, not molecular weight"></i>`
                 : '';
 
             return `
                 <div class="dm-lane-column ${isSelected ? 'selected' : ''}" data-sample-id="${sampleId}" style="border-top: 3px solid ${color};">
-                    <div class="dm-lane-header" data-sample-id="${sampleId}">${label || 'Sample'}</div>
-                    <div class="dm-lane-body">
+                    <div class="dm-lane-header" data-sample-id="${sampleId}">${escapeHtml(label || 'Sample')}${uncalWarn}</div>
+                    <div class="dm-lane-body${this.digitalLaneMode === 'pseudo-gel' ? ' dm-lane-body--pseudo' : ''}">
                         ${bandsHtml}
-                        ${partialNotice}
                     </div>
                 </div>
             `;
         }
 
+        /** Padded MW range over all samples, or null when no band carries an MW. */
         _getCommonMWRange(samples) {
+            // A calibration's template range alone positions no band: without a band
+            // MW there is nothing for a kDa scale to describe.
+            if (!samples.some(s => s.bands && s.bands.some(b => b.estimated_mw_kda))) return null;
+
             let minMW = Infinity;
             let maxMW = 0;
 
@@ -368,10 +397,6 @@
                     });
                 }
             });
-
-            // Default range if nothing found
-            if (minMW === Infinity) minMW = 10;
-            if (maxMW === 0) maxMW = 250;
 
             // Add padding
             minMW = minMW * 0.8;
@@ -409,10 +434,19 @@
             return html;
         }
 
+        _renderNoMWScale() {
+            return `
+                <div class="dm-shared-mw-scale">
+                    <div class="dm-mw-none" title="No MW calibration — bands positioned by raw migration distance, not molecular weight">No MW<br>calibration</div>
+                </div>
+            `;
+        }
+
         _getBandColor(bandType) {
             switch (bandType) {
                 case 'POI': return this.colors.poi;
                 case 'MW_REFERENCE': return this.colors.mwReference;
+                case 'CALIBRATION': return this.colors.calibration;
                 default: return this.colors.other;
             }
         }

@@ -1,0 +1,64 @@
+/* =============================================================================
+   Viz containment — containment.css
+   Wraps a mounted gel_analyzer Viz component so an MDB5/Bootstrap host page
+   cannot bleed inherited styles in. Precedent: base/css/command-palette.css.
+   ============================================================================= */
+
+.ga-viz-root {
+  /* Cut inherited MDB5/Bootstrap cascade at the boundary */
+  all: initial;
+  /* Re-assert the base the dark-theme panels assume */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  /* the layer's text token (day mode redefines it on :root); the literal keeps
+     pages that load this file without the layer's sheet as they were */
+  color: var(--dm-text-primary, #e2e8f0);
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ga-viz-root *,
+.ga-viz-root *::before,
+.ga-viz-root *::after {
+  box-sizing: border-box;
+}
+
+/* Defensive resets for the raw elements the panels render.
+   Wrapped in :where(.ga-viz-root) so the selector specificity is 0,0,1 — it
+   neutralises Bootstrap Reboot's bare element defaults (a host MDB5 page) on
+   UNSTYLED elements, but ANY component class rule (e.g. .dm-view-btn at 0,1,0)
+   still wins. Do NOT raise this to `.ga-viz-root button` (0,1,1) — that beats
+   the panels' own single-class button styling and collapses padding/border. */
+:where(.ga-viz-root) button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}
+:where(.ga-viz-root) input,
+:where(.ga-viz-root) select,
+:where(.ga-viz-root) textarea {
+  font: inherit;
+  color: inherit;
+}
+:where(.ga-viz-root) table {
+  border-collapse: collapse;
+}
+:where(.ga-viz-root) svg text {
+  fill: currentColor;
+}
+
+/* Tooltip layer lives inside the root so it is contained AND torn down on unmount */
+.ga-viz-tooltip-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 10;
+}

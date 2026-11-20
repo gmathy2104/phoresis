@@ -10,6 +10,14 @@
 
     const Events = global.GelViewer.Events;
 
+    // Touch: a finger held this long without moving more than this is a long-press, the right-click of a touch screen.
+    const LONG_PRESS_MS = 500;
+    const LONG_PRESS_SLOP_PX = 10;
+
+    // A lane's resize handles (corner-handles.js, the box handles of Resize Lane): a press there is a drag, held as
+    // long as the user likes; it never opens the menu.
+    const HANDLE = '.gv-corner-handle, .gv-handle';
+
     /**
      * EventHandler Class
      */
@@ -54,7 +62,7 @@
             this.onToggleCV2DetectionPanel = options.onToggleCV2DetectionPanel;
             this.onToggleCalibrationPanel = options.onToggleCalibrationPanel;
             this.onToggleElectropherogramPanel = options.onToggleElectropherogramPanel;
-            this.onToggleProfileDetectionPanel = options.onToggleProfileDetectionPanel;
+            this.onToggleBandModelPanel = options.onToggleBandModelPanel;
             this.onHideDetectionPanel = options.onHideDetectionPanel;
             this.onHideCV2DetectionPanel = options.onHideCV2DetectionPanel;
             this.onHideCalibrationPanel = options.onHideCalibrationPanel;
@@ -69,9 +77,15 @@
             this.isCalibrationPanelVisible = options.isCalibrationPanelVisible || (() => false);
             this.isElectropherogramPanelVisible = options.isElectropherogramPanelVisible || (() => false);
             this.getSelectedAnnotation = options.getSelectedAnnotation || (() => null);
+            this.isContextMenuVisible = options.isContextMenuVisible || (() => false);
 
             // Throttling
             this._lastWheelTime = 0;
+
+            // Context menu: the long-press under way ({x, y, timer, fired}), and until when a contextmenu event is
+            // the one that follows Shift+F10 / the Menu key.
+            this._longPress = null;
+            this._keyboardMenuUntil = 0;
 
             // Bind methods
             this._onMouseDown = this._onMouseDown.bind(this);
@@ -82,6 +96,12 @@
             this._onWheel = this._onWheel.bind(this);
             this._onKeyDown = this._onKeyDown.bind(this);
             this._onContextMenu = this._onContextMenu.bind(this);
+            this._onDocumentContextMenu = this._onDocumentContextMenu.bind(this);
+            this._onDocumentPointerDown = this._onDocumentPointerDown.bind(this);
+            this._onTouchStart = this._onTouchStart.bind(this);
+            this._onTouchMove = this._onTouchMove.bind(this);
+            this._onTouchEnd = this._onTouchEnd.bind(this);
+            this._cancelLongPress = this._cancelLongPress.bind(this);
         }
 
         /**
@@ -103,6 +123,9 @@
             this.viewer.addEventListener('dblclick', this._onDoubleClick);
             this.viewer.addEventListener('wheel', this._onWheel, { passive: false });
             this.viewer.addEventListener('contextmenu', this._onContextMenu);
+            this.viewer.addEventListener('touchstart', this._onTouchStart, { passive: true });
+            document.addEventListener('contextmenu', this._onDocumentContextMenu, true);
+            document.addEventListener('pointerdown', this._onDocumentPointerDown, true);
 
             // Keyboard shortcuts (global)
             document.addEventListener('keydown', this._onKeyDown);
@@ -120,7 +143,11 @@
                 this.viewer.removeEventListener('dblclick', this._onDoubleClick);
                 this.viewer.removeEventListener('wheel', this._onWheel);
                 this.viewer.removeEventListener('contextmenu', this._onContextMenu);
+                this.viewer.removeEventListener('touchstart', this._onTouchStart);
+                document.removeEventListener('contextmenu', this._onDocumentContextMenu, true);
+                document.removeEventListener('pointerdown', this._onDocumentPointerDown, true);
             }
+            this._cancelLongPress();
             document.removeEventListener('keydown', this._onKeyDown);
         }
 
@@ -225,11 +252,99 @@
 
         _onContextMenu(e) {
             e.preventDefault();
+            if (e.target instanceof Element && e.target.closest(HANDLE)) return;
+            const press = this._longPress;
+            if (press) {
+                // A long-press the browser reports as a contextmenu too (Chrome on Android): one menu, whichever
+                // comes first.
+                clearTimeout(press.timer);
+                if (press.fired) return;
+            }
+            this._requestContextMenuAt(e.clientX, e.clientY);
+            if (press) press.fired = this.isContextMenuVisible();
+        }
+
+        /**
+         * The menu of what is under this screen point (GelViewerApp picks the band, else the lane, there).
+         * @param {number} clientX
+         * @param {number} clientY
+         */
+        _requestContextMenuAt(clientX, clientY) {
             this.eventBus.emit(Events.CONTEXT_MENU_REQUESTED, {
-                x: e.clientX,
-                y: e.clientY,
-                originalEvent: e
+                x: clientX,
+                y: clientY,
+                point: this.getImagePoint({ clientX, clientY }),
             });
+        }
+
+        /**
+         * The contextmenu event the browser sends after Shift+F10 / the Menu key (on Windows the Menu key's comes on
+         * keyup, whatever the keydown did) is the keyboard's, already answered: no browser menu over ours, and not
+         * a right-click on the focused element. Document, capture phase: it runs before the viewer's listener.
+         */
+        _onDocumentContextMenu(e) {
+            if (performance.now() > this._keyboardMenuUntil) return;
+            this._keyboardMenuUntil = 0;
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        /**
+         * A pointer pressed after the key: the next contextmenu is a right-click or a long-press, not the key's (a
+         * browser that sends none after a prevented keydown, Firefox, would otherwise lose a right-click for 1 s).
+         */
+        _onDocumentPointerDown() {
+            this._keyboardMenuUntil = 0;
+        }
+
+        // Touch: a long-press opens the menu like a right-click. A finger that moves, lifts or is joined by another
+        // before LONG_PRESS_MS is a tap, a scroll or a pinch. The rest of a touch is followed on its touchstart target:
+        // touch events keep going there even once it is off the page (a corner handle redrawn under the finger), where
+        // they never reach the viewer.
+
+        _onTouchStart(e) {
+            this._cancelLongPress();
+            if (e.touches.length !== 1) return;
+            if (e.target instanceof Element && e.target.closest(HANDLE)) return;
+            const { clientX, clientY } = e.touches[0];
+            const press = { x: clientX, y: clientY, fired: false, timer: 0, target: e.target };
+            press.target.addEventListener('touchmove', this._onTouchMove, { passive: true });
+            press.target.addEventListener('touchend', this._onTouchEnd);
+            press.target.addEventListener('touchcancel', this._cancelLongPress);
+            press.timer = setTimeout(() => {
+                if (this._longPress !== press) return;
+                this._requestContextMenuAt(clientX, clientY);
+                press.fired = this.isContextMenuVisible();
+            }, LONG_PRESS_MS);
+            this._longPress = press;
+        }
+
+        _onTouchMove(e) {
+            const press = this._longPress;
+            if (!press || press.fired) return;
+            const touch = e.touches[0];
+            if (e.touches.length !== 1
+                || Math.hypot(touch.clientX - press.x, touch.clientY - press.y) > LONG_PRESS_SLOP_PX) {
+                this._cancelLongPress();
+            }
+        }
+
+        _onTouchEnd(e) {
+            const press = this._longPress;
+            this._cancelLongPress();
+            // The finger lifting off a long-press that opened the menu: no mouse events, no click. Its mousedown
+            // would close the menu again, its click act on what is under it.
+            if (press && press.fired && e.cancelable) e.preventDefault();
+        }
+
+        _cancelLongPress() {
+            const press = this._longPress;
+            if (!press) return;
+            clearTimeout(press.timer);
+            press.target.removeEventListener('touchmove', this._onTouchMove);
+            press.target.removeEventListener('touchend', this._onTouchEnd);
+            press.target.removeEventListener('touchcancel', this._cancelLongPress);
+            this._longPress = null;
         }
 
         // =====================================================================
@@ -250,6 +365,13 @@
             if ((e.ctrlKey || e.metaKey) && key === 's') {
                 e.preventDefault();
                 this.eventBus.emit(Events.SAVE_REQUESTED);
+                return;
+            }
+
+            // The character shortcuts are bare keys, Shift allowed (Shift+Y / D / V / P). With Ctrl, Cmd or Alt a
+            // character is the browser's: Ctrl+C copies (it opened the calibration), Ctrl+A selects, Ctrl+F finds,
+            // Ctrl+0 / + / - zoom the page. Delete, Backspace, Enter and Escape keep their meaning with a modifier.
+            if ((e.ctrlKey || e.metaKey || e.altKey) && key.length === 1) {
                 return;
             }
 
@@ -287,16 +409,8 @@
                     break;
 
                 case 'p':
-                    // Shift+P: Toggle Profile Peak Detection panel
-                    if (e.shiftKey && this.onToggleProfileDetectionPanel) {
-                        e.preventDefault();
-                        if (this.stateManager.getLaneCount() > 0) {
-                            this.onToggleProfileDetectionPanel();
-                        } else {
-                            this._showShortcutMessage('Create lanes first');
-                        }
-                    } else if (this.isEditable && !e.shiftKey) {
-                        // P: Polygon lane
+                    // P: Polygon lane (Shift+P is free: its Profile Peak panel is gone)
+                    if (this.isEditable && !e.shiftKey) {
                         this.toolManager.setLaneShape('POLYGON');
                     }
                     break;
@@ -364,6 +478,18 @@
                     }
                     break;
 
+                case 'y':
+                    // Shift+Y: Toggle the band model panel (YOLO bands, after the lanes) - requires lanes
+                    if (e.shiftKey && this.onToggleBandModelPanel) {
+                        e.preventDefault();
+                        if (this.stateManager.getLaneCount() > 0) {
+                            this.onToggleBandModelPanel();
+                        } else {
+                            this._showShortcutMessage('Create lanes first');
+                        }
+                    }
+                    break;
+
                 case 'c':
                     // C: Toggle calibration panel - requires ladder lanes with bands
                     if (this.onToggleCalibrationPanel) {
@@ -406,6 +532,21 @@
                         } else {
                             this._showShortcutMessage('Create lanes first');
                         }
+                    }
+                    break;
+
+                case 'contextmenu':
+                case 'f10':
+                    // The Menu key and Shift+F10 (F10 alone, or with Ctrl / Alt, is the browser's): the keyboard's
+                    // right-click, on the selection. Its contextmenu event, sent after, is this same request.
+                    if (key === 'f10' && !(e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey)) break;
+                    e.preventDefault();
+                    this._keyboardMenuUntil = performance.now() + 1000;
+                    if (e.repeat) break;
+                    if (this.getSelectedAnnotation()) {
+                        this.eventBus.emit(Events.CONTEXT_MENU_REQUESTED, { keyboard: true });
+                    } else {
+                        this._showShortcutMessage('Select a lane or band first');
                     }
                     break;
 
@@ -494,6 +635,7 @@
                 if (this.onHideAdjustmentsPanel) this.onHideAdjustmentsPanel();
             } else {
                 // Cancel current operations
+                document.querySelector('.gv-tool-dropdown.open')?.classList.remove('open');
                 if (this.onHideContextMenu) this.onHideContextMenu();
                 if (this.onCancelDrawing) this.onCancelDrawing();
                 if (this.onDeselect) this.onDeselect();
