@@ -10,6 +10,7 @@ import uuid
 from simple_history.models import HistoricalRecords
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 
@@ -73,6 +74,18 @@ class GelImage(models.Model):
     # Gel type (can be inferred from YOLO or explicitly set)
     gel_type = models.CharField(max_length=20, choices=GelType.choices, default=GelType.UNKNOWN)
 
+    # What the gel is read for (GelAssay). Null on images uploaded before assays
+    # existed: their purity gate falls back to gel_type (services/purity.py,
+    # PURITY_GEL_TYPES).
+    assay = models.ForeignKey(
+        "GelAssay",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="images",
+        help_text="What this gel is read for; its gel type must match the image's",
+    )
+
     # Description and notes
     description = models.TextField(blank=True, help_text="Optional description of the gel image")
 
@@ -105,6 +118,13 @@ class GelImage(models.Model):
 
     def __str__(self):
         return f"{self.original_filename} ({self.get_gel_type_display()})"
+
+    def clean(self):
+        super().clean()
+        # An assay belongs to one gel type: an SDS-PAGE image on a western-blot
+        # assay would be read for the wrong thing.
+        if self.assay_id and self.assay.gel_type != self.gel_type:
+            raise ValidationError({"assay": f"This assay is for {self.assay.get_gel_type_display()} gels."})
 
     @property
     def has_display_file(self) -> bool:

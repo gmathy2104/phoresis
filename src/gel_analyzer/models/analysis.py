@@ -7,6 +7,7 @@ import uuid
 from simple_history.models import HistoricalRecords
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -57,6 +58,18 @@ class GelAnalysis(models.Model):
         max_length=20, blank=True, help_text="Gel type inferred from YOLO classes"
     )
 
+    # Anti-HCP western readout: every lane's HCP signal is also given in % of this
+    # lane's, chosen by the user. SET_NULL: deleting the lane leaves the analysis
+    # without a reference.
+    readout_reference_lane = models.ForeignKey(
+        "Lane",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Reference lane of an anti-HCP western: each lane's HCP signal is also given in % of this one",
+    )
+
     # Summary results
     total_lanes = models.PositiveSmallIntegerField(default=0, help_text="Total number of lanes detected/annotated")
     total_bands = models.PositiveSmallIntegerField(default=0, help_text="Total number of bands detected/annotated")
@@ -94,6 +107,12 @@ class GelAnalysis(models.Model):
     def __str__(self):
         name_part = f" - {self.name}" if self.name else ""
         return f"Analysis of {self.gel_image.original_filename}{name_part} ({self.get_status_display()})"
+
+    def clean(self):
+        super().clean()
+        # A percentage of another membrane's lane compares two exposures: meaningless.
+        if self.readout_reference_lane_id is not None and self.readout_reference_lane.analysis_id != self.pk:
+            raise ValidationError({"readout_reference_lane": "The reference lane must be a lane of this analysis."})
 
     @property
     def is_editable(self) -> bool:

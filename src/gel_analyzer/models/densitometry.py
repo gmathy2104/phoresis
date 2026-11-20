@@ -74,6 +74,33 @@ class DensitometryResult(models.Model):
         help_text="Unit snapshot at fit time (UG or UG_ML)",
     )
 
+    class CalibrationRange(models.TextChoices):
+        """Where the band's ``corrected_area`` lies against the fit's standards: one rule,
+        ``services/quantification/service.py::calibration_range_of``."""
+
+        IN_RANGE = "IN_RANGE", "In range"
+        ABOVE_RANGE = "ABOVE_RANGE", "Above range"
+        BELOW_RANGE = "BELOW_RANGE", "Below range"
+
+    # Written with estimated_amount, by the same writer: outside the range the amount is extrapolated (kept, flagged).
+    estimated_amount_range = models.CharField(
+        max_length=12,
+        null=True,
+        blank=True,
+        choices=CalibrationRange.choices,
+        help_text="Server-back-filled with estimated_amount: corrected_area against [min, max] of the calibration's "
+        "non-excluded standards' areas. Null when no estimate was written or no standard holds an area.",
+    )
+
+    # Saturation: a warning, never a correction of the areas above (services/densitometry/saturation.py)
+    saturated_pixel_fraction = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text="Share (0-1) of the band's measured pixels at the end of the image's scale, where the scanner "
+        "clips: the band's area stops growing with the load. Null when integrated before the check existed.",
+    )
+
     class Meta:
         verbose_name = "Densitometry Result"
         verbose_name_plural = "06. Densitometry Results"
@@ -98,6 +125,14 @@ class DensitometryResult(models.Model):
         else:
             return "poor"
 
+    @property
+    def saturated(self) -> bool | None:
+        """Above the saturation threshold of the setting, read now; None when never measured."""
+        # Imported here: the densitometry services import the models.
+        from gel_analyzer.services.densitometry.saturation import is_saturated
+
+        return is_saturated(self.saturated_pixel_fraction)
+
 
 class LaneDensitometrySummary(models.Model):
     """
@@ -108,7 +143,13 @@ class LaneDensitometrySummary(models.Model):
     """
 
     class NormalizationMethod(models.TextChoices):
-        """Normalization method choices."""
+        """The stored vocabulary: what a summary says ran, including what may no longer be asked.
+
+        A run writes LANE_TOTAL or LOADING_CONTROL only (``services/densitometry/models.py::
+        NormalizationMethod``, the accepted vocabulary). GEL_TOTAL and REFERENCE_BAND stay here
+        so the summaries written before still read: a GEL_TOTAL one ran the lane total. Kept as
+        choices, so no migration and no history row turned invalid.
+        """
 
         LANE_TOTAL = "LANE_TOTAL", "Lane Total"
         GEL_TOTAL = "GEL_TOTAL", "Gel Total"

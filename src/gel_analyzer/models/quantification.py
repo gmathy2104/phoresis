@@ -8,6 +8,18 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 
+def calibration_point_band_choices():
+    """Bands eligible to receive a ProteinQuantCalibrationPoint.
+
+    Ordinarily CALIBRATION-typed bands only. Widened by OR (never narrowed) so a
+    band that already carries a quant_point -- i.e. THIS point's own band, on a
+    re-save -- always stays a legal choice even if band_type was edited away from
+    CALIBRATION afterwards. A named module-level function, not a lambda: Django's
+    migration writer cannot serialize a lambda into limit_choices_to.
+    """
+    return models.Q(band_type="CALIBRATION") | models.Q(quant_point__isnull=False)
+
+
 class ProteinQuantCalibrationPoint(models.Model):
     """A single calibration or control point — load amount declared by the user
     on a CALIBRATION-typed Band. The calibration role is derived from the parent
@@ -25,7 +37,7 @@ class ProteinQuantCalibrationPoint(models.Model):
         "Band",
         on_delete=models.CASCADE,
         related_name="quant_point",
-        limit_choices_to={"band_type": "CALIBRATION"},
+        limit_choices_to=calibration_point_band_choices,
     )
     load_amount = models.FloatField(validators=[MinValueValidator(0)])
     load_unit = models.CharField(max_length=10, choices=UNIT_CHOICES)

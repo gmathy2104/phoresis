@@ -133,6 +133,7 @@ class LadderTemplate(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="created_ladder_templates",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -285,6 +286,7 @@ class LadderCalibration(models.Model):
         "gel_analyzer.Lane",
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         limit_choices_to={"lane_type": "LADDER"},
         related_name="calibrations",
         help_text="The ladder lane used for calibration",
@@ -293,6 +295,7 @@ class LadderCalibration(models.Model):
         LadderTemplate,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="calibrations",
         help_text="The ladder template used for MW values",
     )
@@ -470,6 +473,7 @@ class MultiLadderCalibrationConfig(models.Model):
         LadderTemplate,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="multi_ladder_configs",
         help_text="Same template used for all ladder lanes",
     )

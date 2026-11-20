@@ -31,6 +31,7 @@ class SavedComparison(models.Model):
         "Lane",
         through="SavedComparisonLane",
         related_name="saved_comparisons",
+        blank=True,
         help_text="Lanes included in this comparison (ordered)",
     )
 

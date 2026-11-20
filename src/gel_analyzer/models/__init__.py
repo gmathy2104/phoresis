@@ -23,6 +23,7 @@ from .densitometry import (
     DensitometryResult,
     LaneDensitometrySummary,
 )
+from .gel_assay import GelAssay
 from .gel_image import GelImage
 from .ladder_templates import (
     BandColor,
@@ -39,6 +40,7 @@ from .saved_comparison import SavedComparison, SavedComparisonLane
 
 __all__ = [
     "GelImage",
+    "GelAssay",
     "GelAnalysis",
     "Lane",
     "Band",
