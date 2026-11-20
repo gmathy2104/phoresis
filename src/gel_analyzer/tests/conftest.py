@@ -92,7 +92,8 @@ def sample_gel_16bit_tiff_bytes():
     noise = np.random.randint(0, 5000, (300, 200), dtype=np.uint16)
     img_array = np.clip(img_array + noise, 0, 65535).astype(np.uint16)
 
-    img = Image.fromarray(img_array, mode="I;16")
+    # A uint16 array is read as I;16 by itself; Pillow 13 refuses an explicit mode="I;16" here.
+    img = Image.fromarray(img_array)
     buffer = io.BytesIO()
     img.save(buffer, format="TIFF")
     buffer.seek(0)
@@ -390,3 +391,85 @@ def complete_analysis(db, gel_image, test_user):
     analysis.update_counts()
 
     return analysis
+
+
+# ===========================================================================
+# Quantification fixtures (added in PR #4 for test_api_quantification.py)
+# ===========================================================================
+
+
+@pytest.fixture
+def gel_analyzer_group(db):
+    """The audience group the six API ViewSets gate writes on.
+
+    Created here rather than assumed: it does not exist in production either
+    until ``manage.py ensure_gel_analyzer_group --apply`` is run.
+    """
+    from django.contrib.auth.models import Group
+
+    # Phoresis: every signed-in account writes (gel_analyzer/access.py); this group grants nothing.
+    return Group.objects.get_or_create(name="Lab User")[0]
+
+
+@pytest.fixture
+def gel_writer_api_client(api_client, test_user, gel_analyzer_group):
+    """DRF APIClient authenticated as a user ENTITLED to write.
+
+    This is what a real gel_analyzer user looks like once
+    ``ensure_gel_analyzer_group`` has run. Every test that exercises a write
+    verb on the six ViewSets needs it; being green here is also the
+    "member -> not refused" witness, so no separate test asserts that.
+    """
+    test_user.groups.add(gel_analyzer_group)
+    api_client.force_authenticate(user=test_user)
+    return api_client
+
+
+@pytest.fixture
+def quant_sample_lane(db, three_calib_points_analysis, test_user):
+    """``three_calib_points_analysis`` (standards' areas 5000 / 10000 / 15000) plus one SAMPLE lane whose three POI
+    bands have densitometry at corrected_area 4000 / 10000 / 12000: below the standards' range, on a bound, and
+    inside it -- above it once the 15000 standard is excluded. Returns ``(analysis, [the three bands])``."""
+    from gel_analyzer.models import DensitometryResult as _Densito
+
+    lane = Lane.objects.create(
+        analysis=three_calib_points_analysis,
+        lane_number=1,
+        lane_type=Lane.LaneType.SAMPLE,
+        detection_source=Lane.DetectionSource.MANUAL,
+        x=50,
+        y=10,
+        width=40,
+        height=480,
+        sample_name="Sample 1",
+    )
+    areas = [4000.0, 10000.0, 12000.0]
+    bands = [
+        Band.objects.create(
+            lane=lane,
+            detection_source=Band.DetectionSource.MANUAL,
+            band_type=Band.BandType.POI,
+            position_y=100 + i * 40,
+            bbox_x=50,
+            bbox_y=90 + i * 40,
+            bbox_width=40,
+            bbox_height=20,
+            created_by=test_user,
+        )
+        for i in range(len(areas))
+    ]
+    # Densitometry after EVERY band: a band created in a lane wipes the lane's densitometry.
+    for i, (band, area) in enumerate(zip(bands, areas, strict=True)):
+        _Densito.objects.create(
+            band=band,
+            peak_center_y=100.0 + i * 40,
+            peak_amplitude=200.0,
+            peak_sigma=5.0,
+            fwhm=12.0,
+            integrated_area=area,
+            background_area=0.0,
+            corrected_area=area,
+            fit_r_squared=0.99,
+            snr=20.0,
+        )
+    return three_calib_points_analysis, bands

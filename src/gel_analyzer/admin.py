@@ -14,6 +14,7 @@ from django.utils.html import format_html
 from gel_analyzer.models import (
     Band,
     GelAnalysis,
+    GelAssay,
     GelImage,
     LadderBandDefinition,
     LadderCalibration,
@@ -26,6 +27,7 @@ from gel_analyzer.models import (
     SavedComparisonLane,
 )
 from gel_analyzer.services import GelFileHandler
+from phoresis_core.stored_files import delete_replaced_file
 
 
 class LaneInline(admin.TabularInline):
@@ -58,6 +60,16 @@ class BandInline(admin.TabularInline):
     show_change_link = True
 
 
+@admin.register(GelAssay)
+class GelAssayAdmin(SimpleHistoryAdmin):
+    """Admin for GelAssay: what a gel is read for (also edited at /gel-analyzer/assays/)."""
+
+    list_display = ["name", "gel_type", "readout", "is_active", "display_order"]
+    list_filter = ["gel_type", "readout", "is_active"]
+    search_fields = ["name", "description"]
+    ordering = ["display_order", "name"]
+
+
 @admin.register(GelImage)
 class GelImageAdmin(SimpleHistoryAdmin):
     """Admin for GelImage model."""
@@ -72,7 +84,7 @@ class GelImageAdmin(SimpleHistoryAdmin):
         "uploaded_at",
         "analysis_count",
     ]
-    list_filter = ["gel_type", "file_format", "uploaded_at"]
+    list_filter = ["gel_type", "assay", "file_format", "uploaded_at"]
     search_fields = ["original_filename", "description"]
     ordering = ["-uploaded_at"]
     readonly_fields = [
@@ -90,7 +102,7 @@ class GelImageAdmin(SimpleHistoryAdmin):
     date_hierarchy = "uploaded_at"
 
     fieldsets = (
-        (None, {"fields": ("id", "original_filename", "gel_type", "description")}),
+        (None, {"fields": ("id", "original_filename", "gel_type", "assay", "description")}),
         ("Files", {"fields": ("original_file", "display_file", "thumbnail", "image_preview")}),
         (
             "Metadata",
@@ -171,6 +183,9 @@ class GelImageAdmin(SimpleHistoryAdmin):
         if not obj.uploaded_by:
             obj.uploaded_by = request.user
 
+        # Display and thumbnail this save replaces, deleted once the row points away
+        replaced = []
+
         # If original file changed, process it
         if "original_file" in form.changed_data and obj.original_file:
             # Get original filename
@@ -196,10 +211,12 @@ class GelImageAdmin(SimpleHistoryAdmin):
 
                 # Save display file
                 display_filename = f"{Path(obj.original_filename).stem}_display.png"
+                replaced.append((obj.display_file, obj.display_file.name))
                 obj.display_file.save(display_filename, ContentFile(result["display_bytes"]), save=False)
 
                 # Save thumbnail
                 thumbnail_filename = f"{Path(obj.original_filename).stem}_thumb.png"
+                replaced.append((obj.thumbnail, obj.thumbnail.name))
                 obj.thumbnail.save(thumbnail_filename, ContentFile(result["thumbnail_bytes"]), save=False)
 
                 # Clean up temp file
@@ -213,6 +230,8 @@ class GelImageAdmin(SimpleHistoryAdmin):
                 logger.error(f"Failed to process gel image: {e}")
 
         super().save_model(request, obj, form, change)
+        for field_file, old_name in replaced:
+            delete_replaced_file(field_file, old_name)
 
 
 @admin.register(GelAnalysis)
@@ -554,6 +573,20 @@ class LadderTemplateAdmin(SimpleHistoryAdmin):
 
     inlines = [LadderBandDefinitionInline]
 
+    def save_model(self, request, obj, form, change):
+        """Auto-populate created_by on save.
+
+        created_by is raw_id_fields here, not readonly -- unlike
+        SolutionRecipeAdmin, someone COULD already set it by hand through this
+        screen. But the 7/7 templates measured with no owner (audit
+        2026-08-28 §4.3bis) are the global ones seeded by management command,
+        which never went through this form at all. blank=True on the model
+        only stops the re-save block; this stops the loss from growing here.
+        """
+        if not obj.created_by:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
     def category_badge(self, obj):
         """Display category as a colored badge."""
         colors = {
@@ -596,12 +629,6 @@ class LadderTemplateAdmin(SimpleHistoryAdmin):
         )
 
     global_badge.short_description = "Scope"
-
-    def save_model(self, request, obj, form, change):
-        """Auto-populate created_by on save."""
-        if not obj.created_by:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
 
     def save_related(self, request, form, formsets, change):
         """Update computed fields after saving bands."""

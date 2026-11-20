@@ -21,7 +21,9 @@ from django.views.decorators.http import require_http_methods, require_POST
 from gel_analyzer.models import LadderTemplate
 from gel_analyzer.services.studio import StudioService
 from gel_analyzer.services.template_learning import TemplateLearningService
+from phoresis_core.error_handling.helpers import public_error_text
 from phoresis_core.logging_config import get_logger
+from phoresis_core.safe_json import script_json
 
 logger = get_logger(__name__)
 
@@ -49,7 +51,7 @@ def template_studio_view(request, pk):
     context = {
         "template": template,
         "training_summary": summary,
-        "band_definitions_json": json.dumps(band_definitions),
+        "band_definitions_json": script_json(band_definitions),
         "title": f"Studio: {template.name}",
     }
     return render(request, "gel_analyzer/admin/template_studio.html", context)
@@ -132,8 +134,10 @@ def api_studio_redetect(request, pk):
     try:
         payload = _studio_service().redetect_with_profile([str(x) for x in lane_ids])
     except Exception as exc:  # noqa: BLE001
-        logger.error(f"Studio redetect failed: {exc}", exc_info=True)
-        return JsonResponse({"error": "internal_error", "detail": str(exc)}, status=500)
+        detail = public_error_text(
+            logger, exc, public="The re-detection failed.", log="Studio redetect failed", request=request
+        )
+        return JsonResponse({"error": "internal_error", "detail": detail}, status=500)
     return JsonResponse(payload)
 
 
@@ -154,11 +158,12 @@ def api_studio_save(request, pk):
     except ValueError as exc:
         return JsonResponse({"error": "invalid_payload", "detail": str(exc)}, status=400)
     except Exception as exc:  # noqa: BLE001
-        logger.error(
-            f"Studio save failed for template {template.code}: {exc}",
-            user=request.user.username,
-            template_id=str(template.pk),
-            exc_info=True,
+        detail = public_error_text(
+            logger.bind(template_id=str(template.pk)),
+            exc,
+            public="The calibrations were not saved.",
+            log=f"Studio save failed for template {template.code}",
+            request=request,
         )
-        return JsonResponse({"error": "internal_error", "detail": str(exc)}, status=500)
+        return JsonResponse({"error": "internal_error", "detail": detail}, status=500)
     return JsonResponse({"ok": True, **result})

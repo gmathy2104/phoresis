@@ -10,291 +10,171 @@ ProcessSample integration was removed in Phoresis (Phase 2): per-lane sample
 metadata now lives on `Lane.sample_metadata` (JSON) and `Lane.sample_name`.
 """
 
-import json
-
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import render
-from django.urls import reverse
 
-from gel_analyzer.models import GelAnalysis, GelImage, Lane, SavedComparison
+from gel_analyzer.access import saved_comparisons_readable_by, user_can_read_saved_comparison
+from gel_analyzer.models import GelAnalysis, Lane, SavedComparison, SavedComparisonLane
+from gel_analyzer.services.analysis_detail import PURITY_FAIR, PURITY_GOOD, assay_label
+from gel_analyzer.services.comparison_items import enrich, kind_key, lane_item
+from gel_analyzer.services.list_filters import (
+    NONE_VALUE,
+    facet,
+    facet_chips,
+    ids_q,
+    int_values,
+    remove_value_url,
+    selected_values,
+)
 from phoresis_core.logging_config import get_logger
+from phoresis_core.safe_json import script_json
+from phoresis_core.safe_redirect import safe_back_path
 
 logger = get_logger(__name__)
 
 
-def _get_comparability_message(issues: list) -> str:
-    """
-    Generate a user-friendly message for comparability issues.
-
-    Args:
-        issues: List of issue codes
-
-    Returns:
-        Human-readable message explaining why sample/lane cannot be compared
-    """
-    if not issues:
-        return ""
-
-    messages = {
-        "no_lane": "Lane data is missing (source analysis may have been deleted)",
-        "no_gel_image": "Gel image is not available",
-        "no_profile": "Profile data has not been computed",
-        "no_calibration": "MW calibration is not available",
-    }
-
-    parts = [messages.get(issue, f"Unknown issue: {issue}") for issue in issues]
-    return ". ".join(parts)
+# The lane item now lives in services/comparison_items.py (one builder for the page, the wizard, the
+# resolve endpoint and the PD gel slots); the old name stays importable.
+_serialize_lane_data = lane_item
 
 
-def _serialize_lane_data(lane):
-    """
-    Serialize lane data for comparison view.
+def _visible_comparisons(user, mode):
+    """The saved comparisons the list shows: the user's own ("mine"), or every one they may read ("all":
+    theirs and the public ones) -- ``access.saved_comparisons_readable_by``, the one owner-or-public rule
+    of the API, the report route and the compare page."""
+    if mode == "mine":
+        return SavedComparison.objects.filter(created_by_id=user.pk)
+    return saved_comparisons_readable_by(user, SavedComparison.objects.all())
 
-    Args:
-        lane: Lane object
 
-    Returns:
-        dict: Serialized lane data for JavaScript consumption
-    """
-    comparability_issues = []
+def _comparison_assay_facet(visible, assay_ids, assay_none):
+    """Assay pill: the assays of the visible comparisons' lanes, each counting the comparisons holding one."""
+    rows = (
+        SavedComparisonLane.objects.filter(saved_comparison__in=visible)
+        .order_by()
+        .values(
+            "lane__analysis__gel_image__assay",
+            "lane__analysis__gel_image__assay__name",
+            "lane__analysis__gel_image__assay__display_order",
+        )
+        .annotate(n=Count("saved_comparison", distinct=True))
+    )
+    assays, without_assay = [], 0
+    for row in rows:
+        if row["lane__analysis__gel_image__assay"] is None:
+            without_assay = row["n"]
+        else:
+            assays.append(row)
+    assays.sort(
+        key=lambda row: (
+            row["lane__analysis__gel_image__assay__display_order"],
+            row["lane__analysis__gel_image__assay__name"].lower(),
+        )
+    )
+    options = [
+        (row["lane__analysis__gel_image__assay"], row["lane__analysis__gel_image__assay__name"], row["n"])
+        for row in assays
+    ]
+    if without_assay or assay_none:
+        options.append((NONE_VALUE, "No assay", without_assay))
+    return facet("assay", "Assay", options, selected_values(assay_ids, assay_none))
 
-    if not lane:
-        comparability_issues.append("no_lane")
-        return {
-            "lane": None,
-            "comparability": {
-                "is_valid": False,
-                "issues": ["no_lane"],
-                "critical_issues": ["no_lane"],
-                "message": _get_comparability_message(["no_lane"]),
-            },
-        }
 
-    # Get gel image URL via proxy to avoid CORS issues with Azure Blob Storage
-    image_url = None
-    gel_image = None
-
-    try:
-        if lane.analysis and lane.analysis.gel_image:
-            gel_image = lane.analysis.gel_image
-            image_url = reverse("gel_analyzer:api_image_proxy", kwargs={"pk": gel_image.pk})
-    except Exception as e:
-        logger.warning(f"Error getting gel image URL for lane {lane.pk}: {e}")
-
-    if not image_url:
-        comparability_issues.append("no_gel_image")
-
-    # Get profile data from LaneDensitometrySummary
-    profile_data = None
-    if hasattr(lane, "densitometry_summary") and lane.densitometry_summary:
-        try:
-            summary = lane.densitometry_summary
-            if summary.profile_data:
-                profile_data = summary.profile_data
-        except Exception:
-            pass
-
-    if not profile_data:
-        comparability_issues.append("no_profile")
-
-    # Get calibration data for MW estimation
-    calibration_data = None
-    if lane.analysis:
-        try:
-            calibration = lane.analysis.ladder_calibrations.select_related("template").first()
-            if calibration:
-                calibration_data = {
-                    "method": calibration.method,
-                    "coefficients": calibration.coefficients,
-                    "r_squared": float(calibration.r_squared) if calibration.r_squared else None,
-                    "template_name": calibration.template.name if calibration.template else None,
-                    "mw_range": {
-                        "min": float(calibration.template.mw_range_min)
-                        if calibration.template and calibration.template.mw_range_min
-                        else None,
-                        "max": float(calibration.template.mw_range_max)
-                        if calibration.template and calibration.template.mw_range_max
-                        else None,
-                    }
-                    if calibration.template
-                    else None,
-                }
-        except Exception:
-            pass
-
-    if not calibration_data:
-        comparability_issues.append("no_calibration")
-
-    # Pre-compute MW values for profile if calibration and profile data available.
-    # Rf is computed in the LADDER lane's reference frame, not the sample's —
-    # see services/calibration/service.py for rationale.
-    mw_profile_data = None
-    if profile_data and calibration_data:
-        try:
-            y_positions = profile_data.get("y_positions", [])
-            intensities = profile_data.get("intensities", [])
-            calibration = lane.analysis.ladder_calibrations.first()
-
-            if y_positions and intensities and calibration and calibration.ladder_lane:
-                ladder_top = calibration.ladder_lane.y
-                ladder_bottom = calibration.ladder_lane.y + calibration.ladder_lane.height
-                if ladder_bottom > ladder_top:
-                    mw_values = []
-                    for y_pos in y_positions:
-                        mw = calibration.estimate_mw(int(y_pos), ladder_top, ladder_bottom)
-                        mw_values.append(float(mw) if mw else None)
-
-                    mw_profile_data = {
-                        "mw_values": mw_values,
-                        "intensities": intensities,
-                        "y_positions": y_positions,
-                    }
-        except Exception:
-            pass
-
-    # Get bands with densitometry
-    bands_data = []
-    for band in lane.bands.select_related("densitometry").all().order_by("position_y"):
-        band_data = {
-            "id": str(band.pk),
-            "band_type": band.band_type,
-            "band_type_display": band.get_band_type_display()
-            if hasattr(band, "get_band_type_display")
-            else band.band_type,
-            "position_y": float(band.position_y) if band.position_y else None,
-            "estimated_mw_kda": float(band.estimated_mw_kda)
-            if hasattr(band, "estimated_mw_kda") and band.estimated_mw_kda
-            else None,
-            "bbox": band.bbox
-            if band.bbox
-            else {
-                "x": band.bbox_x if hasattr(band, "bbox_x") else None,
-                "y": band.bbox_y if hasattr(band, "bbox_y") else None,
-                "width": band.bbox_width if hasattr(band, "bbox_width") else None,
-                "height": band.bbox_height if hasattr(band, "bbox_height") else None,
-            },
-        }
-
-        # Add densitometry data if available
-        if hasattr(band, "densitometry") and band.densitometry:
-            densitometry = band.densitometry
-            band_data["densitometry"] = {
-                "corrected_area": float(densitometry.corrected_area) if densitometry.corrected_area else None,
-                "relative_percent_lane": float(densitometry.relative_percent_lane)
-                if densitometry.relative_percent_lane
-                else None,
-                "fit_r_squared": float(densitometry.fit_r_squared) if densitometry.fit_r_squared else None,
-                "peak_amplitude": float(densitometry.peak_amplitude) if densitometry.peak_amplitude else None,
-            }
-
-        bands_data.append(band_data)
-
-    # Build comparability status - only flag critical issues (no_lane, no_gel_image)
-    critical_issues = [i for i in comparability_issues if i in ("no_lane", "no_gel_image")]
-
-    # Build label based on lane sample info
-    label = f"Lane {lane.lane_number}: {lane.sample_name}" if lane.sample_name else f"Lane {lane.lane_number}"
-    source = "lane"
-    source_id = lane.pk
-
+def _comparison_card(comparison, user):
+    """What a card of the list says of a saved comparison: its assays (the kinds the page shows one at a
+    time, each with its lane count), its gels, its calibrated lanes, who and when."""
+    lanes = [link.lane for link in comparison.savedcomparisonlane_set.all()]
+    kinds = {}
+    for lane in lanes:
+        key = kind_key(lane.analysis.gel_image)
+        kinds[key] = kinds.get(key, 0) + 1
+    creator = comparison.created_by
     return {
-        "id": f"{source}_{source_id}",
-        "source": source,
-        "label": label,
-        "sample": None,
-        "lane": {
-            "id": lane.pk,
-            "lane_number": lane.lane_number,
-            "sample_name": lane.sample_name or None,
-            "sample_metadata": lane.sample_metadata or {},
-            "is_reduced": lane.is_reduced if hasattr(lane, "is_reduced") else None,
-            "protein_load_ug": float(lane.protein_load_ug)
-            if hasattr(lane, "protein_load_ug") and lane.protein_load_ug
-            else None,
-            "protein_load_type": lane.get_protein_load_type_display()
-            if hasattr(lane, "protein_load_type") and lane.protein_load_type
-            else None,
-            "bbox": {
-                "x": lane.x,
-                "y": lane.y,
-                "width": lane.width,
-                "height": lane.height,
-            },
-        },
-        "lane_geometry": {
-            "top": lane.y,
-            "bottom": lane.y + lane.height,
-        },
-        "image_url": image_url,
-        "profile": profile_data,
-        "mw_profile": mw_profile_data,
-        "calibration": calibration_data,
-        "analysis": {
-            "id": str(lane.analysis.pk) if lane.analysis else None,
-            "name": lane.analysis.name if lane.analysis else None,
-            "gel_type": lane.analysis.gel_image.gel_type if lane.analysis and lane.analysis.gel_image else None,
-        }
-        if lane.analysis
-        else None,
-        "bands": bands_data,
-        "densitometry": {
-            "poi_percentage": float(lane.densitometry_summary.poi_percentage)
-            if hasattr(lane, "densitometry_summary")
-            and lane.densitometry_summary
-            and lane.densitometry_summary.poi_percentage is not None
-            else None,
-        },
-        "comparability": {
-            "is_valid": len(critical_issues) == 0,
-            "issues": comparability_issues,
-            "critical_issues": critical_issues,
-            "message": _get_comparability_message(critical_issues) if critical_issues else None,
-        },
+        "comparison": comparison,
+        "kinds": list(kinds.items()),
+        "lane_count": len(lanes),
+        "gel_count": len({lane.analysis_id for lane in lanes}),
+        "calibrated_count": sum(1 for lane in lanes if lane.analysis.ladder_calibrations.all()),
+        "creator": (creator.get_full_name() or creator.username) if creator else "Unknown",
+        "is_owner": comparison.created_by_id == user.pk,
     }
 
 
 @login_required
 def comparison_list_view(request):
     """
-    Landing page for sample/lane comparison feature.
+    The saved comparisons and the analyses ready to compare, in the light gel-list look (slice 2d).
 
-    Shows:
-    - Saved comparisons (user's own + public) as cards
-    - "Start New Comparison" button
-    - Recent analyses with densitometry data
-    - Quick access filters
+    One GET form (``partials/_filter_picker.html``, ``js/ga-filterbar.js``), so every filter lives in the URL:
+
+    - ``filter``: ``mine`` (default) | ``all`` -- the user's comparisons, or theirs and the public ones
+    - ``q``: search in the name and the description
+    - ``assay``: repeated assay ids plus ``none`` -- the comparisons holding a lane of that assay
+    - ``page``: 24 cards a page
+
+    A card names the assays the comparison holds (the page compares one at a time). Delete stays the
+    owner's, through the saved-comparison API. "Recent analyses with densitometry": the newest 20, with
+    their assay, each a link comparing all its lanes.
     """
-    # Get saved comparisons for current user + public
-    saved_comparisons = (
-        SavedComparison.objects.filter(Q(created_by=request.user) | Q(is_public=True))
-        .select_related("created_by")
-        .prefetch_related("savedcomparisonlane_set__lane__analysis__gel_image")
-        .order_by("-updated_at")[:20]
-    )
+    params = request.GET
+    mode = "all" if params.get("filter") == "all" else "mine"
+    search_query = params.get("q", "").strip()
+    assay_ids, assay_none = int_values(params, "assay")
 
-    # Get recent analyses with completed densitometry
-    recent_analyses = (
+    visible = _visible_comparisons(request.user, mode)
+    comparisons = visible
+    if search_query:
+        comparisons = comparisons.filter(Q(name__icontains=search_query) | Q(description__icontains=search_query))
+    if assay_ids or assay_none:
+        comparisons = comparisons.filter(ids_q("lanes__analysis__gel_image__assay", assay_ids, assay_none)).distinct()
+    comparisons = (
+        comparisons.select_related("created_by")
+        .prefetch_related(
+            Prefetch(
+                "savedcomparisonlane_set",
+                queryset=SavedComparisonLane.objects.select_related("lane__analysis__gel_image__assay")
+                .prefetch_related("lane__analysis__ladder_calibrations")
+                .order_by("order"),
+            )
+        )
+        .order_by("-updated_at", "-pk")
+    )
+    page_obj = Paginator(comparisons, 24).get_page(params.get("page", 1))
+    cards = [_comparison_card(comparison, request.user) for comparison in page_obj.object_list]
+
+    facets = [_comparison_assay_facet(visible, assay_ids, assay_none)]
+    chips = facet_chips(params, facets)
+    if search_query:
+        chips.append({"label": f'Search: "{search_query}"', "url": remove_value_url(params, "q", params.get("q"))})
+
+    # Recent analyses with completed densitometry. `annotate(lanes_count=...)` + `prefetch_related("lanes")`
+    # let the template render the count and the "Compare lanes" link without 2 queries per row.
+    recent_analyses = list(
         GelAnalysis.objects.filter(lanes__densitometry_summary__isnull=False)
-        .select_related("gel_image")
+        .select_related("gel_image__assay")
+        .annotate(lanes_count=Count("lanes", distinct=True))
+        .prefetch_related("lanes")
         .distinct()
         .order_by("-created_at")[:20]
     )
-
-    # Get available gel images for filtering
-    available_images = (
-        GelImage.objects.filter(analyses__lanes__densitometry_summary__isnull=False)
-        .distinct()
-        .order_by("-uploaded_at")[:20]
-    )
+    for analysis in recent_analyses:
+        # The image's assay as the gel pages name it (GelAnalysis has no gel type: the badge was empty).
+        analysis.assay_label = assay_label(analysis.gel_image)
 
     context = {
-        "saved_comparisons": saved_comparisons,
+        "cards": cards,
+        "page_obj": page_obj,
+        "total_count": visible.count(),
+        "filter_mode": mode,
+        "search_query": search_query,
+        "facets": facets,
+        "chips": chips,
         "recent_analyses": recent_analyses,
-        "available_images": available_images,
         "current_user_id": request.user.pk,
     }
-
     return render(request, "gel_analyzer/comparisons/list.html", context)
 
 
@@ -315,14 +195,24 @@ def sample_comparison_view(request):
     if comparison_id:
         try:
             saved_comparison = SavedComparison.objects.get(pk=comparison_id)
-            # Access check: owner or public
-            if not saved_comparison.is_public and saved_comparison.created_by != request.user:
+            # Access check: owner or public (access.py, the rule of the API and the report route)
+            if not user_can_read_saved_comparison(request.user, saved_comparison):
                 saved_comparison = None
-        except (SavedComparison.DoesNotExist, ValueError):
+        except (SavedComparison.DoesNotExist, ValueError, ValidationError):
             pass
 
     # Collect all items to compare
     items_data = []
+
+    def _parse_id_param(values):
+        """Accept ?x=1&x=2 and ?x=1,2 (comma form) — both per docstring above."""
+        out = []
+        for raw in values:
+            for piece in str(raw).split(","):
+                piece = piece.strip()
+                if piece.isdigit():
+                    out.append(piece)
+        return out
 
     if saved_comparison:
         # Load lanes from saved comparison in order
@@ -332,89 +222,79 @@ def sample_comparison_view(request):
         # Feed into lane-mode processing below
         lane_ids_override = [str(lid) for lid in saved_lane_ids]
 
-        saved_comparison_json = json.dumps(
-            {
-                "id": str(saved_comparison.pk),
-                "name": saved_comparison.name,
-                "description": saved_comparison.description,
-                "is_public": saved_comparison.is_public,
-                "view_settings": saved_comparison.view_settings or {},
-            }
-        )
+        saved_comparison_info = {
+            "id": str(saved_comparison.pk),
+            "name": saved_comparison.name,
+            "description": saved_comparison.description,
+            "is_public": saved_comparison.is_public,
+            "view_settings": saved_comparison.view_settings or {},
+            "lane_count": len(saved_lane_ids),
+        }
     else:
         lane_ids_override = None
 
-    # Lane mode (gel_analyzer standalone or saved comparison override)
-    lane_ids = lane_ids_override if lane_ids_override else request.GET.getlist("lanes", [])
-    remaining_slots = max(0, 20 - len(items_data))  # Generous limit
+    # The page shows at most 20 lanes.
+    SAMPLE_CAP = 20
 
-    for lane_id in lane_ids[:remaining_slots]:
-        try:
-            lane = (
-                Lane.objects.select_related(
-                    "analysis__gel_image",
-                    "densitometry_summary",
-                )
-                .prefetch_related(
-                    "bands__densitometry",
-                    "analysis__ladder_calibrations__template",
-                )
-                .get(pk=lane_id)
+    # The hub also resolves ?samples= (Process Development samples) into lanes here; a Phoresis
+    # comparison is made of lanes only.
+    lane_ids_input = lane_ids_override if lane_ids_override else _parse_id_param(request.GET.getlist("lanes", []))
+    remaining_slots = SAMPLE_CAP
+    lane_mode_ids = [int(x) for x in lane_ids_input[:remaining_slots] if str(x).isdigit()]
+    if saved_comparison:
+        # A saved comparison over the cap loads its first lanes: an Update would replace the saved lanes with
+        # those and drop the rest without a word. The page refuses Update then (comparison-page-chrome.js),
+        # on this flag -- decided here, once, not from the lanes the user adds or removes afterwards.
+        saved_comparison_info["truncated"] = len(lane_ids_input) > len(lane_mode_ids)
+        saved_comparison_json = script_json(saved_comparison_info)
+
+    # === Bulk fetch for lane-mode lanes ===
+    lanes_by_id = {}
+    if lane_mode_ids:
+        lanes_qs = (
+            Lane.objects.filter(pk__in=lane_mode_ids)
+            .select_related(
+                "analysis__gel_image",
+                "densitometry_summary",
             )
+            .prefetch_related(
+                "bands__densitometry",
+                "analysis__ladder_calibrations__template",
+            )
+        )
+        lanes_by_id = {lane_obj.pk: lane_obj for lane_obj in lanes_qs}
 
-            items_data.append(_serialize_lane_data(lane))
-
-        except Lane.DoesNotExist:
+    for lane_id in lane_mode_ids:
+        lane = lanes_by_id.get(lane_id)
+        if lane is None:
             continue
-        except Exception as e:
-            logger.error(f"Error processing lane {lane_id}: {e}")
-            continue
+        items_data.append(lane_item(lane))
 
-    items_json = json.dumps(items_data)
-
-    # Get available Lanes with densitometry (for modal - Gel Lanes tab)
-    selected_lane_ids = [s["lane"]["id"] for s in items_data if s.get("lane") and s["lane"].get("id")]
-
-    available_lanes_qs = Lane.objects.filter(
-        densitometry_summary__isnull=False,
-        lane_type=Lane.LaneType.SAMPLE,  # Only sample lanes, not ladder lanes
-    ).select_related("analysis__gel_image")
-
-    if selected_lane_ids:
-        available_lanes_qs = available_lanes_qs.exclude(pk__in=selected_lane_ids)
-
-    available_lanes = list(available_lanes_qs.order_by("-analysis__created_at")[:50])
-
-    # Get unique analyses for filter dropdown (Gel Lanes tab)
-    available_analyses = list(
-        GelAnalysis.objects.filter(lanes__densitometry_summary__isnull=False)
-        .select_related("gel_image")
-        .distinct()
-        .values("pk", "name", "gel_image__gel_type")
-        .order_by("-created_at")[:20]
-    )
-
-    # Get unique gel images for filter dropdown (Gel Lanes tab)
-    available_images = list(
-        GelImage.objects.filter(analyses__lanes__densitometry_summary__isnull=False)
-        .distinct()
-        .values("pk", "original_filename")
-        .order_by("-uploaded_at")[:20]
-    )
+    # What each lane is compared in and what it reads (the gel's own rules, services/analysis_detail.py).
+    enrich(items_data)
+    items_json = script_json(items_data)
 
     context = {
         "items_data": items_data,
         "items_json": items_json,
-        "available_lanes": available_lanes,
-        "available_analyses": available_analyses,
-        "available_images": available_images,
+        # The purity thresholds of the gel pages (90 / 70), for the comparison's purity chart.
+        "purity_thresholds_json": script_json({"good": PURITY_GOOD, "fair": PURITY_FAIR}),
         "can_add_more": True,
         # Saved comparison context
         "saved_comparison_id": str(saved_comparison.pk) if saved_comparison else "",
         "saved_comparison_name": saved_comparison.name if saved_comparison else "",
         "saved_comparison_json": saved_comparison_json,
-        # Support ?back= parameter for return navigation
-        "back_url": request.GET.get("back", ""),
+        # Support ?back= parameter for return navigation. The value lands in an
+        # href, so only an internal root-relative path is accepted; anything
+        # else falls back to the template default and is never reflected.
+        "back_url": safe_back_path(request) or "",
     }
 
     return render(request, "gel_analyzer/comparisons/compare.html", context)
+
+
+@login_required
+def viz_showcase_view(request):
+    """Dev/demo: mounts the comparison component on an MDB5 page to prove
+    inline reusability + inbound CSS containment + resolve endpoint + teardown."""
+    return render(request, "gel_analyzer/viz/showcase.html", {"page_title": "Viz showcase · Gel Analyzer"})

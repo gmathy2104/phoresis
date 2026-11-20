@@ -15,6 +15,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from gel_analyzer.models import LadderCalibration, LadderTemplate
 from gel_analyzer.services import TemplateLearningService
+from phoresis_core.error_handling.helpers import public_error_text
 from phoresis_core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -217,10 +218,11 @@ def api_template_train_now(request, pk):
             }
         )
     except Exception as exc:
-        logger.error(
-            f"Train-now failed for template {template.code}: {exc}",
-            user=request.user.username,
-            template_id=str(template.pk),
-            exc_info=True,
+        error = public_error_text(
+            logger.bind(template_id=str(template.pk)),
+            exc,
+            public="The training failed.",
+            log=f"Train-now failed for template {template.code}",
+            request=request,
         )
-        return JsonResponse({"ok": False, "error": str(exc)}, status=500)
+        return JsonResponse({"ok": False, "error": error}, status=500)

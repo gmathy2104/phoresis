@@ -78,20 +78,8 @@
                        class="sr-only">
             </div>
         </div>
-        <div>
-            <label class="mb-1.5 block text-sm font-medium">Gel type</label>
-            <select name="gel_type" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">
-                <option value="">— Select —</option>
-                <option value="SDS_PAGE">SDS-PAGE</option>
-                <option value="DOT_BLOT">Dot Blot</option>
-                <option value="WESTERN_BLOT">Western Blot</option>
-                <option value="UNKNOWN">Unknown</option>
-            </select>
-        </div>
-        <div>
-            <label class="mb-1.5 block text-sm font-medium">Description</label>
-            <textarea name="description" rows="3" class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" placeholder="Optional notes…"></textarea>
-        </div>
+        {% for error in form.original_file.errors %}<p class="text-xs text-red-700">{{ error }}</p>{% endfor %}
+        {% include 'gel_analyzer/images/_metadata_fields.html' %}
         <div class="flex justify-end gap-2 pt-2">
             {% url 'gel_analyzer:image_list' as image_list_url %}
             {% btn "Cancel" href=image_list_url variant="ghost" %}

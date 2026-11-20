@@ -26,6 +26,10 @@ from gel_analyzer.views import (
     api_band_densitometry,
     api_band_detail,
     api_band_estimate_mw,
+    api_band_model_context,
+    api_band_model_preview,
+    api_band_model_save,
+    api_band_split,
     api_bands_bulk_update_polygons,
     api_bulk_delete_bands,
     api_bulk_delete_lanes,
@@ -52,7 +56,6 @@ from gel_analyzer.views import (
     api_detection_params_defaults,
     api_export_densitometry,
     api_export_status,
-    api_generate_analysis_report,
     api_generate_comparison_report,
     api_generate_densitometry_report,
     api_get_densitometry,
@@ -67,7 +70,9 @@ from gel_analyzer.views import (
     api_lane_detail,
     api_lane_match_template,
     api_lane_profile,
+    api_lane_tilt,
     api_lanes,
+    api_readout_reference,
     api_run_densitometry,
     api_run_densitometry_async,
     api_sam_embeddings,
@@ -85,6 +90,7 @@ from gel_analyzer.views import (
     densitometry_view,
     image_delete_view,
     image_detail_view,
+    image_edit_view,
     image_list_view,
     image_upload_view,
     sample_comparison_view,
@@ -104,6 +110,7 @@ urlpatterns = [
     path("images/", image_list_view, name="image_list"),
     path("images/upload/", image_upload_view, name="image_upload"),
     path("images/<uuid:pk>/", image_detail_view, name="image_detail"),
+    path("images/<uuid:pk>/edit/", image_edit_view, name="image_edit"),
     path("images/<uuid:pk>/delete/", image_delete_view, name="image_delete"),
     # Analyses
     path("analyses/", analysis_list_view, name="analysis_list"),
@@ -126,6 +133,7 @@ urlpatterns = [
         name="api_lane_apply_ladder_template",
     ),
     path("api/bands/<uuid:pk>/", api_band_detail, name="api_band_detail"),
+    path("api/bands/<uuid:pk>/split/", api_band_split, name="api_band_split"),
     path("api/images/<uuid:pk>/proxy/", api_image_proxy, name="api_image_proxy"),
     path("api/images/<uuid:pk>/crop/", api_crop_image, name="api_crop_image"),
     # Band Detection API (Auto d1/d2 Derivative)
@@ -233,7 +241,14 @@ urlpatterns = [
     path(
         "api/analyses/<uuid:pk>/detect-bands-cv2/async/", api_detect_bands_cv2_async, name="api_detect_bands_cv2_async"
     ),
-    # Hybrid Band Detection API
+    # Band model API: the YOLO band model the editor runs in the browser, after the lane model
+    path("api/analyses/<uuid:pk>/band-model/", api_band_model_context, name="api_band_model_context"),
+    path("api/analyses/<uuid:pk>/band-model/preview/", api_band_model_preview, name="api_band_model_preview"),
+    path("api/analyses/<uuid:pk>/band-model/save/", api_band_model_save, name="api_band_model_save"),
+    # The tilt of the detected lanes, for the review's "Follow the lanes" (computes only)
+    path("api/analyses/<uuid:pk>/lanes/tilt/", api_lane_tilt, name="api_lane_tilt"),
+    # Hybrid detection and cross-lane consensus: panels Phoresis still ships (ds-hub retired them
+    # from its editor when the band model arrived)
     path("api/lanes/<int:pk>/detect-bands-hybrid/", api_detect_bands_hybrid_lane, name="api_detect_bands_hybrid_lane"),
     path(
         "api/lanes/<int:pk>/detect-bands-hybrid/save/",
@@ -245,7 +260,6 @@ urlpatterns = [
         api_detect_bands_hybrid_async,
         name="api_detect_bands_hybrid_async",
     ),
-    # Cross-Lane Consensus API (POST run / DELETE undo)
     path(
         "analyses/<uuid:analysis_id>/cross-lane-consensus/",
         cross_lane_consensus_view,
@@ -261,7 +275,6 @@ urlpatterns = [
     path("api/comparisons/", api_saved_comparisons, name="api_saved_comparisons"),
     path("api/comparisons/<uuid:pk>/", api_saved_comparison_detail, name="api_saved_comparison_detail"),
     # Report API
-    path("api/analyses/<uuid:pk>/report/generate/", api_generate_analysis_report, name="api_generate_analysis_report"),
     path(
         "api/comparisons/<uuid:pk>/report/generate/",
         api_generate_comparison_report,
@@ -274,4 +287,6 @@ urlpatterns = [
     ),
     # Status Workflow API
     path("api/analyses/<uuid:pk>/status/", api_analysis_status_transition, name="api_analysis_status_transition"),
+    # Gel readouts: the anti-HCP reference lane (republishes the analysis)
+    path("api/analyses/<uuid:pk>/readout-reference/", api_readout_reference, name="api_readout_reference"),
 ]

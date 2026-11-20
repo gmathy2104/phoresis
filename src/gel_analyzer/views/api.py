@@ -13,20 +13,32 @@ Endpoints:
 """
 
 import contextlib
+import hashlib
 import json
+import math
 
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Max
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.cache import cache_control
+from django.views.decorators.http import condition, require_http_methods
 
+from gel_analyzer.access import user_can_write_gel_analyzer
 from gel_analyzer.forms import band_to_dict, lane_to_dict
-from gel_analyzer.models import Band, GelAnalysis, GelImage, Lane
+from gel_analyzer.models import Band, GelAnalysis, GelImage, LadderTemplate, Lane
+from gel_analyzer.services.comparison_items import enrich, lane_item
+from gel_analyzer.services.lane_geometry.shape import GeometryRefused, normalize_lane_write
+from gel_analyzer.services.quantification.band_type_change import BandTypeRefused, apply_band_type, check_band_type
+from gel_analyzer.services.quantification.lane_type_change import CalibrationPointsHeld, guard_lane_type_change
+from phoresis_core.error_handling.helpers import public_error_text
 from phoresis_core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+LANE_GEOMETRY_KEYS = ("lane_shape", "polygon", "x", "y", "width", "height")
 
 
 def json_error(message: str, status: int = 400) -> JsonResponse:
@@ -40,6 +52,71 @@ def parse_json_body(request) -> dict | None:
         return json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def image_size_of(analysis) -> tuple:
+    gel = analysis.gel_image
+    return (gel.width, gel.height)
+
+
+def with_lane_geometry(data: dict, lane, image_size: tuple) -> dict:
+    """A lane write's payload with the geometry the server stores (spec 2026-10-10 §4, Rule 1): a non-rectangle
+    lane's box is its polygon's outer box, a box-only change maps the stored polygon, an unchanged polygon is not
+    rewritten. ``lane`` is None on a create. Raises GeometryRefused."""
+    stored = None
+    if lane is not None:
+        stored = {key: getattr(lane, key) for key in LANE_GEOMETRY_KEYS}
+    geometry = normalize_lane_write({k: data[k] for k in LANE_GEOMETRY_KEYS if k in data}, stored, image_size)
+    return {**{k: v for k, v in data.items() if k not in LANE_GEOMETRY_KEYS}, **geometry}
+
+
+def loading_volume_refusal(data: dict) -> str | None:
+    """Why a lane write's ``loading_volume_ul`` is refused, else None: null or a finite number >= 0, the model's
+    MinValueValidator(0), which ``save()`` never runs."""
+    value = data.get("loading_volume_ul")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        return "loading_volume_ul must be a number >= 0 or null"
+    return None
+
+
+class LadderTemplateRefused(ValueError):
+    """A LADDER lane's write names no ladder template."""
+
+
+def with_ladder_template(data: dict, lane) -> dict:
+    """A lane write's payload with the ladder template the server stores: it follows the lane type, as in the editor
+    (``PropertiesPanel._followLadderTemplate``). A lane that is not a LADDER after the write has none, whatever the
+    payload says: the editor's band auto-promote (POI -> SAMPLE) sends ``lane_type`` alone. A LADDER lane takes the
+    ``ladder_template_id`` it is given, null or a template's id. ``lane`` is None on a create. Raises
+    LadderTemplateRefused."""
+    lane_type = data.get("lane_type", lane.lane_type if lane is not None else Lane.LaneType.SAMPLE)
+    if lane_type != Lane.LaneType.LADDER:
+        return {**data, "ladder_template_id": None}
+    template_id = data.get("ladder_template_id")
+    if template_id is None:
+        return data
+    try:
+        known = LadderTemplate.objects.filter(pk=template_id).exists()
+    except ValidationError:  # not a UUID
+        known = False
+    if not known:
+        raise LadderTemplateRefused("ladder_template_id must be the id of a ladder template or null")
+    return data
+
+
+def wants_force(request) -> bool:
+    """``?force=true``: the caller confirmed that a lane leaving CALIBRATION/CONTROL discards its calibration points."""
+    return request.GET.get("force", "").lower() == "true"
+
+
+def calibration_points_refusal(refusal: CalibrationPointsHeld) -> JsonResponse:
+    """The v1 PATCH's 409 (``detail`` + ``dependent_band_ids``), with the ``error`` this module's clients display."""
+    return JsonResponse(
+        {"error": f"Lane {refusal.lane.lane_number}: {refusal}", **refusal.payload()},
+        status=409,
+    )
 
 
 @login_required
@@ -67,6 +144,16 @@ def api_lanes(request, pk):
         data = parse_json_body(request)
         if data is None:
             return json_error("Invalid JSON in request body")
+        try:
+            data = with_lane_geometry(data, None, image_size_of(analysis))
+            data = with_ladder_template(data, None)
+        except GeometryRefused as exc:
+            return json_error(f"Invalid lane geometry: {exc}")
+        except LadderTemplateRefused as exc:
+            return json_error(str(exc))
+        refusal = loading_volume_refusal(data)
+        if refusal:
+            return json_error(refusal)
 
         try:
             # Calculate next available lane_number to avoid conflicts
@@ -91,9 +178,11 @@ def api_lanes(request, pk):
                 # Sample conditions and load
                 is_reduced=data.get("is_reduced"),
                 protein_load_ug=data.get("protein_load_ug"),
+                loading_volume_ul=data.get("loading_volume_ul"),
                 protein_load_type=data.get("protein_load_type", ""),
                 # Sample info
                 sample_name=data.get("sample_name", ""),
+                ladder_template_id=data.get("ladder_template_id"),
                 notes=data.get("notes", ""),
             )
 
@@ -129,7 +218,8 @@ def api_lanes(request, pk):
 def api_lane_detail(request, pk):
     """
     GET: Get lane details.
-    PUT: Update lane properties.
+    PUT: Update lane properties. A lane_type leaving CALIBRATION/CONTROL while its bands hold calibration points
+         answers the v1 PATCH's 409 unless ?force=true (guard_lane_type_change).
     DELETE: Delete lane and its bands.
     """
     lane = get_object_or_404(Lane.objects.select_related("analysis"), pk=pk)
@@ -145,6 +235,13 @@ def api_lane_detail(request, pk):
         data = parse_json_body(request)
         if data is None:
             return json_error("Invalid JSON in request body")
+        try:
+            data = with_lane_geometry(data, lane, image_size_of(analysis))
+        except GeometryRefused as exc:
+            return json_error(f"Invalid geometry for lane {lane.lane_number}: {exc}")
+        refusal = loading_volume_refusal(data)
+        if refusal:
+            return json_error(f"Lane {lane.lane_number}: {refusal}")
 
         # Track if X position changed (requires renumbering)
         old_x = lane.x
@@ -161,20 +258,30 @@ def api_lane_detail(request, pk):
             "polygon",
             "is_reduced",
             "protein_load_ug",
-            "protein_load_type",
             "loading_volume_ul",
+            "protein_load_type",
             "sample_name",
             "notes",
         ]
-        for field in updatable_fields:
-            if field in data:
-                setattr(lane, field, data[field])
+        try:
+            with transaction.atomic():
+                # Before the type is set: the stored type decides whether the lane leaves CALIBRATION/CONTROL.
+                if "lane_type" in data:
+                    guard_lane_type_change(lane, data["lane_type"], force=wants_force(request))
+                data = with_ladder_template(data, lane)
+                for field in updatable_fields:
+                    if field in data:
+                        setattr(lane, field, data[field])
 
-        # Handle ladder_template_id (FK for LADDER lanes)
-        if "ladder_template_id" in data:
-            lane.ladder_template_id = data["ladder_template_id"]
+                # The ladder template follows the lane type (with_ladder_template)
+                if "ladder_template_id" in data:
+                    lane.ladder_template_id = data["ladder_template_id"]
 
-        lane.save()
+                lane.save()
+        except CalibrationPointsHeld as refusal:
+            return calibration_points_refusal(refusal)
+        except LadderTemplateRefused as exc:
+            return json_error(f"Lane {lane.lane_number}: {exc}")
 
         # Renumber lanes if position changed
         if x_changed:
@@ -226,7 +333,15 @@ def api_lane_detail(request, pk):
 def api_lane_bands(request, pk):
     """
     POST: Create a new band in a lane.
+
+    Concurrent re-analyse / band-delete on the same lane can hold cascade
+    locks on DensitometryResult, leading to a Postgres deadlock when this
+    handler tries to insert a new Band. The deadlock is properly detected
+    and aborted by Postgres; we surface it as a 409 with a retry hint so
+    the client can re-issue cleanly instead of seeing a generic 500.
     """
+    from django.db import OperationalError, transaction
+
     lane = get_object_or_404(Lane.objects.select_related("analysis"), pk=pk)
     analysis = lane.analysis
 
@@ -237,58 +352,88 @@ def api_lane_bands(request, pk):
     if data is None:
         return json_error("Invalid JSON in request body")
 
+    # Calculate bbox from polygon if provided
+    polygon = data.get("polygon", [])
+    bbox_x, bbox_y, bbox_width, bbox_height = None, None, None, None
+
+    if polygon and len(polygon) >= 3:
+        xs = [p[0] for p in polygon]
+        ys = [p[1] for p in polygon]
+        bbox_x = min(xs)
+        bbox_y = min(ys)
+        bbox_width = max(xs) - bbox_x
+        bbox_height = max(ys) - bbox_y
+
+    # Default band_type based on lane type (LADDER -> MW_REFERENCE, else OTHER)
+    default_band_type = "MW_REFERENCE" if lane.lane_type == Lane.LaneType.LADDER else "OTHER"
+    band_type = data.get("band_type", default_band_type)
+    # A new band has no calibration point: CALIBRATION is refused, as the v1 PATCH refuses it without one.
     try:
-        # Calculate bbox from polygon if provided
-        polygon = data.get("polygon", [])
-        bbox_x, bbox_y, bbox_width, bbox_height = None, None, None, None
+        check_band_type(None, band_type)
+    except BandTypeRefused as refusal:
+        return json_error(str(refusal))
 
-        if polygon and len(polygon) >= 3:
-            xs = [p[0] for p in polygon]
-            ys = [p[1] for p in polygon]
-            bbox_x = min(xs)
-            bbox_y = min(ys)
-            bbox_width = max(xs) - bbox_x
-            bbox_height = max(ys) - bbox_y
+    # Single retry on deadlock — concurrent re-analyses are rare but real.
+    for attempt in (1, 2):
+        try:
+            with transaction.atomic():
+                # Lock the parent lane row first to establish a consistent
+                # ordering for every band-mutation path on this lane. Any
+                # concurrent re-analyse / band-delete operation that takes
+                # the same lock will queue cleanly behind us instead of
+                # interleaving with our cascade chain.
+                Lane.objects.select_for_update().filter(pk=lane.pk).first()
 
-        # Default band_type based on lane type (LADDER -> MW_REFERENCE, else OTHER)
-        default_band_type = "MW_REFERENCE" if lane.lane_type == Lane.LaneType.LADDER else "OTHER"
+                band = Band.objects.create(
+                    lane=lane,
+                    detection_source="MANUAL",
+                    band_type=band_type,
+                    position_y=data.get("position_y"),
+                    polygon=polygon if polygon else None,
+                    bbox_x=data.get("bbox_x", bbox_x),
+                    bbox_y=data.get("bbox_y", bbox_y),
+                    bbox_width=data.get("bbox_width", bbox_width),
+                    bbox_height=data.get("bbox_height", bbox_height),
+                    estimated_mw_kda=data.get("estimated_mw_kda"),
+                    label=data.get("label", ""),
+                    notes=data.get("notes", ""),
+                )
 
-        band = Band.objects.create(
-            lane=lane,
-            detection_source="MANUAL",
-            band_type=data.get("band_type", default_band_type),
-            position_y=data.get("position_y"),
-            polygon=polygon if polygon else None,
-            bbox_x=data.get("bbox_x", bbox_x),
-            bbox_y=data.get("bbox_y", bbox_y),
-            bbox_width=data.get("bbox_width", bbox_width),
-            bbox_height=data.get("bbox_height", bbox_height),
-            estimated_mw_kda=data.get("estimated_mw_kda"),
-            label=data.get("label", ""),
-            notes=data.get("notes", ""),
-        )
+                # Update analysis counts
+                analysis.update_counts()
+            break
+        except OperationalError as exc:
+            # Deadlock detected — Postgres already rolled back our work.
+            # Retry once; if it persists, surface a 409 so the client
+            # knows to wait and try again rather than seeing a generic 500.
+            if attempt == 1 and "deadlock" in str(exc).lower():
+                logger.warning(
+                    f"Deadlock on api_lane_bands lane={lane.pk}, retrying once",
+                )
+                continue
+            logger.exception(f"Concurrent conflict creating band: {exc}")
+            return json_error(
+                "Another change to this lane was in progress. Please retry.",
+                409,
+            )
+        except Exception as e:
+            logger.exception(f"Error creating band: {e}")
+            return json_error("An unexpected error occurred. Please try again.")
 
-        # Update analysis counts
-        analysis.update_counts()
+    logger.info(
+        f"Created band in lane {lane.lane_number}",
+        user=request.user.username,
+        analysis_id=str(analysis.pk),
+        band_id=str(band.pk),
+    )
 
-        logger.info(
-            f"Created band in lane {lane.lane_number}",
-            user=request.user.username,
-            analysis_id=str(analysis.pk),
-            band_id=str(band.pk),
-        )
-
-        return JsonResponse(
-            {
-                "success": True,
-                "band": band_to_dict(band),
-            },
-            status=201,
-        )
-
-    except Exception as e:
-        logger.exception(f"Error creating band: {e}")
-        return json_error("An unexpected error occurred. Please try again.")
+    return JsonResponse(
+        {
+            "success": True,
+            "band": band_to_dict(band),
+        },
+        status=201,
+    )
 
 
 @login_required
@@ -405,7 +550,9 @@ def api_lane_apply_ladder_template(request, pk):
 def api_band_detail(request, pk):
     """
     GET: Get band details.
-    PUT: Update band properties.
+    PUT: Update band properties. A band_type write keeps the v1 PATCH's rule (check_band_type / apply_band_type):
+         CALIBRATION without a stored calibration point is refused (400; the editor sends the type with its amount
+         through the v1 PATCH), any other type deletes the band's point.
     DELETE: Delete band.
     """
     band = get_object_or_404(Band.objects.select_related("lane__analysis"), pk=pk)
@@ -435,6 +582,12 @@ def api_band_detail(request, pk):
             "notes",
             "band_type",
         ]
+        # Before the type is set: the stored band decides whether it holds a calibration point.
+        if "band_type" in data:
+            try:
+                check_band_type(band, data["band_type"])
+            except BandTypeRefused as refusal:
+                return json_error(str(refusal))
         for field in updatable_fields:
             if field in data:
                 setattr(band, field, data[field])
@@ -449,17 +602,10 @@ def api_band_detail(request, pk):
             band.bbox_width = max(xs) - band.bbox_x
             band.bbox_height = max(ys) - band.bbox_y
 
-        band.save()
-
-        # Mirror the v1 BandSerializer behaviour: a band marked as
-        # CALIBRATION pulls its lane along (SAMPLE/LADDER/EMPTY → CALIBRATION).
-        # Otherwise the legacy PUT path (used by the context-menu "Set
-        # type → Calibration" submenu via apiClient.updateBand) would
-        # leave the lane mismatched even though the v1 PATCH path fixes
-        # it up.
-        from gel_analyzer.api.serializers import _auto_promote_lane_for_band
-
-        _auto_promote_lane_for_band(band)
+        with transaction.atomic():
+            band.save()
+            if "band_type" in data:
+                apply_band_type(band)
 
         logger.info(f"Updated band {band.pk}", user=request.user.username, band_id=str(band.pk))
 
@@ -491,17 +637,178 @@ def api_band_detail(request, pk):
 
 
 @login_required
+@require_http_methods(["POST"])
+def api_band_split(request, pk):
+    """
+    POST: Split a band into two halves atomically.
+
+    Replaces the legacy frontend pattern of issuing DELETE → CREATE upper →
+    CREATE lower as three sequential roundtrips (which forced the client to
+    follow with a /data/ reload to pick up the new IDs — four roundtrips
+    total). One transactional endpoint here cuts the perceived latency for
+    the split UX from ~600-1200ms to a single roundtrip, AND removes the
+    "DELETE arrives after the CREATEs → 3 bands left in DB" failure mode
+    that motivated the original sequencing comment in _splitBand.
+
+    The polygon math (intersection at splitY, sorting the upper/lower
+    polygons) stays on the client — it's a pure CPU operation with no DB
+    involvement, and replicating it server-side would just duplicate code
+    that already works in gel-viewer.js::_splitBand.
+
+    Body:
+        upper: {polygon, position_y, bbox_x, bbox_y, bbox_width, bbox_height,
+                band_type, label, notes}
+        lower: {same shape as upper}
+
+    Returns:
+        {success: True, upper: <band dict>, lower: <band dict>,
+         deleted_id: "<uuid>"}
+    """
+    band = get_object_or_404(Band.objects.select_related("lane__analysis"), pk=pk)
+    analysis = band.lane.analysis
+    lane = band.lane
+
+    if not analysis.is_editable:
+        return json_error("Analysis is not editable", 403)
+
+    data = parse_json_body(request)
+    if data is None:
+        return json_error("Invalid JSON in request body")
+
+    upper = data.get("upper")
+    lower = data.get("lower")
+    if not upper or not lower:
+        return json_error('Both "upper" and "lower" payloads are required')
+
+    def _band_payload(d):
+        # Mirror the bbox-from-polygon fallback used in api_lane_bands so
+        # clients can omit bbox_* when they pass polygon — keeps the wire
+        # format flexible.
+        polygon = d.get("polygon") or []
+        bbox_x = d.get("bbox_x")
+        bbox_y = d.get("bbox_y")
+        bbox_width = d.get("bbox_width")
+        bbox_height = d.get("bbox_height")
+        if polygon and len(polygon) >= 3 and bbox_x is None:
+            xs = [p[0] for p in polygon]
+            ys = [p[1] for p in polygon]
+            bbox_x = min(xs)
+            bbox_y = min(ys)
+            bbox_width = max(xs) - bbox_x
+            bbox_height = max(ys) - bbox_y
+        return {
+            "detection_source": "MANUAL",
+            "band_type": d.get("band_type", band.band_type or "OTHER"),
+            "position_y": d.get("position_y"),
+            "polygon": polygon or None,
+            "bbox_x": bbox_x,
+            "bbox_y": bbox_y,
+            "bbox_width": bbox_width,
+            "bbox_height": bbox_height,
+            "estimated_mw_kda": d.get("estimated_mw_kda"),
+            "label": d.get("label", ""),
+            "notes": d.get("notes", ""),
+        }
+
+    upper_payload, lower_payload = _band_payload(upper), _band_payload(lower)
+    # Each half is a new band, without the split band's calibration point: a half typed CALIBRATION is refused, as
+    # the v1 PATCH refuses CALIBRATION without a point. The editor sends OTHER for both after asking.
+    for payload in (upper_payload, lower_payload):
+        try:
+            check_band_type(None, payload["band_type"])
+        except BandTypeRefused as refusal:
+            return json_error(f"A split half has no calibration point: {refusal}")
+
+    try:
+        with transaction.atomic():
+            deleted_id = str(band.pk)
+            # If the original was a CALIBRATION band, its
+            # ProteinQuantCalibrationPoint cascade-deletes with the band
+            # (OneToOne CASCADE). The halves cannot inherit the load amount
+            # automatically — splitting changes what's quantified, so the
+            # user needs to re-mark whichever half is the calibration
+            # standard. Logged so support can correlate "missing calibration
+            # point after split" reports without scraping the audit log.
+            if band.band_type == "CALIBRATION":
+                logger.info(
+                    f"Split discarded CALIBRATION quant_point for band {deleted_id}",
+                    band_id=deleted_id,
+                    analysis_id=str(analysis.pk),
+                )
+            band.delete()
+            upper_band = Band.objects.create(lane=lane, **upper_payload)
+            lower_band = Band.objects.create(lane=lane, **lower_payload)
+            # Inside the same transaction so a failed count update rolls
+            # back the delete + creates together; the alternative left
+            # total_bands stale until the next save when update_counts()
+            # raised post-commit.
+            analysis.update_counts()
+
+        logger.info(
+            f"Split band {deleted_id} into {upper_band.pk} / {lower_band.pk}",
+            user=request.user.username,
+            analysis_id=str(analysis.pk),
+            lane_id=str(lane.pk),
+        )
+
+        return JsonResponse(
+            {
+                "success": True,
+                "deleted_id": deleted_id,
+                "upper": band_to_dict(upper_band),
+                "lower": band_to_dict(lower_band),
+            }
+        )
+    except Exception as e:
+        logger.exception(f"Error splitting band {pk}: {e}")
+        # transaction.atomic rolled back already; the original band is intact.
+        return json_error("An unexpected error occurred while splitting. Please try again.", 500)
+
+
+@login_required
 @require_http_methods(["GET"])
 def api_analysis_data(request, pk):
     """
     GET: Get full analysis data with all lanes and bands.
 
-    Used to load the initial state of the annotation viewer.
-    """
-    analysis = get_object_or_404(GelAnalysis.objects.select_related("gel_image"), pk=pk)
+    Used to load the initial state of the annotation viewer. ``analysis.readout_reference_lane_id``
+    and ``gel_image.assay`` (``{"id", "name", "readout"}`` or null) drive the lane menu's "Use as
+    HCP reference" entry and the REF badge; ``analysis.can_write`` disables that entry for a reader.
 
-    # Prefetch all lanes and bands
-    lanes = analysis.lanes.prefetch_related("bands").order_by("lane_number")
+    ``page_summary`` is the analysis page's composition (``analysis_detail.summary_payload``: the readout,
+    its checks, the lane cells) and each band carries its ``role`` in the gel's readout
+    (``analysis_detail.band_role_map``: ``aggregate`` / ``main`` / ``clipping``, ``hcp`` / ``left_out``, else
+    null -- roles exist where a densitometry run left values, and a band edit wipes them). Both are computed
+    in a guard, as on the densitometry API: a failure logs and serves ``null`` / no role, never a 500 on the
+    editor's only load.
+    """
+    from gel_analyzer.services.analysis_detail import (
+        band_role_map,
+        page_summary,
+        summary_lanes_prefetch,
+        summary_payload,
+    )
+    from gel_analyzer.services.readout_publisher import assay_summary
+
+    # The lanes whole (summary, sample, bands with their densitometry): what page_summary and lane_readouts
+    # read with no query of their own, and lane_to_dict's sample with no per-lane query.
+    analysis = get_object_or_404(
+        GelAnalysis.objects.select_related("gel_image__assay").prefetch_related(summary_lanes_prefetch()), pk=pk
+    )
+    lanes = list(analysis.lanes.all())
+
+    summary_json, roles = None, {}
+    try:
+        gel_summary = page_summary(analysis, lanes)
+        summary_json = summary_payload(analysis, gel_summary, lanes)
+        roles = band_role_map(gel_summary, lanes)
+    except Exception:
+        logger.exception(f"page_summary failed for analysis {analysis.id} (annotation data)")
+
+    lanes_data = [lane_to_dict(lane) for lane in lanes]
+    for lane_data in lanes_data:
+        for band_data in lane_data["bands"]:
+            band_data["role"] = roles.get(band_data["id"])
 
     return JsonResponse(
         {
@@ -510,6 +817,8 @@ def api_analysis_data(request, pk):
                 "name": analysis.name,
                 "status": analysis.status,
                 "is_editable": analysis.is_editable,
+                "can_write": user_can_write_gel_analyzer(request.user),
+                "readout_reference_lane_id": analysis.readout_reference_lane_id,
                 "total_lanes": analysis.total_lanes,
                 "total_bands": analysis.total_bands,
             },
@@ -519,14 +828,52 @@ def api_analysis_data(request, pk):
                 "width": analysis.gel_image.width,
                 "height": analysis.gel_image.height,
                 "gel_type": analysis.gel_image.gel_type,
+                "assay": assay_summary(analysis),
             },
-            "lanes": [lane_to_dict(lane) for lane in lanes],
+            "lanes": lanes_data,
+            "page_summary": summary_json,
         }
     )
 
 
+def _proxied_file(gel_image):
+    """The file ``api_image_proxy`` serves: the display file, else the original upload (falsy when neither is set)."""
+    return gel_image.display_file or gel_image.original_file
+
+
+def image_proxy_etag(request, pk):
+    """The image proxy's validator (sample comparison spec 2026-10-11 §3.7): a digest of the served file's storage
+    name and its ``storage.size()``. One rule on FileSystemStorage (tests) and Azure (one blob-properties call, no
+    download). A crop or a new display file is saved under a new name (the storage never overwrites), so a changed
+    file changes the validator.
+
+    Hashed, not sent raw: Django MIME-encodes a header value outside latin-1, which then never matches again, and a
+    ``"`` or a ``,`` breaks ``parse_etags``; a storage name built from an uploaded filename promises none of that.
+
+    No ``last_modified_func`` beside it: on Azure ``get_modified_time()`` is a second blob-properties round trip
+    (``size()`` makes its own), and ``If-None-Match`` already decides before ``If-Modified-Since`` (RFC 9110 §13.2.2).
+
+    Never raises on a missing file or a storage error: it returns None (no validator), and the view answers exactly
+    as it did without one (the file, or its 404)."""
+    gel_image = GelImage.objects.filter(pk=pk).only("display_file", "original_file").first()
+    if gel_image is None:
+        return None
+    image_file = _proxied_file(gel_image)
+    if not image_file:
+        return None
+    try:
+        size = image_file.storage.size(image_file.name)
+    except Exception as exc:  # FileNotFoundError on disk; ResourceNotFoundError / AzureError on Azure
+        logger.warning("Image proxy {}: no ETag, the storage could not size {}: {}", pk, image_file.name, exc)
+        return None
+    digest = hashlib.sha256(f"{image_file.name}\n{size}".encode()).hexdigest()
+    return f'"{digest[:32]}"'
+
+
 @login_required
 @require_http_methods(["GET"])
+@cache_control(private=True, no_cache=True)
+@condition(etag_func=image_proxy_etag)
 def api_image_proxy(request, pk):
     """
     Proxy endpoint for gel image files.
@@ -537,11 +884,17 @@ def api_image_proxy(request, pk):
     This is used by the auto-detect and auto-enhance features which need to read
     pixel data from the canvas, which would otherwise fail due to
     CORS tainted canvas restrictions.
+
+    Validators (sample comparison spec 2026-10-11 §3.7): ``condition`` sends ``image_proxy_etag`` as the ``ETag``
+    and answers a matching ``If-None-Match`` with 304 before this body runs, so a page showing the same gel again
+    downloads nothing. ``cache_control`` puts ``private, no-cache`` on the 200 and the 304 alike: the browser
+    revalidates on every view and never shows a replaced (cropped) image. Both sit inside ``login_required``, so an
+    anonymous request is redirected to the login page and never gets a 304.
     """
     gel_image = get_object_or_404(GelImage, pk=pk)
 
     # Prefer display_file, fallback to original_file
-    image_file = gel_image.display_file or gel_image.original_file
+    image_file = _proxied_file(gel_image)
     if not image_file:
         raise Http404("Image file not found")
 
@@ -564,8 +917,6 @@ def api_image_proxy(request, pk):
 
         response = HttpResponse(file_content, content_type=content_type)
         response["Content-Length"] = len(file_content)
-        # No caching — image may be replaced by crop
-        response["Cache-Control"] = "private, no-cache"
 
         return response
 
@@ -647,6 +998,12 @@ def api_bulk_lanes(request, pk):
     lanes_data = data.get("lanes", [])
     if not lanes_data:
         return json_error("No lanes provided", 400)
+    # Rule 1 on every lane before anything is written: one refused lane refuses the request.
+    size = image_size_of(analysis)
+    try:
+        lanes_data = [with_lane_geometry(lane_data, None, size) for lane_data in lanes_data]
+    except GeometryRefused as exc:
+        return json_error(f"Invalid lane geometry: {exc}")
 
     created_lanes = []
 
@@ -719,6 +1076,9 @@ def api_bulk_update_lanes(request, pk):
     Body:
     - lanes: Array of {id, ...fields to update}
 
+    A lane_type leaving CALIBRATION/CONTROL while the lane's bands hold calibration points refuses the whole request
+    with the v1 PATCH's 409 unless ?force=true (guard_lane_type_change).
+
     Returns:
     - success: boolean
     - lanes: Array of updated lane objects
@@ -736,6 +1096,11 @@ def api_bulk_update_lanes(request, pk):
     lanes_data = data.get("lanes", [])
     if not lanes_data:
         return json_error("No lanes provided", 400)
+    # Before the atomic block: a refusal returned from inside it would commit the lanes already written.
+    for lane_data in lanes_data:
+        refusal = loading_volume_refusal(lane_data) if isinstance(lane_data, dict) else None
+        if refusal:
+            return json_error(f"Lane id {lane_data.get('id')}: {refusal}")
 
     updated_lanes = []
     x_changed = False
@@ -750,12 +1115,14 @@ def api_bulk_update_lanes(request, pk):
         "polygon",
         "is_reduced",
         "protein_load_ug",
-        "protein_load_type",
         "loading_volume_ul",
+        "protein_load_type",
         "sample_name",
         "notes",
     ]
 
+    size = image_size_of(analysis)
+    force = wants_force(request)
     try:
         with transaction.atomic():
             for lane_data in lanes_data:
@@ -768,12 +1135,22 @@ def api_bulk_update_lanes(request, pk):
                 if not lane:
                     continue
 
+                # Rule 1, the calibration points' guard, then the ladder template; a refusal raises out of the atomic
+                # block: nothing of this request is written, no point purged.
+                lane_data = with_lane_geometry(lane_data, lane, size)
+                if "lane_type" in lane_data:
+                    guard_lane_type_change(lane, lane_data["lane_type"], force=force)
+                lane_data = with_ladder_template(lane_data, lane)
                 old_x = lane.x
 
                 # Update allowed fields
                 for field in updatable_fields:
                     if field in lane_data:
                         setattr(lane, field, lane_data[field])
+
+                # The ladder template follows the lane type (with_ladder_template)
+                if "ladder_template_id" in lane_data:
+                    lane.ladder_template_id = lane_data["ladder_template_id"]
 
                 lane.save()
                 updated_lanes.append(lane)
@@ -803,6 +1180,12 @@ def api_bulk_update_lanes(request, pk):
             }
         )
 
+    except GeometryRefused as exc:
+        return json_error(f"Invalid lane geometry: {exc}")
+    except LadderTemplateRefused as exc:  # raised in the loop: `lane` is the lane refused
+        return json_error(f"Lane {lane.lane_number}: {exc}")
+    except CalibrationPointsHeld as refusal:
+        return calibration_points_refusal(refusal)
     except Exception as e:
         logger.exception(f"Error bulk updating lanes: {e}")
         return json_error("An unexpected error occurred. Please try again.")
@@ -957,10 +1340,7 @@ def api_detect_bands_lane(request, pk):
     - band_count: Number of bands detected
     - profile: Optional intensity profile data for visualization
     """
-    from gel_analyzer.services.band_detection import (
-        BandDetectionParams,
-        BandDetectionService,
-    )
+    from gel_analyzer.services.band_detection import BandDetectionParams, BandDetectionService
     from gel_analyzer.services.file_handler import GelFileHandler
 
     lane = get_object_or_404(Lane.objects.select_related("analysis__gel_image"), pk=pk)
@@ -972,8 +1352,11 @@ def api_detect_bands_lane(request, pk):
     params_dict = data.get("params", data) if data else {}
 
     try:
-        # Build params from request
-        params = BandDetectionParams.from_dict(params_dict)
+        try:
+            params = BandDetectionParams.from_dict(params_dict)
+        except ValueError as e:  # the params' own range checks (models.py) or an unknown background_method
+            logger.warning(f"Invalid detection params: {e}")
+            return json_error(f"Invalid parameters: {e}")
 
         # Load image
         image = GelFileHandler.load_image_as_array(lane.analysis.gel_image)
@@ -1013,13 +1396,11 @@ def api_detect_bands_lane(request, pk):
 
         return JsonResponse(response)
 
-    except ValueError as e:
-        logger.warning(f"Invalid detection params: {e}")
-        return json_error(f"Invalid parameters: {e}")
-
-    except Exception as e:
-        logger.exception(f"Band detection failed for lane {pk}: {e}")
-        return json_error("An unexpected error occurred. Please try again.", 500)
+    except Exception as e:  # a ValueError from the detection itself carries numpy's text, not the params'
+        error = public_error_text(
+            logger, e, public="The band detection failed.", log=f"Band detection failed for lane {pk}", request=request
+        )
+        return json_error(error, 500)
 
 
 @login_required
@@ -1129,8 +1510,14 @@ def api_detect_bands_diagnostic(request, pk):
         )
 
     except Exception as e:
-        logger.exception(f"Detection diagnostic failed for lane {pk}: {e}")
-        return json_error(f"Diagnostic failed: {e}", 500)
+        error = public_error_text(
+            logger,
+            e,
+            public="The detection diagnostic failed.",
+            log=f"Detection diagnostic failed for lane {pk}",
+            request=request,
+        )
+        return json_error(error, 500)
 
 
 @login_required
@@ -1151,10 +1538,7 @@ def api_detect_bands_lane_save(request, pk):
     - bands: Array of saved band objects with IDs
     - band_count: Number of bands saved
     """
-    from gel_analyzer.services.band_detection import (
-        BandDetectionParams,
-        BandDetectionService,
-    )
+    from gel_analyzer.services.band_detection import BandDetectionParams, BandDetectionService
     from gel_analyzer.services.file_handler import GelFileHandler
 
     lane = get_object_or_404(Lane.objects.select_related("analysis__gel_image"), pk=pk)
@@ -1171,8 +1555,11 @@ def api_detect_bands_lane_save(request, pk):
     delete_existing = data.get("delete_existing", True) if data else True
 
     try:
-        # Build params from request
-        params = BandDetectionParams.from_dict(params_dict)
+        try:
+            params = BandDetectionParams.from_dict(params_dict)
+        except ValueError as e:  # the params' own range checks (models.py) or an unknown background_method
+            logger.warning(f"Invalid detection params: {e}")
+            return json_error(f"Invalid parameters: {e}")
 
         # Load image
         image = GelFileHandler.load_image_as_array(analysis.gel_image)
@@ -1214,13 +1601,11 @@ def api_detect_bands_lane_save(request, pk):
             response_data["diagnostics"] = result.detection_diagnostics
         return JsonResponse(response_data)
 
-    except ValueError as e:
-        logger.warning(f"Invalid detection params: {e}")
-        return json_error(f"Invalid parameters: {e}")
-
-    except Exception as e:
-        logger.exception(f"Band detection failed for lane {pk}: {e}")
-        return json_error("An unexpected error occurred. Please try again.", 500)
+    except Exception as e:  # a ValueError from the detection itself carries numpy's text, not the params'
+        error = public_error_text(
+            logger, e, public="The band detection failed.", log=f"Band detection failed for lane {pk}", request=request
+        )
+        return json_error(error, 500)
 
 
 @login_required
@@ -1244,10 +1629,7 @@ def api_detect_bands_bulk(request, pk):
     - total_bands: Total bands detected across all lanes
     - results: Array of per-lane results
     """
-    from gel_analyzer.services.band_detection import (
-        BandDetectionParams,
-        BandDetectionService,
-    )
+    from gel_analyzer.services.band_detection import BandDetectionParams, BandDetectionService
     from gel_analyzer.services.file_handler import GelFileHandler
 
     analysis = get_object_or_404(GelAnalysis.objects.select_related("gel_image"), pk=pk)
@@ -1265,8 +1647,11 @@ def api_detect_bands_bulk(request, pk):
         return json_error("Analysis is not editable", 403)
 
     try:
-        # Build params from request
-        params = BandDetectionParams.from_dict(params_dict)
+        try:
+            params = BandDetectionParams.from_dict(params_dict)
+        except ValueError as e:  # the params' own range checks (models.py) or an unknown background_method
+            logger.warning(f"Invalid detection params: {e}")
+            return json_error(f"Invalid parameters: {e}")
 
         # Load image
         image = GelFileHandler.load_image_as_array(analysis.gel_image)
@@ -1338,13 +1723,15 @@ def api_detect_bands_bulk(request, pk):
             }
         )
 
-    except ValueError as e:
-        logger.warning(f"Invalid detection params: {e}")
-        return json_error(f"Invalid parameters: {e}")
-
-    except Exception as e:
-        logger.exception(f"Bulk band detection failed for analysis {pk}: {e}")
-        return json_error("An unexpected error occurred. Please try again.", 500)
+    except Exception as e:  # a ValueError from the detection itself carries numpy's text, not the params'
+        error = public_error_text(
+            logger,
+            e,
+            public="The band detection failed.",
+            log=f"Bulk band detection failed for analysis {pk}",
+            request=request,
+        )
+        return json_error(error, 500)
 
 
 @login_required
@@ -2415,10 +2802,7 @@ def api_analysis_calibrate_multi(request, pk):
     try:
         service = MultiLadderCalibrationService(analysis)
         result = service.calibrate_all_ladders(
-            user=request.user,
-            template=template,
-            method=method,
-            excluded_band_ids=excluded_band_ids,
+            user=request.user, template=template, method=method, excluded_band_ids=excluded_band_ids
         )
 
         logger.info(
@@ -2436,6 +2820,9 @@ def api_analysis_calibrate_multi(request, pk):
         # knows about them (they unchecked them) and reporting them as "not
         # detected" is misleading. The exclusion is reflected in the marker
         # table itself.
+        # Skip the unmatched-markers report entirely when no template was
+        # provided — without a canonical marker list there is nothing to
+        # compare against.
         unmatched = []
         if result.calibrations and template is not None:
             template_bands = list(template.bands.order_by("band_order"))
@@ -2467,9 +2854,9 @@ def api_analysis_calibrate_multi(request, pk):
                 "template_name": result.template_name,
                 "calibrations": [c.to_dict() for c in result.calibrations],
                 "errors": result.errors,
-                "average_r_squared": round(result.average_r_squared, 6)
-                if result.average_r_squared is not None
-                else None,
+                "average_r_squared": (
+                    round(result.average_r_squared, 6) if result.average_r_squared is not None else None
+                ),
                 "unmatched_template_bands": unmatched,
                 "warnings": result.warnings,
             }
@@ -2831,48 +3218,18 @@ def api_bands_bulk_update_polygons(request):
 # =========================================================
 
 
-def _get_comparability_message(issues: list) -> str:
-    """
-    Generate a user-friendly message for comparability issues.
-
-    Args:
-        issues: List of issue codes
-
-    Returns:
-        Human-readable message explaining why lane cannot be compared
-    """
-    if not issues:
-        return ""
-
-    messages = {
-        "no_lane": "Lane data is missing",
-        "no_gel_image": "Gel image is not available",
-        "no_profile": "Profile data has not been computed",
-        "no_calibration": "MW calibration is not available",
-    }
-
-    parts = [messages.get(issue, f"Unknown issue: {issue}") for issue in issues]
-    return ". ".join(parts)
-
-
 @login_required
 @require_http_methods(["GET"])
 def api_lane_comparison_data(request, pk):
     """
-    Get lane data for comparison view.
+    The comparison item of one lane, for the "Add Sample" wizard.
 
-    Returns complete lane data including:
-    - Lane geometry and metadata
-    - Bands with densitometry
-    - Profile data for electropherogram
-    - MW calibration data
-    - Comparability status
+    The very item the comparison page builds (``services/comparison_items.lane_item`` then ``enrich``):
+    geometry, bands with densitometry, profile, MW calibration, comparability, sample, condition and
+    load, the assay and kind it is compared in, and its readout cells. This view used to keep a hand
+    copy that had lost the purity, the condition and the load.
     """
-    from django.urls import reverse
-
     try:
-        comparability_issues = []
-
         lane = get_object_or_404(
             Lane.objects.select_related(
                 "analysis__gel_image",
@@ -2885,235 +3242,9 @@ def api_lane_comparison_data(request, pk):
             ),
             pk=pk,
         )
-
-        # Get gel image URL via proxy
-        image_url = None
-        try:
-            if lane.analysis and lane.analysis.gel_image:
-                image_url = reverse("gel_analyzer:api_image_proxy", kwargs={"pk": lane.analysis.gel_image.pk})
-        except Exception as e:
-            logger.warning(f"Error getting gel image URL for lane {pk}: {e}")
-
-        if not image_url:
-            comparability_issues.append("no_gel_image")
-
-        # Get profile data
-        profile_data = None
-        if (
-            hasattr(lane, "densitometry_summary")
-            and lane.densitometry_summary
-            and lane.densitometry_summary.profile_data
-        ):
-            profile_data = lane.densitometry_summary.profile_data
-
-        if not profile_data:
-            comparability_issues.append("no_profile")
-
-        # Get calibration data
-        calibration_data = None
-        if lane.analysis:
-            calibration = lane.analysis.ladder_calibrations.first()
-            if calibration:
-                calibration_data = {
-                    "method": calibration.method,
-                    "coefficients": calibration.coefficients,
-                    "r_squared": float(calibration.r_squared) if calibration.r_squared else None,
-                    "template_name": calibration.template.name if calibration.template else None,
-                    "mw_range": {
-                        "min": float(calibration.template.mw_range_min)
-                        if calibration.template and calibration.template.mw_range_min
-                        else None,
-                        "max": float(calibration.template.mw_range_max)
-                        if calibration.template and calibration.template.mw_range_max
-                        else None,
-                    }
-                    if calibration.template
-                    else None,
-                }
-
-        if not calibration_data:
-            comparability_issues.append("no_calibration")
-
-        # Pre-compute MW-aligned profile.
-        # Rf is computed in the LADDER lane's reference frame — the frame
-        # the calibration curve was fit in. Using lane.y / lane.height of
-        # the SAMPLE lane here would skew the entire MW axis whenever the
-        # sample lane bbox doesn't perfectly match the ladder lane bbox.
-        mw_profile_data = None
-        if profile_data and calibration_data and lane.analysis:
-            try:
-                calibration = lane.analysis.ladder_calibrations.first()
-                if calibration and calibration.ladder_lane:
-                    y_positions = profile_data.get("y_positions", [])
-                    intensities = profile_data.get("intensities", [])
-                    ladder_top = calibration.ladder_lane.y
-                    ladder_bottom = calibration.ladder_lane.y + calibration.ladder_lane.height
-
-                    if y_positions and intensities and ladder_bottom > ladder_top:
-                        mw_values = []
-                        for y_pos in y_positions:
-                            mw = calibration.estimate_mw(int(y_pos), ladder_top, ladder_bottom)
-                            mw_values.append(float(mw) if mw else None)
-
-                        mw_profile_data = {
-                            "mw_values": mw_values,
-                            "intensities": intensities,
-                            "y_positions": y_positions,
-                        }
-            except Exception as e:
-                logger.warning(f"Error computing MW profile for lane {pk}: {e}")
-
-        # Serialize bands
-        bands_data = []
-        for band in lane.bands.all().order_by("position_y"):
-            band_info = {
-                "id": str(band.pk),
-                "band_type": band.band_type,
-                "band_type_display": band.get_band_type_display()
-                if hasattr(band, "get_band_type_display")
-                else band.band_type,
-                "position_y": float(band.position_y) if band.position_y else None,
-                "estimated_mw_kda": float(band.estimated_mw_kda)
-                if hasattr(band, "estimated_mw_kda") and band.estimated_mw_kda
-                else None,
-                "bbox": {
-                    "x": float(band.bbox_x) if hasattr(band, "bbox_x") and band.bbox_x else None,
-                    "y": float(band.bbox_y) if hasattr(band, "bbox_y") and band.bbox_y else None,
-                    "width": float(band.bbox_width) if hasattr(band, "bbox_width") and band.bbox_width else None,
-                    "height": float(band.bbox_height) if hasattr(band, "bbox_height") and band.bbox_height else None,
-                },
-            }
-
-            if hasattr(band, "densitometry") and band.densitometry:
-                d = band.densitometry
-                band_info["densitometry"] = {
-                    "corrected_area": float(d.corrected_area) if d.corrected_area else None,
-                    "relative_percent_lane": float(d.relative_percent_lane) if d.relative_percent_lane else None,
-                    "relative_percent_gel": float(d.relative_percent_gel) if d.relative_percent_gel else None,
-                    "fit_r_squared": float(d.fit_r_squared) if d.fit_r_squared else None,
-                    "peak_amplitude": float(d.peak_amplitude) if d.peak_amplitude else None,
-                    "fwhm": float(d.fwhm) if d.fwhm else None,
-                    "estimated_amount": float(d.estimated_amount) if d.estimated_amount is not None else None,
-                    "estimated_amount_unit": d.estimated_amount_unit or None,
-                }
-
-            # Quant point (only present on CALIBRATION-typed bands with a declared
-            # known reference). Used by the comparison table for the CONTROL
-            # recovery math (predicted vs known) per Phase 7's fix.
-            qp = getattr(band, "quant_point", None)
-            if qp is not None:
-                band_info["quant_point"] = {
-                    "load_amount": float(qp.load_amount) if qp.load_amount is not None else None,
-                    "load_unit": qp.load_unit,
-                    "is_excluded_from_fit": qp.is_excluded_from_fit,
-                    "role": qp.role,
-                }
-
-            bands_data.append(band_info)
-
-        # Build label and source info
-        if lane.sample_name:
-            label = f"Lane {lane.lane_number}: {lane.sample_name}"
-            source = "lane"
-            source_id = lane.pk
-        else:
-            label = f"Lane {lane.lane_number}"
-            source = "lane"
-            source_id = lane.pk
-
-        # Critical vs soft issues
-        critical_issues = [i for i in comparability_issues if i in ("no_lane", "no_gel_image")]
-
-        # Surface the active protein-quantification calibration (if any) on
-        # the analysis payload so the comparison UI knows whether to show
-        # the Quantification column group + which unit / method to label.
-        active_quant = None
-        if lane.analysis:
-            active_quant = next(
-                (qc for qc in lane.analysis.quant_calibrations.all() if qc.is_active),
-                None,
-            )
-
-        # Lane-level densitometry summary (poi_percentage, totals, band_count)
-        # — needed for the lane-level comparison row display.
-        lane_summary = None
-        if hasattr(lane, "densitometry_summary") and lane.densitometry_summary:
-            s = lane.densitometry_summary
-            lane_summary = {
-                "total_integrated_area": float(s.total_integrated_area)
-                if s.total_integrated_area is not None
-                else None,
-                "poi_integrated_area": float(s.poi_integrated_area) if s.poi_integrated_area is not None else None,
-                "poi_percentage": float(s.poi_percentage) if s.poi_percentage is not None else None,
-                "band_count": s.band_count,
-                "poi_band_count": s.poi_band_count,
-            }
-
-        # Number of MW markers on the analysis ladder (Quality column).
-        mw_marker_count = 0
-        if lane.analysis:
-            cal = lane.analysis.ladder_calibrations.first()
-            if cal and cal.ladder_lane_id:
-                mw_marker_count = cal.ladder_lane.mw_markers.count() if hasattr(cal, "ladder_lane") else 0
-
-        return JsonResponse(
-            {
-                "id": f"{source}_{source_id}",
-                "source": source,
-                "label": label,
-                "sample": None,
-                "lane": {
-                    "id": lane.pk,
-                    "lane_number": lane.lane_number,
-                    "lane_type": lane.lane_type,
-                    "lane_type_display": lane.get_lane_type_display(),
-                    "sample_name": lane.sample_name or None,
-                    "is_reduced": lane.is_reduced,
-                    "protein_load_ug": float(lane.protein_load_ug) if lane.protein_load_ug is not None else None,
-                    "loading_volume_ul": float(lane.loading_volume_ul) if lane.loading_volume_ul is not None else None,
-                    "bbox": {
-                        "x": lane.x,
-                        "y": lane.y,
-                        "width": lane.width,
-                        "height": lane.height,
-                    },
-                },
-                "lane_geometry": {
-                    "top": lane.y,
-                    "bottom": lane.y + lane.height,
-                },
-                "image_url": image_url,
-                "bands": bands_data,
-                "profile": profile_data,
-                "mw_profile": mw_profile_data,
-                "calibration": calibration_data,
-                "densitometry": lane_summary,
-                "analysis": {
-                    "id": str(lane.analysis.pk) if lane.analysis else None,
-                    "name": lane.analysis.name if lane.analysis else None,
-                    "gel_type": lane.analysis.gel_image.gel_type if lane.analysis and lane.analysis.gel_image else None,
-                    "mw_marker_count": mw_marker_count,
-                    "active_quant_calibration": (
-                        {
-                            "id": str(active_quant.id),
-                            "method": active_quant.method,
-                            "unit": active_quant.unit,
-                            "r_squared": float(active_quant.r_squared) if active_quant.r_squared is not None else None,
-                        }
-                        if active_quant
-                        else None
-                    ),
-                }
-                if lane.analysis
-                else None,
-                "comparability": {
-                    "is_valid": len(critical_issues) == 0,
-                    "issues": comparability_issues,
-                    "critical_issues": critical_issues,
-                    "message": _get_comparability_message(critical_issues) if critical_issues else None,
-                },
-            }
-        )
+        item = lane_item(lane)
+        enrich([item])
+        return JsonResponse(item)
 
     except Exception as e:
         logger.exception(f"Error in api_lane_comparison_data for lane {pk}: {e}")
@@ -3242,9 +3373,9 @@ def api_images_with_densitometry(request):
                     "thumbnail_url": thumbnail_url,
                     "original_filename": image.original_filename,
                     "gel_type": image.gel_type,
-                    "gel_type_display": image.get_gel_type_display()
-                    if hasattr(image, "get_gel_type_display")
-                    else image.gel_type,
+                    "gel_type_display": (
+                        image.get_gel_type_display() if hasattr(image, "get_gel_type_display") else image.gel_type
+                    ),
                     "uploaded_at": image.uploaded_at.isoformat() if image.uploaded_at else None,
                     "analysis": {
                         "id": str(analysis.pk),
@@ -3303,13 +3434,14 @@ def api_analysis_status_transition(request, pk):
     - action: "complete" | "approve" | "reject" | "reopen"
     - reason: str (required for reject)
 
-    Transition rules:
+    Who may do what lives in ``services/analysis_status.py``, shared with the REST API's
+    ``GelAnalysisViewSet.status_transition``:
     - complete: IN_PROGRESS → COMPLETED (creator only)
-    - approve: COMPLETED → APPROVED (staff or "Gel QA Team" group)
-    - reject: COMPLETED → REJECTED (staff or "Gel QA Team" group, reason required)
+    - approve: COMPLETED → APPROVED (staff or Gel QA Team)
+    - reject: COMPLETED → REJECTED (staff or Gel QA Team, reason required)
     - reopen: REJECTED → IN_PROGRESS (creator only, clears rejection_reason)
     """
-    from django.utils import timezone
+    from gel_analyzer.services.analysis_status import PAGE_ACTIONS, StatusChangeRefused, apply_status_action
 
     analysis = get_object_or_404(GelAnalysis, pk=pk)
     data = parse_json_body(request)
@@ -3317,86 +3449,84 @@ def api_analysis_status_transition(request, pk):
         return json_error("Invalid JSON in request body")
 
     action = data.get("action")
-    reason = data.get("reason", "").strip()
+    if action not in PAGE_ACTIONS:
+        return json_error(f"Invalid action: {action}. Must be one of: {', '.join(PAGE_ACTIONS)}")
 
-    if action not in ("complete", "approve", "reject", "reopen"):
-        return json_error(f"Invalid action: {action}. Must be one of: complete, approve, reject, reopen")
-
-    user = request.user
-    is_creator = analysis.created_by == user
-    is_qa = user.is_staff or user.groups.filter(name="Gel QA Team").exists()
-
-    # Validate transitions
-    if action == "complete":
-        if analysis.status != GelAnalysis.Status.IN_PROGRESS:
-            return json_error(
-                f'Cannot complete analysis in status "{analysis.get_status_display()}". Analysis must be In Progress.'
-            )
-        if not is_creator:
-            return json_error("Only the analysis creator can mark it as complete.", status=403)
-
-        analysis.status = GelAnalysis.Status.COMPLETED
-        analysis._change_reason = f"Marked as completed by {user.get_full_name() or user.username}"
-        analysis.save(update_fields=["status", "updated_at"])
-
-    elif action == "approve":
-        if analysis.status != GelAnalysis.Status.COMPLETED:
-            return json_error(
-                f'Cannot approve analysis in status "{analysis.get_status_display()}". '
-                f"Analysis must be Completed first."
-            )
-        if not is_qa:
-            return json_error("Only staff or Gel QA Team members can approve analyses.", status=403)
-
-        analysis.status = GelAnalysis.Status.APPROVED
-        analysis.approved_by = user
-        analysis.approved_at = timezone.now()
-        analysis._change_reason = f"Approved by {user.get_full_name() or user.username}"
-        analysis.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-
-    elif action == "reject":
-        if analysis.status != GelAnalysis.Status.COMPLETED:
-            return json_error(
-                f'Cannot reject analysis in status "{analysis.get_status_display()}". Analysis must be Completed first.'
-            )
-        if not is_qa:
-            return json_error("Only staff or Gel QA Team members can reject analyses.", status=403)
-        if not reason:
-            return json_error("A reason is required when rejecting an analysis.")
-
-        analysis.status = GelAnalysis.Status.REJECTED
-        analysis.rejection_reason = reason
-        analysis._change_reason = f"Rejected by {user.get_full_name() or user.username}: {reason}"
-        analysis.save(update_fields=["status", "rejection_reason", "updated_at"])
-
-    elif action == "reopen":
-        if analysis.status != GelAnalysis.Status.REJECTED:
-            return json_error(
-                f'Cannot reopen analysis in status "{analysis.get_status_display()}". '
-                f"Only rejected analyses can be reopened."
-            )
-        if not is_creator:
-            return json_error("Only the analysis creator can reopen a rejected analysis.", status=403)
-
-        analysis.status = GelAnalysis.Status.IN_PROGRESS
-        analysis.rejection_reason = ""
-        analysis.approved_by = None
-        analysis.approved_at = None
-        analysis._change_reason = f"Reopened by {user.get_full_name() or user.username}"
-        analysis.save(update_fields=["status", "rejection_reason", "approved_by", "approved_at", "updated_at"])
-
-    logger.info(
-        f"Analysis status transition: {action}",
-        user=user.username,
-        analysis_id=str(pk),
-        new_status=analysis.status,
-    )
+    try:
+        apply_status_action(analysis, action, request.user, reason=data.get("reason", ""))
+    except StatusChangeRefused as exc:
+        return json_error(str(exc), status=exc.http_status)
 
     return JsonResponse(
         {
             "success": True,
             "status": analysis.status,
             "status_display": analysis.get_status_display(),
+        }
+    )
+
+
+@login_required
+@require_http_methods(["POST"])
+def api_readout_reference(request, pk):
+    """
+    POST: Set (or clear) the reference lane of an anti-HCP western, then republish its readouts.
+
+    Body: ``{"lane_id": <int> | null}``. Every lane's HCP signal is also given in % of the reference
+    lane's (spec 2026-10-02-gel-assays-readouts-design.md §4.2); changing it changes every
+    published percentage, so the analysis is republished here (``services/readout_publisher.py``).
+
+    Writers only (``access.user_can_write_gel_analyzer``), and only while the analysis is editable,
+    like the lane and band endpoints. 400 when ``lane_id`` is not an integer or names a lane of
+    another analysis.
+
+    Returns ``{"success", "reference_lane_id", "reference_lane_number", "published": <counts>}``.
+    """
+    from gel_analyzer.services.readout_publisher import publish_gel_readouts
+
+    if not user_can_write_gel_analyzer(request.user):
+        return json_error("You are not allowed to modify gel data.", 403)
+
+    analysis = get_object_or_404(GelAnalysis.objects.select_related("gel_image__assay"), pk=pk)
+    if not analysis.is_editable:
+        return json_error("Analysis is not editable", 403)
+
+    data = parse_json_body(request)
+    if not isinstance(data, dict) or "lane_id" not in data:
+        return json_error('Body must be {"lane_id": <lane id> | null}')
+
+    lane_id = data["lane_id"]
+    lane = None
+    if lane_id is not None:
+        # bool is an int subclass: {"lane_id": true} must not name lane 1.
+        if isinstance(lane_id, bool) or not isinstance(lane_id, int):
+            return json_error("lane_id must be an integer or null")
+        lane = analysis.lanes.filter(pk=lane_id).first()
+        if lane is None:
+            return json_error(f"Lane {lane_id} is not a lane of this analysis")
+
+    analysis.readout_reference_lane = lane
+    analysis._change_reason = (
+        f"HCP reference lane set to lane {lane.lane_number}" if lane else "HCP reference lane cleared"
+    )
+    analysis.save(update_fields=["readout_reference_lane", "updated_at"])
+
+    published = publish_gel_readouts(analysis)
+
+    logger.info(
+        "Readout reference lane changed",
+        user=request.user.username,
+        analysis_id=str(analysis.pk),
+        reference_lane_id=lane.pk if lane else None,
+        published=published.get("published"),
+    )
+
+    return JsonResponse(
+        {
+            "success": True,
+            "reference_lane_id": lane.pk if lane else None,
+            "reference_lane_number": lane.lane_number if lane else None,
+            "published": published,
         }
     )
 
@@ -3453,8 +3583,9 @@ def api_crop_image(request, pk):
         log.warning(f"Crop validation failed: {e}")
         return json_error(str(e))
     except Exception as e:
-        log.error(f"Crop failed: {e}")
-        return json_error(f"Crop failed: {e}", status=500)
+        return json_error(
+            public_error_text(log, e, public="The crop failed.", log="Crop failed", request=request), status=500
+        )
 
     log.success(f"Image cropped to {new_w}x{new_h}")
     return JsonResponse(
@@ -3490,10 +3621,7 @@ def api_calibrate_detection(request, pk):
     """
     import numpy as np
 
-    from gel_analyzer.services.band_detection.calibration import (
-        DetectionCalibrator,
-        TeachingRegion,
-    )
+    from gel_analyzer.services.band_detection.calibration import DetectionCalibrator, TeachingRegion
     from gel_analyzer.services.file_handler import GelFileHandler
 
     analysis = get_object_or_404(GelAnalysis, pk=pk)
@@ -3511,8 +3639,11 @@ def api_calibrate_detection(request, pk):
     try:
         img_array = GelFileHandler.load_image_as_array(analysis.gel_image)
     except Exception as e:
-        log.error(f"Failed to load image: {e}")
-        return json_error(f"Failed to load image: {e}", status=500)
+        # The exception names the stored file's path on the server: a sentence and a reference instead.
+        error = public_error_text(
+            log, e, public="The gel image could not be loaded.", log="Failed to load image", request=request
+        )
+        return json_error(error, status=500)
 
     # Parse teaching regions
     min_region_size = 5
@@ -3577,8 +3708,10 @@ def api_calibrate_detection(request, pk):
         calibrator = DetectionCalibrator(img_array)
         result = calibrator.calibrate(background, small_band, large_band)
     except Exception as e:
-        log.error(f"Calibration failed: {e}")
-        return json_error(f"Calibration failed: {e}", status=500)
+        return json_error(
+            public_error_text(log, e, public="The calibration failed.", log="Calibration failed", request=request),
+            status=500,
+        )
 
     if not result.success:
         log.warning(f"Calibration unsuccessful: {result.error}")
@@ -3617,7 +3750,11 @@ def api_detect_bands_cv2_lane(request, pk):
     bg_type_override = data.get("bg_type") if data else None
 
     try:
-        params = CV2DetectionParams.from_dict(params_dict)
+        try:
+            params = CV2DetectionParams.from_dict(params_dict)
+        except ValueError as e:  # the params' own range check (cv2_params.py)
+            logger.warning(f"Invalid CV2 detection params: {e}")
+            return json_error(f"Invalid parameters: {e}")
         image = GelFileHandler.load_image_as_array(lane.analysis.gel_image)
 
         b = lane.bbox
@@ -3644,12 +3781,15 @@ def api_detect_bands_cv2_lane(request, pk):
         )
         return JsonResponse(response)
 
-    except ValueError as e:
-        logger.warning(f"Invalid CV2 detection params: {e}")
-        return json_error(f"Invalid parameters: {e}")
-    except Exception as e:
-        logger.exception(f"CV2 band detection failed for lane {pk}: {e}")
-        return json_error("An unexpected error occurred. Please try again.", 500)
+    except Exception as e:  # a ValueError from the detection itself carries numpy's or OpenCV's text
+        error = public_error_text(
+            logger,
+            e,
+            public="The band detection failed.",
+            log=f"CV2 band detection failed for lane {pk}",
+            request=request,
+        )
+        return json_error(error, 500)
 
 
 @login_required
@@ -3674,7 +3814,11 @@ def api_detect_bands_cv2_lane_save(request, pk):
     bg_type_override = data.get("bg_type") if data else None
 
     try:
-        params = CV2DetectionParams.from_dict(params_dict)
+        try:
+            params = CV2DetectionParams.from_dict(params_dict)
+        except ValueError as e:  # the params' own range check (cv2_params.py)
+            logger.warning(f"Invalid CV2 detection params: {e}")
+            return json_error(f"Invalid parameters: {e}")
         image = GelFileHandler.load_image_as_array(analysis.gel_image)
 
         b = lane.bbox
@@ -3733,12 +3877,15 @@ def api_detect_bands_cv2_lane_save(request, pk):
             }
         )
 
-    except ValueError as e:
-        logger.warning(f"Invalid CV2 detection params: {e}")
-        return json_error(f"Invalid parameters: {e}")
-    except Exception as e:
-        logger.exception(f"CV2 band detection save failed for lane {pk}: {e}")
-        return json_error("An unexpected error occurred. Please try again.", 500)
+    except Exception as e:  # a ValueError from the detection itself carries numpy's or OpenCV's text
+        error = public_error_text(
+            logger,
+            e,
+            public="The band detection failed.",
+            log=f"CV2 band detection save failed for lane {pk}",
+            request=request,
+        )
+        return json_error(error, 500)
 
 
 @login_required
@@ -4094,6 +4241,8 @@ def cross_lane_consensus_view(request, analysis_id):
         return json_error("analysis_not_found", status=404)
 
     if request.method == "DELETE":
+        if not analysis.is_editable:
+            return json_error("Analysis is not editable", 403)
         run_id = request.GET.get("run_id")
         if not run_id:
             return json_error("missing_run_id", status=400)
@@ -4111,6 +4260,8 @@ def cross_lane_consensus_view(request, analysis_id):
     # POST
     body = parse_json_body(request) or {}
     dry_run = bool(body.get("dry_run", True))
+    if not dry_run and not analysis.is_editable:
+        return json_error("Analysis is not editable", 403)
     params_data = body.get("params") or {}
     try:
         params = CrossLaneConsensusParams.from_dict(params_data)

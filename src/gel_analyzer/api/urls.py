@@ -3,6 +3,7 @@ URL routing for Gel Analyzer DRF API.
 """
 
 from drf_spectacular.views import SpectacularRedocView, SpectacularSwaggerView
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 
 from django.urls import include, path
@@ -54,6 +55,7 @@ quantification_urlpatterns = [
     ),
 ]
 
+# drf-spectacular serves its Swagger and ReDoc views AllowAny by default: IsAuthenticated closes them.
 urlpatterns = [
     # API v1 endpoints
     path("v1/", include(router.urls)),
@@ -62,7 +64,21 @@ urlpatterns = [
     # OpenAPI Schema
     path("schema/", GelAnalyzerSchemaView.as_view(), name="schema"),
     # Swagger UI
-    path("docs/", SpectacularSwaggerView.as_view(url_name="gel_analyzer:gel_analyzer_api:schema"), name="swagger-ui"),
+    path(
+        "docs/",
+        SpectacularSwaggerView.as_view(
+            url_name="gel_analyzer:gel_analyzer_api:schema",
+            permission_classes=[IsAuthenticated],
+        ),
+        name="swagger-ui",
+    ),
     # ReDoc
-    path("redoc/", SpectacularRedocView.as_view(url_name="gel_analyzer:gel_analyzer_api:schema"), name="redoc"),
+    path(
+        "redoc/",
+        SpectacularRedocView.as_view(
+            url_name="gel_analyzer:gel_analyzer_api:schema",
+            permission_classes=[IsAuthenticated],
+        ),
+        name="redoc",
+    ),
 ]

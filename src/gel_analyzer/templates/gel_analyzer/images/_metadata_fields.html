@@ -1,0 +1,37 @@
+{% comment %}
+  The assay, gel type and description fields of a gel image, shared by the upload and edit pages.
+  Rendered by hand from the bound form (GelImageUploadForm / GelImageEditForm) so they wear the
+  design system's input style and keep the submitted values and errors after a refused post.
+{% endcomment %}
+{% for error in form.non_field_errors %}
+<p class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-red-700">{{ error }}</p>
+{% endfor %}
+<div>
+    <label for="id_assay" class="mb-1.5 block text-sm font-medium">{{ form.assay.label }}</label>
+    <select name="assay" id="id_assay"{% if form.assay.field.required %} required{% endif %}
+            class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">
+        {% for option in form.assay %}
+        <option value="{{ option.data.value }}"{% if option.data.selected %} selected{% endif %}>{{ option.data.label }}</option>
+        {% endfor %}
+    </select>
+    <p class="mt-1 text-xs text-text-muted">{{ form.assay.help_text }}</p>
+    {% for error in form.assay.errors %}<p class="mt-1 text-xs text-red-700">{{ error }}</p>{% endfor %}
+</div>
+<div>
+    <label for="id_gel_type" class="mb-1.5 block text-sm font-medium">{{ form.gel_type.label }}</label>
+    <select name="gel_type" id="id_gel_type"
+            class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">
+        {% for option in form.gel_type %}
+        <option value="{{ option.data.value }}"{% if option.data.selected %} selected{% endif %}>{{ option.data.label }}</option>
+        {% endfor %}
+    </select>
+    <p class="mt-1 text-xs text-text-muted">{{ form.gel_type.help_text }}</p>
+    {% for error in form.gel_type.errors %}<p class="mt-1 text-xs text-red-700">{{ error }}</p>{% endfor %}
+</div>
+<div>
+    <label for="id_description" class="mb-1.5 block text-sm font-medium">{{ form.description.label }}</label>
+    <textarea name="description" id="id_description" rows="3"
+              class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+              placeholder="Optional notes…">{{ form.description.value|default_if_none:"" }}</textarea>
+    {% for error in form.description.errors %}<p class="mt-1 text-xs text-red-700">{{ error }}</p>{% endfor %}
+</div>

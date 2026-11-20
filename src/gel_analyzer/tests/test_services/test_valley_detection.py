@@ -12,15 +12,8 @@ import numpy as np
 from django.test import TestCase
 
 from gel_analyzer.services.band_detection.geometry_builder import BandGeometryBuilder
-from gel_analyzer.services.band_detection.models import (
-    BandDetectionParams,
-    DetectedPeak,
-    IntensityProfile,
-)
-from gel_analyzer.services.band_detection.peak_detector import (
-    PeakDetector,
-    find_valleys,
-)
+from gel_analyzer.services.band_detection.models import BandDetectionParams, DetectedPeak, IntensityProfile
+from gel_analyzer.services.band_detection.peak_detector import PeakDetector, find_valleys
 
 
 def _make_synthetic_profile(peaks, length=200, noise=0.0):

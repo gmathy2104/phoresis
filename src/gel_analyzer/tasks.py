@@ -112,10 +112,7 @@ def detect_bands_lane_task(
     from django.contrib.auth import get_user_model
 
     from gel_analyzer.models import Band, Lane
-    from gel_analyzer.services.band_detection import (
-        BandDetectionParams,
-        BandDetectionService,
-    )
+    from gel_analyzer.services.band_detection import BandDetectionParams, BandDetectionService
     from gel_analyzer.services.file_handler import GelFileHandler
 
     User = get_user_model()
@@ -220,10 +217,7 @@ def detect_bands_bulk_task(
     from django.contrib.auth import get_user_model
 
     from gel_analyzer.models import Band, GelAnalysis
-    from gel_analyzer.services.band_detection import (
-        BandDetectionParams,
-        BandDetectionService,
-    )
+    from gel_analyzer.services.band_detection import BandDetectionParams, BandDetectionService
     from gel_analyzer.services.file_handler import GelFileHandler
 
     User = get_user_model()
@@ -744,10 +738,8 @@ def run_densitometry_task(
     from django.utils import timezone
 
     from gel_analyzer.models import DensitometryJob, GelAnalysis
-    from gel_analyzer.services.densitometry import (
-        DensitometryParams,
-        DensitometryService,
-    )
+    from gel_analyzer.services.analysis_status import AnalysisIsFinal
+    from gel_analyzer.services.densitometry import DensitometryParams, DensitometryService, NormalizationRefused
     from gel_analyzer.services.file_handler import GelFileHandler
 
     User = get_user_model()
@@ -810,9 +802,9 @@ def run_densitometry_task(
         # Build params
         params = DensitometryParams.from_dict(params_dict) if params_dict else DensitometryParams()
 
-        # Load image
+        # Load image (and the original it was resized from: saturation is counted on it)
         logger.debug(f"[Task {self.request.id}] Loading image")
-        image = GelFileHandler.load_image_as_array(analysis.gel_image)
+        image, original = GelFileHandler.load_image_with_original(analysis.gel_image)
 
         # Create service
         service = DensitometryService(params)
@@ -840,6 +832,7 @@ def run_densitometry_task(
                 user=user,
                 lane_ids=lane_ids,
                 progress_callback=progress_callback,
+                original_image=original,
             )
         else:
             result = service.analyze_analysis(
@@ -847,7 +840,20 @@ def run_densitometry_task(
                 image=image,
                 lane_ids=lane_ids,
                 progress_callback=progress_callback,
+                original_image=original,
             )
+
+        # Refit + reapply the active protein-quantification calibration if any.
+        # Imported lazily to keep tasks.py free of service-package imports during
+        # Celery worker boot. Wrapped in try/except so quantification refit
+        # failures NEVER break a densitometry run.
+        if save_results:
+            from gel_analyzer.services.quantification.invalidation import recompute_if_active
+
+            try:
+                recompute_if_active(analysis)
+            except Exception as exc:
+                logger.warning(f"Quantification recompute skipped after densitometry: {exc}")
 
         logger.info(
             f"[Task {self.request.id}] === DENSITOMETRY TASK COMPLETED === "
@@ -882,6 +888,14 @@ def run_densitometry_task(
 
         return response
 
+    except (AnalysisIsFinal, NormalizationRefused) as refusal:
+        # Refused, not failed: nothing was saved, and the job carries the reason to the page (its
+        # poller shows a FAILED job's error_message). No re-raise: no retry, no error traceback.
+        logger.info(f"[Task {self.request.id}] Densitometry refused for analysis {analysis_id}: {refusal}")
+        if job:
+            job.mark_failed(str(refusal))
+        return {"success": False, "error": str(refusal), "task_id": self.request.id}
+
     except Exception as e:
         logger.exception(f"[Task {self.request.id}] Densitometry failed for analysis {analysis_id}")
 
@@ -902,7 +916,8 @@ def export_densitometry_csv_task(
     user_id: int | None = None,
 ) -> dict:
     """
-    Generate CSV export for densitometry results.
+    Write the CSV of the analysis's SAVED densitometry to storage: the page's export, through the
+    same function (``services/densitometry/export.py::export_saved_csv``), which measures nothing.
 
     Args:
         analysis_id: UUID of the GelAnalysis
@@ -910,37 +925,24 @@ def export_densitometry_csv_task(
         user_id: User ID for audit
 
     Returns:
-        Dict with export file path or content
+        Dict with export file path, or ``success: False`` with the refusal when nothing is saved
     """
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
 
     from gel_analyzer.models import GelAnalysis
-    from gel_analyzer.services.densitometry import DensitometryService
-    from gel_analyzer.services.densitometry.export import DensitometryExporter, generate_csv_filename
-    from gel_analyzer.services.file_handler import GelFileHandler
+    from gel_analyzer.services.densitometry.export import NoSavedDensitometry, export_saved_csv, generate_csv_filename
 
     logger.info(f"[Task {self.request.id}] === DENSITOMETRY EXPORT STARTED === analysis_id={analysis_id}")
 
     try:
         analysis = GelAnalysis.objects.select_related("gel_image").get(pk=analysis_id)
 
-        # Run fresh analysis (or load from DB if available)
-        # For now, run fresh analysis
-        image = GelFileHandler.load_image_as_array(analysis.gel_image)
-        service = DensitometryService()
-        result = service.analyze_analysis(analysis, image)
-
-        if not result.success:
-            return {
-                "success": False,
-                "error": result.error_message or "Analysis failed",
-                "task_id": self.request.id,
-            }
-
-        # Generate CSV
-        exporter = DensitometryExporter()
-        csv_content = exporter.export_csv(result, analysis, include_profile)
+        try:
+            csv_content = export_saved_csv(analysis, include_profile)
+        except NoSavedDensitometry as refusal:
+            # Refused, not failed: no retry, no traceback
+            return {"success": False, "error": str(refusal), "task_id": self.request.id}
 
         # Generate filename
         filename = generate_csv_filename(analysis)

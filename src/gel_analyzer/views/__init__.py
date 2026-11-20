@@ -1,13 +1,15 @@
 """HTML views for gel_analyzer (Phase 3+). DRF API viewsets land in Phase 4.
 
 Image Views:
-- image_list_view: List all images with filtering
+- image_list_view: List the images: pill filters (project, assay, gel type, uploader, analyzed), cards or table
 - image_upload_view: Upload new images
-- image_detail_view: View image details
+- image_detail_view: An image, its analyses, the samples and CDW batch ids linked to their lanes
+- image_edit_view: Edit an image's project, gel type, assay and description
 - image_delete_view: Delete an image
 
+
 Analysis Views:
-- analysis_list_view: List all analyses with filtering
+- analysis_list_view: List the analyses: pill filters (status, project, assay, creator), cards or table, compare
 - analysis_create_view: Create new analysis
 - analysis_detail_view: View analysis details (read-only)
 - analysis_annotate_view: Interactive annotation editor
@@ -22,10 +24,11 @@ API Views (JSON):
 - api_band_detail: Band CRUD
 - api_analysis_data: Full analysis data
 - api_image_proxy: Image proxy for CORS-free access
+- api_readout_reference: Set the anti-HCP reference lane, republish the readouts
 """
 
 from .analyses import analysis_annotate_view, analysis_create_view, analysis_detail_view, analysis_list_view
-from .api import (  # Band Detection API; Async Band Detection API; UNPLUGGED: api_detect_peaks_profile_async,  # Profile Peak Detection deprecated; Ladder Templates API; Calibration API (single-ladder); Multi-Ladder Calibration API; SAM Embeddings API; UNPLUGGED: Profile Peak Detection API deprecated in favour of Auto (d1/d2) detection; api_detect_peaks_from_profile,; Band Detection Teaching/Calibration API; CV2 Vision Band Detection API; Hybrid Band Detection API; Cross-Lane Consensus API; Comparison API; Status Workflow API
+from .api import (
     api_analysis_apply_calibration,
     api_analysis_apply_multi_calibration,
     api_analysis_calibrate,
@@ -37,6 +40,7 @@ from .api import (  # Band Detection API; Async Band Detection API; UNPLUGGED: a
     api_analysis_yolo_results,
     api_band_detail,
     api_band_estimate_mw,
+    api_band_split,
     api_bands_bulk_update_polygons,
     api_bulk_delete_bands,
     api_bulk_delete_lanes,
@@ -68,10 +72,12 @@ from .api import (  # Band Detection API; Async Band Detection API; UNPLUGGED: a
     api_lane_detail,
     api_lane_match_template,
     api_lanes,
+    api_readout_reference,
     api_sam_embeddings,
     api_task_status,
-    cross_lane_consensus_view,
+    cross_lane_consensus_view,  # Band Detection API; Async Band Detection API; Ladder Templates API; Calibration API (single-ladder); Multi-Ladder Calibration API; SAM Embeddings API; Band Detection Teaching/Calibration API; CV2 Vision Band Detection API; Comparison API; Status Workflow API
 )
+from .band_model_api import api_band_model_context, api_band_model_preview, api_band_model_save
 from .comparison import comparison_list_view, sample_comparison_view
 from .comparison_api import api_saved_comparison_detail, api_saved_comparisons
 from .densitometry import densitometry_view
@@ -88,8 +94,9 @@ from .densitometry_api import (  # Peak Detection API
     api_run_densitometry,
     api_run_densitometry_async,
 )
-from .images import image_delete_view, image_detail_view, image_list_view, image_upload_view
-from .report_api import api_generate_analysis_report, api_generate_comparison_report, api_generate_densitometry_report
+from .images import image_delete_view, image_detail_view, image_edit_view, image_list_view, image_upload_view
+from .lane_tilt_api import api_lane_tilt
+from .report_api import api_generate_comparison_report, api_generate_densitometry_report
 from .studio import (
     api_studio_auto_assign,
     api_studio_lanes_available,
@@ -107,10 +114,16 @@ from .training import (
 )
 
 __all__ = [
+    # Hybrid detection and cross-lane consensus (Phoresis-only panels)
+    "api_detect_bands_hybrid_async",
+    "api_detect_bands_hybrid_lane",
+    "api_detect_bands_hybrid_lane_save",
+    "cross_lane_consensus_view",
     # Image views
     "image_list_view",
     "image_upload_view",
     "image_detail_view",
+    "image_edit_view",
     "image_delete_view",
     # Analysis views
     "analysis_list_view",
@@ -127,6 +140,7 @@ __all__ = [
     "api_lane_bands",
     "api_lane_apply_ladder_template",
     "api_band_detail",
+    "api_band_split",
     "api_analysis_data",
     "api_analysis_yolo_results",
     "api_image_proxy",
@@ -198,12 +212,11 @@ __all__ = [
     "api_detect_bands_cv2_lane_save",
     "api_detect_bands_cv2_calibrate",
     "api_detect_bands_cv2_async",
-    # Hybrid Band Detection API
-    "api_detect_bands_hybrid_lane",
-    "api_detect_bands_hybrid_lane_save",
-    "api_detect_bands_hybrid_async",
-    # Cross-Lane Consensus API
-    "cross_lane_consensus_view",
+    # Band model API (the YOLO band model the editor runs in the browser)
+    "api_band_model_context",
+    "api_band_model_preview",
+    "api_band_model_save",
+    "api_lane_tilt",
     # Comparison API
     "api_lane_comparison_data",
     "api_images_with_densitometry",
@@ -211,9 +224,10 @@ __all__ = [
     "api_saved_comparisons",
     "api_saved_comparison_detail",
     # Report API
-    "api_generate_analysis_report",
     "api_generate_comparison_report",
     "api_generate_densitometry_report",
     # Status Workflow API
     "api_analysis_status_transition",
+    # Gel readouts (anti-HCP reference lane)
+    "api_readout_reference",
 ]

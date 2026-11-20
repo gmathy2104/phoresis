@@ -13,7 +13,9 @@ from .services.purity import (  # noqa: F401
     PURITY_GEL_TYPES,
     image_measures_purity,
     lane_measures_purity,
+    lane_publishes_purity,
     lanes_measuring_purity_q,
+    lanes_publishing_purity_q,
     published_purity,
     summaries_publishing_purity_q,
 )

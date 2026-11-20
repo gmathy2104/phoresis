@@ -16,6 +16,8 @@
         <div class="flex gap-2">
             {% url 'gel_analyzer:analysis_create' image_pk=gel_image.id as analysis_create_url %}
             {% btn "New analysis" href=analysis_create_url icon="plus" %}
+            {% url 'gel_analyzer:image_edit' pk=gel_image.id as image_edit_url %}
+            {% btn "Edit" href=image_edit_url variant="ghost" icon="edit" %}
             {% btn "Delete" variant="danger" icon="trash-2" %}
         </div>
     </header>

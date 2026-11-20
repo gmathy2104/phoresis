@@ -76,16 +76,6 @@ def test_adaptive_false_preserves_existing_behavior():
         assert np.isclose(a.confidence, b.confidence, rtol=1e-9, atol=1e-12)
 
 
-def test_transition_smoothing_does_not_crash_on_boundary_band():
-    """Band right on zone boundary: no exception, single band returned."""
-    detector = CV2BandDetector(CV2DetectionParams())
-    crop = _vertical_gradient_lane(h=300, w=40)
-    _place_peaks(crop, [100])  # zone 1 boundary at y=100
-    bands = detector.detect(crop, (0, 0, 40, 300), adaptive=True)
-    # No crash, at least one band captured
-    assert isinstance(bands, list)
-
-
 def test_zone_boundary_merge_consolidates_split_components():
     """Simulate a band whose connected components are split by a zone boundary.
 

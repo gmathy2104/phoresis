@@ -9,11 +9,15 @@ Endpoints:
 import json
 
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 
+from gel_analyzer.access import (
+    saved_comparisons_readable_by,
+    user_can_read_saved_comparison,
+    user_owns_saved_comparison,
+)
 from gel_analyzer.forms.comparison_forms import saved_comparison_to_dict
 from gel_analyzer.models import Lane, SavedComparison, SavedComparisonLane
 from phoresis_core.logging_config import get_logger
@@ -57,7 +61,7 @@ def api_saved_comparisons(request):
             qs = qs.filter(created_by=request.user)
         else:
             # 'all' and 'recent' both show user's own + public
-            qs = qs.filter(Q(created_by=request.user) | Q(is_public=True))
+            qs = saved_comparisons_readable_by(request.user, qs)
 
         if search:
             qs = qs.filter(name__icontains=search)
@@ -147,14 +151,14 @@ def api_saved_comparison_detail(request, pk):
     comparison = get_object_or_404(SavedComparison, pk=pk)
 
     # Access control: owner or public for read
-    if not comparison.is_public and comparison.created_by != request.user:
+    if not user_can_read_saved_comparison(request.user, comparison):
         return _json_error("Not found", 404)
 
     if request.method == "GET":
         return JsonResponse(saved_comparison_to_dict(comparison, include_lanes=True))
 
     # Write operations require ownership
-    if comparison.created_by != request.user:
+    if not user_owns_saved_comparison(request.user, comparison):
         return _json_error("Permission denied", 403)
 
     if request.method == "PUT":

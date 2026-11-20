@@ -2,10 +2,7 @@
 
 import numpy as np
 
-from gel_analyzer.services.band_detection.profile_processor import (
-    NoiseProfile,
-    estimate_noise_profile,
-)
+from gel_analyzer.services.band_detection.profile_processor import NoiseProfile, estimate_noise_profile
 
 
 class TestNoiseProfileDataclass:

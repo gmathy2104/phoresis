@@ -24,9 +24,11 @@ def saved_comparison_to_dict(comparison, include_lanes=False):
         "created_by": {
             "id": comparison.created_by_id,
             "username": comparison.created_by.username if comparison.created_by else None,
-            "display_name": (comparison.created_by.get_full_name().strip() or comparison.created_by.username)
-            if comparison.created_by
-            else None,
+            "display_name": (
+                (comparison.created_by.get_full_name().strip() or comparison.created_by.username)
+                if comparison.created_by
+                else None
+            ),
         },
         "created_at": comparison.created_at.isoformat() if comparison.created_at else None,
         "updated_at": comparison.updated_at.isoformat() if comparison.updated_at else None,

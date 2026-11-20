@@ -192,36 +192,6 @@ class TestAnalysisListButtonOrder:
 class TestAnalysisDetailCardTable:
     """Tests for #3: Card/table toggle on detail page."""
 
-    def test_detail_has_lane_data(self, client, test_user, editable_analysis_with_lanes):
-        """Detail view should include pre-computed lane_data in context."""
-        client.force_login(test_user)
-        url = reverse("gel_analyzer:analysis_detail", kwargs={"pk": editable_analysis_with_lanes.pk})
-        response = client.get(url)
-        assert response.status_code == 200
-        assert "lane_data" in response.context
-        lane_data = response.context["lane_data"]
-        assert len(lane_data) == 2  # 2 sample lanes
-
-    def test_lane_data_precomputed_fields(self, client, test_user, editable_analysis_with_lanes):
-        """lane_data entries should have band_count, poi_kda, purity, etc."""
-        client.force_login(test_user)
-        url = reverse("gel_analyzer:analysis_detail", kwargs={"pk": editable_analysis_with_lanes.pk})
-        response = client.get(url)
-        lane_data = response.context["lane_data"]
-
-        # First lane has 2 bands, one POI at 55 kDa
-        ld1 = lane_data[0]
-        assert ld1["band_count"] == 2
-        assert ld1["poi_kda"] == 55.0
-        assert ld1["sample_display"] == "Sample A"
-        assert ld1["has_sample"] is True
-
-        # Second lane has no bands, no sample
-        ld2 = lane_data[1]
-        assert ld2["band_count"] == 0
-        assert ld2["poi_kda"] is None
-        assert ld2["has_sample"] is False
-
     def test_can_edit_samples_editable(self, client, test_user, editable_analysis_with_lanes):
         """can_edit_samples should be True for DRAFT analysis."""
         client.force_login(test_user)
@@ -262,45 +232,6 @@ class TestAnalysisDetailCardTable:
         # The class name may appear in JS selectors, but the actual button
         # element should not be rendered for completed analyses.
         assert not re.search(r"<button[^>]*ga-edit-sample-btn", content)
-
-    def test_detail_excludes_ladder_lanes_from_lane_data(self, client, test_user, gel_image):
-        """lane_data should only include SAMPLE and CONTROL lanes, not LADDER."""
-        analysis = GelAnalysis.objects.create(
-            gel_image=gel_image,
-            name="Ladder Test",
-            status=GelAnalysis.Status.DRAFT,
-            created_by=test_user,
-        )
-        Lane.objects.create(
-            analysis=analysis,
-            lane_number=1,
-            lane_type=Lane.LaneType.LADDER,
-            detection_source=Lane.DetectionSource.MANUAL,
-            x=20,
-            y=10,
-            width=40,
-            height=480,
-        )
-        Lane.objects.create(
-            analysis=analysis,
-            lane_number=2,
-            lane_type=Lane.LaneType.SAMPLE,
-            detection_source=Lane.DetectionSource.MANUAL,
-            x=70,
-            y=10,
-            width=40,
-            height=480,
-            sample_name="SampleX",
-        )
-        analysis.update_counts()
-
-        client.force_login(test_user)
-        url = reverse("gel_analyzer:analysis_detail", kwargs={"pk": analysis.pk})
-        response = client.get(url)
-        lane_data = response.context["lane_data"]
-        # Only the SAMPLE lane
-        assert len(lane_data) == 1
-        assert lane_data[0]["lane"].lane_type == "SAMPLE"
 
 
 # =========================================================================

@@ -47,6 +47,34 @@ def lanes_measuring_purity_q() -> Q:
     )
 
 
+def lane_publishes_purity(lane) -> bool:
+    """True when the lane's purity counts as its sample's purity.
+
+    A SAMPLE lane only: a CONTROL, a ladder or a standard runs beside the samples, and its POI
+    share is not a sample's measurement. Its gel must measure purity (``lane_measures_purity``),
+    and its analysis must not be REJECTED. In the hub this is the gate for publishing to Process
+    Development; here it decides what the pages and reports count as a sample purity.
+    """
+    from gel_analyzer.models import GelAnalysis, Lane
+
+    return (
+        lane.lane_type == Lane.LaneType.SAMPLE
+        and lane.analysis.status != GelAnalysis.Status.REJECTED
+        and lane_measures_purity(lane)
+    )
+
+
+def lanes_publishing_purity_q() -> Q:
+    """``lane_publishes_purity`` as a filter on a ``Lane`` queryset; the two must stay one rule."""
+    from gel_analyzer.models import GelAnalysis, Lane
+
+    return (
+        lanes_measuring_purity_q()
+        & Q(lane_type=Lane.LaneType.SAMPLE)
+        & ~Q(analysis__status=GelAnalysis.Status.REJECTED)
+    )
+
+
 def published_purity(summary) -> float | None:
     """The purity a lane summary shows: its POI share when a POI band carries signal, else None.
 

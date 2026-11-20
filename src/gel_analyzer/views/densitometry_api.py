@@ -19,27 +19,31 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from gel_analyzer.models import (
-    Band,
-    DensitometryJob,
-    DensitometryResult,
-    GelAnalysis,
-    Lane,
-    LaneDensitometrySummary,
-)
-from gel_analyzer.services.densitometry import (
-    DensitometryParams,
-    DensitometryService,
-)
-from gel_analyzer.services.densitometry.export import (
-    DensitometryExporter,
-    generate_csv_filename,
-)
+from gel_analyzer.access import IsGelAnalyzerUser, user_can_write_gel_analyzer
+from gel_analyzer.models import Band, DensitometryJob, DensitometryResult, GelAnalysis, Lane, LaneDensitometrySummary
+from gel_analyzer.services.analysis_detail import band_role_map, page_summary, summary_lanes_prefetch, summary_payload
+from gel_analyzer.services.analysis_status import APPROVED_IS_FINAL, is_final
+from gel_analyzer.services.densitometry import DensitometryParams, DensitometryService, NormalizationRefused
+from gel_analyzer.services.densitometry.export import NoSavedDensitometry, export_saved_csv, generate_csv_filename
 from gel_analyzer.services.file_handler import GelFileHandler
+from gel_analyzer.services.mean_purity import mean_purity
+from gel_analyzer.services.readout_publisher import assay_summary, lane_readouts
+from gel_analyzer.signals import published_purity
 from gel_analyzer.tasks import export_densitometry_csv_task, run_densitometry_task
 from phoresis_core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _refused(message: str, status: int) -> JsonResponse:
+    """A refusal the page shows as written: the shared JS error extractor reads ``detail`` first."""
+    return JsonResponse({"success": False, "detail": message}, status=status)
+
+
+def _parse_params(params_dict: dict) -> DensitometryParams:
+    """The run's parameters; a retired or unknown normalization raises ``ValueError`` naming why
+    (``NormalizationMethod._missing_``), a malformed value ``ValueError`` or ``TypeError``."""
+    return DensitometryParams.from_dict(params_dict) if params_dict else DensitometryParams()
 
 
 # ============================================================================
@@ -56,9 +60,33 @@ def api_get_densitometry(request, pk: UUID):
     Returns stored densitometry data from database if available,
     or empty results if not yet computed.
 
+    Also the western readout block, whether or not densitometry has run: ``assay``
+    (``{"id", "name", "readout"}`` or null), ``readout_reference_lane_id`` /
+    ``reference_lane_number`` (the anti-HCP reference), ``can_write``, ``is_editable`` and
+    ``readouts`` -- one entry per SAMPLE lane plus the reference lane, computed by
+    ``services/readout_publisher.py::lane_readouts`` (the publisher's own values; the JS
+    never computes a readout). ``readouts`` is null when that computation failed (logged):
+    the band-level payload still loads.
+
     GET /api/analyses/<uuid>/densitometry/
     """
-    analysis = get_object_or_404(GelAnalysis, pk=pk)
+    analysis = get_object_or_404(
+        GelAnalysis.objects.select_related(
+            "gel_image__assay", "readout_reference_lane", "approved_by"
+        ).prefetch_related(summary_lanes_prefetch(), "ladder_calibrations__template"),
+        pk=pk,
+    )
+    lanes = list(analysis.lanes.all())
+
+    # The page summary (spec 2026-10-12 §3), computed once: its readouts are the block below. A
+    # failure logs and sends null -- the band-level payload still loads.
+    try:
+        gel_summary = page_summary(analysis, lanes)
+        page = summary_payload(analysis, gel_summary, lanes)
+        roles = band_role_map(gel_summary, lanes)
+    except Exception:
+        logger.exception(f"page_summary failed for analysis {analysis.id}")
+        gel_summary, page, roles = None, None, {}
 
     # Get lane summaries
     lane_summaries = (
@@ -97,15 +125,10 @@ def api_get_densitometry(request, pk: UUID):
                 "bands": [
                     {
                         "band_id": str(r.band_id),
-                        "band_type": r.band.band_type,
-                        "position_y": r.band.position_y,
-                        # bbox_y / bbox_height drive the chromatogram's
-                        # integration-zone shading. Without them the JS in
-                        # chromatogram-utils.calculateBandBounds falls back to
-                        # ±3σ around the peak center, which doesn't match a
-                        # user-edited bbox.
                         "bbox_y": r.band.bbox_y,
                         "bbox_height": r.band.bbox_height,
+                        "band_type": r.band.band_type,
+                        "position_y": r.band.position_y,
                         "estimated_mw_kda": r.band.estimated_mw_kda,
                         "peak_center_y": r.peak_center_y,
                         "peak_amplitude": r.peak_amplitude,
@@ -113,22 +136,17 @@ def api_get_densitometry(request, pk: UUID):
                         "fwhm": r.fwhm,
                         "integrated_area": r.integrated_area,
                         "corrected_area": r.corrected_area,
+                        "estimated_amount": r.estimated_amount,
+                        "estimated_amount_unit": r.estimated_amount_unit,
+                        "estimated_amount_range": r.estimated_amount_range,
                         "fit_r_squared": r.fit_r_squared,
                         "snr": r.snr,
                         "relative_percent_lane": r.relative_percent_lane,
                         "relative_percent_gel": r.relative_percent_gel,
-                        # Quantification outputs (written by
-                        # ProteinQuantService.apply_to_analysis after the
-                        # user clicks "Save & apply" in the calibration
-                        # modal). Without these the results-table re-fetch
-                        # after QUANT_CALIBRATION_CHANGED brings down the
-                        # rest of the densitometry but leaves the
-                        # estimated-amount column at "—" — exactly the bug
-                        # the user reported. The DRF v1 mirror at
-                        # api/views.py:densitometry_results already
-                        # surfaces these; this FBV was the gap.
-                        "estimated_amount": r.estimated_amount,
-                        "estimated_amount_unit": r.estimated_amount_unit,
+                        # Saturation: the stored share and the flag of today's threshold (saturation.py)
+                        "saturated_pixel_fraction": r.saturated_pixel_fraction,
+                        "saturated": r.saturated,
+                        "role": roles.get(str(r.band_id)),
                     }
                     for r in lane_bands
                 ],
@@ -137,10 +155,16 @@ def api_get_densitometry(request, pk: UUID):
 
     # Compute gel-level statistics
     gel_total_area = sum(ld["total_integrated_area"] for ld in lanes_data)
-    sample_purities = [
-        ld["poi_percentage"] for ld in lanes_data if ld["poi_percentage"] and ld["lane_type"] == "SAMPLE"
-    ]
-    avg_purity = sum(sample_purities) / len(sample_purities) if sample_purities else None
+    avg_purity = mean_purity(
+        analysis.gel_image, ((summary.lane.lane_type, published_purity(summary)) for summary in lane_summaries)
+    ).value
+
+    try:
+        readouts = gel_summary["readouts"] if gel_summary is not None else lane_readouts(analysis)
+    except Exception:
+        logger.exception(f"lane_readouts failed for analysis {analysis.id}")
+        readouts = None
+    reference = analysis.readout_reference_lane
 
     return JsonResponse(
         {
@@ -154,6 +178,13 @@ def api_get_densitometry(request, pk: UUID):
                 "gel_total_area": gel_total_area,
                 "average_poi_percentage": avg_purity,
             },
+            "assay": assay_summary(analysis),
+            "readout_reference_lane_id": reference.pk if reference is not None else None,
+            "reference_lane_number": reference.lane_number if reference is not None else None,
+            "can_write": user_can_write_gel_analyzer(request.user),
+            "is_editable": analysis.is_editable,
+            "readouts": readouts,
+            "page_summary": page,
         }
     )
 
@@ -181,18 +212,22 @@ def api_run_densitometry(request, pk: UUID):
     lane_ids = body.get("lane_ids")
 
     try:
-        # Build params
-        params = DensitometryParams.from_dict(params_dict) if params_dict else DensitometryParams()
+        params = _parse_params(params_dict)
+    except (TypeError, ValueError) as exc:
+        return _refused(str(exc), 400)
 
-        # Load image
-        image = GelFileHandler.load_image_as_array(analysis.gel_image)
+    try:
+        # Load image (and the original it was resized from: saturation is counted on it)
+        image, original = GelFileHandler.load_image_with_original(analysis.gel_image)
 
         # Run analysis (preview mode, no save)
         service = DensitometryService(params)
-        result = service.analyze_analysis(analysis, image, lane_ids)
+        result = service.analyze_analysis(analysis, image, lane_ids, original_image=original)
 
         return JsonResponse({"success": result.success, **result.to_dict()})
 
+    except NormalizationRefused as refusal:
+        return _refused(str(refusal), 400)
     except Exception:
         logger.exception(f"Densitometry sync failed for {pk}")
         return JsonResponse({"success": False, "error": "An internal error occurred."}, status=500)
@@ -206,10 +241,21 @@ def api_run_densitometry_async(request, pk: UUID):
 
     Returns task ID for status polling. Results are saved to database.
 
+    Refused before any job is queued: an account without write access to gel_analyzer (403, the
+    REST writes' rule and message, ``access.py``: a run replaces every stored value of the gel and
+    republishes them to Process Development -- owner, 2026-10-06), an approved analysis (403,
+    ``services/analysis_status.py``) and a retired or malformed parameter (400). A normalization the lanes cannot satisfy (Loading
+    Control without an MW Reference band) is known only once the lanes are integrated: the task
+    refuses it and the job ends FAILED with the reason, nothing saved.
+
     POST /api/analyses/<uuid>/densitometry/async/
     Body: { params: {...}, lane_ids: [...] }
     """
     analysis = get_object_or_404(GelAnalysis, pk=pk)
+    if not user_can_write_gel_analyzer(request.user):
+        return _refused(IsGelAnalyzerUser.message, 403)
+    if is_final(analysis):
+        return _refused(APPROVED_IS_FINAL, 403)
 
     try:
         body = json.loads(request.body) if request.body else {}
@@ -218,6 +264,11 @@ def api_run_densitometry_async(request, pk: UUID):
 
     params_dict = body.get("params", {})
     lane_ids = body.get("lane_ids")
+
+    try:
+        _parse_params(params_dict)
+    except (TypeError, ValueError) as exc:
+        return _refused(str(exc), 400)
 
     try:
         # Create job record
@@ -439,8 +490,13 @@ def api_lane_densitometry(request, pk: int):
                         "position_y": r.band.position_y,
                         "estimated_mw_kda": r.band.estimated_mw_kda,
                         "corrected_area": r.corrected_area,
+                        "estimated_amount": r.estimated_amount,
+                        "estimated_amount_unit": r.estimated_amount_unit,
+                        "estimated_amount_range": r.estimated_amount_range,
                         "relative_percent_lane": r.relative_percent_lane,
                         "fit_r_squared": r.fit_r_squared,
+                        "saturated_pixel_fraction": r.saturated_pixel_fraction,
+                        "saturated": r.saturated,
                     }
                     for r in band_results
                 ],
@@ -492,11 +548,16 @@ def api_band_densitometry(request, pk: UUID):
                     "integrated_area": result.integrated_area,
                     "background_area": result.background_area,
                     "corrected_area": result.corrected_area,
+                    "estimated_amount": result.estimated_amount,
+                    "estimated_amount_unit": result.estimated_amount_unit,
+                    "estimated_amount_range": result.estimated_amount_range,
                     "fit_r_squared": result.fit_r_squared,
                     "fit_quality": result.fit_quality,
                     "snr": result.snr,
                     "relative_percent_lane": result.relative_percent_lane,
                     "relative_percent_gel": result.relative_percent_gel,
+                    "saturated_pixel_fraction": result.saturated_pixel_fraction,
+                    "saturated": result.saturated,
                     "computed_at": result.computed_at.isoformat() if result.computed_at else None,
                 },
             }
@@ -522,12 +583,15 @@ def api_band_densitometry(request, pk: UUID):
 @require_http_methods(["POST"])
 def api_export_densitometry(request, pk: UUID):
     """
-    Export densitometry results to CSV.
+    Export the analysis's SAVED densitometry to CSV: what the page shows, nothing re-measured
+    (``services/densitometry/export.py::export_saved_csv``, the Celery task's function too).
+
+    409 "Run the densitometry first" when no lane has saved densitometry, which the page shows.
 
     POST /api/analyses/<uuid>/densitometry/export/
     Body: { format: "csv", include_profile: false, async: false }
     """
-    analysis = get_object_or_404(GelAnalysis, pk=pk)
+    analysis = get_object_or_404(GelAnalysis.objects.select_related("gel_image"), pk=pk)
 
     try:
         body = json.loads(request.body) if request.body else {}
@@ -561,25 +625,17 @@ def api_export_densitometry(request, pk: UUID):
 
     # Synchronous export
     try:
-        # Load image and run analysis
-        image = GelFileHandler.load_image_as_array(analysis.gel_image)
-        service = DensitometryService()
-        result = service.analyze_analysis(analysis, image)
-
-        if not result.success:
-            return JsonResponse({"success": False, "error": result.error_message or "Analysis failed"}, status=500)
-
-        # Generate CSV
-        exporter = DensitometryExporter()
-        csv_content = exporter.export_csv(result, analysis, include_profile)
+        csv_content = export_saved_csv(analysis, include_profile)
 
         # Return as file download
         filename = generate_csv_filename(analysis)
-        response = HttpResponse(csv_content, content_type="text/csv")
+        response = HttpResponse(csv_content, content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
 
         return response
 
+    except NoSavedDensitometry as refusal:
+        return _refused(str(refusal), 409)
     except Exception:
         logger.exception(f"Densitometry export failed for {pk}")
         return JsonResponse({"success": False, "error": "An internal error occurred."}, status=500)

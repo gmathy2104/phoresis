@@ -276,3 +276,19 @@ class TestSavedComparisonDetailAPI:
         assert response.status_code == 404
         # Comparison still exists
         assert SavedComparison.objects.filter(pk=saved_comparison.pk).exists()
+
+
+@pytest.mark.django_db
+def test_report_of_another_accounts_private_comparison_is_404_while_its_owner_still_gets_it(
+    auth_client, other_client, saved_comparison
+):
+    """The report route loaded any comparison by pk (2026-10-12): any signed-in account holding the
+    UUID downloaded a report of someone else's PRIVATE comparison. A report is a read: owner or public."""
+    url = reverse("gel_analyzer:api_generate_comparison_report", kwargs={"pk": saved_comparison.pk})
+    body = json.dumps({"format": "xlsx", "sections": ["overview"]})
+
+    assert other_client.post(url, data=body, content_type="application/json").status_code == 404
+
+    served = auth_client.post(url, data=body, content_type="application/json")
+    assert served.status_code == 200
+    assert served["Content-Disposition"].startswith("attachment;")

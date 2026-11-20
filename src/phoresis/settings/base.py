@@ -195,3 +195,26 @@ STALE_TASK_TIMEOUT_HOURS = 2
 # A warning only: the areas are never corrected. Read at every display and export, so a new value needs
 # no re-run; 0 flags any saturated pixel.
 GEL_ANALYZER_SATURATED_PIXEL_THRESHOLD = float(os.environ.get("GEL_ANALYZER_SATURATED_PIXEL_THRESHOLD", "0.01"))
+
+# Band model -- run IN THE BROWSER by the annotation editor, after the lane model (WebGPU first, CPU
+# fallback). sha256 is the identity of the shipped file: gel_analyzer's system check
+# (gel_analyzer/checks.py) refuses a file that does not match it. The file comes from ds-hub-django,
+# where it is trained and exported; a new model means a new file AND its sha256 here.
+GEL_ANALYZER_BAND_MODEL = {
+    "name": "gel-seg bands-only 2026-10-23, Gels pass 1 iteration 1 (yolo11l-seg, 1280)",
+    "static_path": "gel_analyzer/ml/bands_2026-10-23.onnx",
+    "sha256": "1e704b600444603f5ab160d828410b5dd9abe166c4ada7b38e1d02fff2224ea7",
+    # The model the file was exported from (its weights digest, in ds-hub-django's ml_annotator).
+    "source_sha256": "f1ccc2d94fd2ffeccddbb0c6389a99629796f2de4d9d756fe338288ea64f1c9d",
+    "class_names": ["band"],
+    # The size it was TRAINED at: at another size the bands reach it at a scale it never learned.
+    "imgsz": 1280,
+    # Proposals under this score are not shown; the panel's slider moves it.
+    "confidence": 0.25,
+    # The slider's floor: the browser sends every box from this score up, and the slider filters them on the page.
+    "min_confidence": 0.05,
+    # NMS overlap: two distinct bands never share half their box.
+    "iou": 0.5,
+    # ultralytics keeps 300 by default, and dense gels carry 376 to 500 bands.
+    "max_det": 2000,
+}

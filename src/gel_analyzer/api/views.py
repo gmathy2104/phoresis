@@ -5,14 +5,15 @@ DRF ViewSets for Gel Analyzer API.
 import dataclasses
 
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status as drf_status
 from rest_framework import viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from gel_analyzer.access import IsGelAnalyzerUser, IsSavedComparisonOwnerOrReadOnly, saved_comparisons_readable_by
 from gel_analyzer.api.filters import (
     BandFilter,
     GelAnalysisFilter,
@@ -25,6 +26,7 @@ from gel_analyzer.api.serializers import (
     BandSerializer,
     BandWriteSerializer,
     DensitometryJobSerializer,
+    DensitometryResultSerializer,
     GelAnalysisDetailSerializer,
     GelAnalysisListSerializer,
     GelAnalysisWriteSerializer,
@@ -35,6 +37,10 @@ from gel_analyzer.api.serializers import (
     LadderTemplateListSerializer,
     LaneSerializer,
     LaneWriteSerializer,
+    MWMarkerSerializer,
+    ProteinQuantCalibrationSerializer,
+    ProteinQuantFitPreviewSerializer,
+    ProteinQuantFitResultSerializer,
     SavedComparisonSerializer,
 )
 from gel_analyzer.api.throttles import ComputationRateThrottle, WriteRateThrottle
@@ -47,16 +53,12 @@ from gel_analyzer.models import (
     LadderTemplate,
     Lane,
     LaneDensitometrySummary,
+    MWMarker,
+    ProteinQuantCalibration,
     SavedComparison,
 )
-
-VALID_STATUS_TRANSITIONS = {
-    "DRAFT": ["IN_PROGRESS"],
-    "IN_PROGRESS": ["COMPLETED", "DRAFT"],
-    "COMPLETED": ["APPROVED", "REJECTED", "IN_PROGRESS"],
-    "APPROVED": [],
-    "REJECTED": ["IN_PROGRESS"],
-}
+from gel_analyzer.services.analysis_status import ACTION_FOR_TRANSITION, StatusChangeRefused, apply_status_action
+from gel_analyzer.services.quantification.lane_type_change import CalibrationPointsHeld, guard_lane_type_change
 
 
 @extend_schema_view(
@@ -73,6 +75,7 @@ VALID_STATUS_TRANSITIONS = {
 class GelImageViewSet(viewsets.ModelViewSet):
     """ViewSet for GelImage -- full CRUD with Azure-safe URLs."""
 
+    permission_classes = [IsGelAnalyzerUser]
     queryset = GelImage.objects.all().order_by("-uploaded_at")
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = GelImageFilter
@@ -112,6 +115,7 @@ class GelImageViewSet(viewsets.ModelViewSet):
 class GelAnalysisViewSet(viewsets.ModelViewSet):
     """ViewSet for GelAnalysis — full CRUD with nested lanes/bands tree."""
 
+    permission_classes = [IsGelAnalyzerUser]
     queryset = GelAnalysis.objects.select_related("gel_image").order_by("-created_at")
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = GelAnalysisFilter
@@ -135,10 +139,19 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-    @extend_schema(summary="Transition Analysis Status", tags=["Gel Analyses"])
+    @extend_schema(
+        summary="Transition Analysis Status",
+        tags=["Gel Analyses"],
+        description=(
+            "Body: `status` (the target) and, to reject, `reason`. Beyond the writer gate of every write "
+            "here, the analysis page's rules apply: approve and reject are staff or Gel QA Team only (403), "
+            "a rejection needs a reason (400), complete, reopen and COMPLETED → IN_PROGRESS are the "
+            "creator's (403)."
+        ),
+    )
     @action(detail=True, methods=["post"], url_path="status")
     def status_transition(self, request, pk=None):
-        """Transition analysis status with validation."""
+        """Transition analysis status — the rules are ``services/analysis_status.py``'s, shared with the page."""
         analysis = self.get_object()
         new_status = request.data.get("status")
         if not new_status:
@@ -146,14 +159,18 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
                 {"detail": "status field is required."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        valid = VALID_STATUS_TRANSITIONS.get(analysis.status, [])
-        if new_status not in valid:
+        # A JSON list or object is no status name (and cannot be a dict key: a 500, not a 400).
+        action_name = ACTION_FOR_TRANSITION.get((analysis.status, new_status)) if isinstance(new_status, str) else None
+        if action_name is None:
+            valid = [str(target) for source, target in ACTION_FOR_TRANSITION if source == analysis.status]
             return Response(
                 {"detail": f"Cannot transition from {analysis.status} to {new_status}. Valid: {valid}"},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        analysis.status = new_status
-        analysis.save(update_fields=["status"])
+        try:
+            apply_status_action(analysis, action_name, request.user, reason=request.data.get("reason", ""))
+        except StatusChangeRefused as exc:
+            return Response({"detail": str(exc)}, status=exc.http_status)
         return Response(GelAnalysisListSerializer(analysis).data)
 
     # -----------------------------------------------------------------
@@ -187,7 +204,35 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
     # Detection
     # -----------------------------------------------------------------
 
-    @extend_schema(summary="Trigger Band Detection (Async)", tags=["Detection"])
+    @extend_schema(
+        summary="Trigger Band Detection (Async)",
+        tags=["Detection"],
+        description=(
+            "Run hybrid band detection (CV2 primary, d1/d2 gap-fill) across all "
+            "SAMPLE lanes of the analysis. Returns a Celery task id; poll the "
+            "task to retrieve detected bands. With ``save_results=true`` the "
+            "detected bands are persisted; otherwise the call is dry-run."
+        ),
+        examples=[
+            OpenApiExample(
+                "Default sensitivity",
+                value={"params": {}, "save_results": True},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Faint-band mode",
+                value={
+                    "params": {
+                        "smoothing_window": 5,
+                        "min_band_width": 3,
+                        "include_faint_bands": True,
+                    },
+                    "save_results": False,
+                },
+                request_only=True,
+            ),
+        ],
+    )
     @action(detail=True, methods=["post"], url_path="detect-bands", throttle_classes=[ComputationRateThrottle])
     def detect_bands(self, request, pk=None):
         """Trigger async band detection for all lanes in this analysis."""
@@ -277,12 +322,49 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
             )
         return Response({"analysis_id": str(analysis.id), "lanes": results})
 
-    @extend_schema(summary="Run Densitometry (Async)", tags=["Densitometry"])
+    @extend_schema(
+        summary="Run Densitometry (Async)",
+        tags=["Densitometry"],
+        description=(
+            "Kick off the densitometry Celery pipeline for the analysis. Creates "
+            "a DensitometryJob row, dispatches the task, returns the job; clients "
+            "poll the job-detail endpoint until status == COMPLETED. With an empty "
+            "``lane_ids`` array all lanes are processed. 403 for an APPROVED analysis "
+            "(final: its densitometry is never re-run); 400 for a retired or unknown "
+            "``params.normalization_method`` (``gel_total`` and ``reference_band`` were "
+            "removed). Loading Control on a lane without an MW_REFERENCE band carrying "
+            "signal is refused by the run itself: the job ends FAILED, its "
+            "``error_message`` naming the lanes, and nothing is saved."
+        ),
+        responses={202: DensitometryJobSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "All lanes",
+                value={"params": {}, "lane_ids": []},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Selective rerun",
+                value={"params": {"clahe_enabled": True}, "lane_ids": ["uuid-1", "uuid-2"]},
+                request_only=True,
+            ),
+        ],
+    )
     @action(detail=True, methods=["post"], url_path="densitometry/run", throttle_classes=[ComputationRateThrottle])
     def run_densitometry(self, request, pk=None):
         """Trigger async densitometry."""
         analysis = self.get_object()
+        from gel_analyzer.services.analysis_status import APPROVED_IS_FINAL, is_final
+        from gel_analyzer.services.densitometry import DensitometryParams
         from gel_analyzer.tasks import run_densitometry_task
+
+        if is_final(analysis):
+            return Response({"detail": APPROVED_IS_FINAL}, status=drf_status.HTTP_403_FORBIDDEN)
+        try:
+            DensitometryParams.from_dict(request.data.get("params") or {})
+        except (TypeError, ValueError) as exc:
+            # A retired normalization names why (NormalizationMethod._missing_)
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         job = DensitometryJob.objects.create(
             analysis=analysis,
@@ -321,7 +403,21 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
     # Reports
     # -----------------------------------------------------------------
 
-    @extend_schema(summary="Generate Report", tags=["Reports"])
+    @extend_schema(
+        summary="Generate Report",
+        tags=["Reports"],
+        description=(
+            "Trigger asynchronous report generation for an analysis. Returns a "
+            "Celery task id immediately; poll the task to retrieve the file URL."
+        ),
+        examples=[
+            OpenApiExample(
+                "CSV densitometry export",
+                value={"format": "csv", "include_profile": True},
+                request_only=True,
+            ),
+        ],
+    )
     @action(detail=True, methods=["post"], url_path="report", throttle_classes=[ComputationRateThrottle])
     def generate_report(self, request, pk=None):
         """Generate Word/Excel/PowerPoint report (async via CSV export task)."""
@@ -344,6 +440,31 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
             status=drf_status.HTTP_202_ACCEPTED,
         )
 
+    # -----------------------------------------------------------------
+    # MW Markers (Task A7)
+    # -----------------------------------------------------------------
+
+    @extend_schema(
+        summary="List MW Markers for Analysis",
+        tags=["Calibration"],
+        description=(
+            "Read-only list of all MW markers (known molecular weights) attached "
+            "to LADDER lanes in this analysis. Used by the calibration UI to "
+            "render expected vs detected marker positions."
+        ),
+        responses={200: MWMarkerSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="mw-markers")
+    def mw_markers(self, request, pk=None):
+        """Return all MW markers across all LADDER lanes in this analysis."""
+        analysis = self.get_object()
+        markers = (
+            MWMarker.objects.filter(lane__analysis=analysis)
+            .select_related("lane", "band")
+            .order_by("lane__lane_number", "-mw_kda")
+        )
+        return Response(MWMarkerSerializer(markers, many=True).data)
+
 
 # =============================================================================
 # Lane ViewSet
@@ -360,6 +481,7 @@ class GelAnalysisViewSet(viewsets.ModelViewSet):
 class LaneViewSet(viewsets.ModelViewSet):
     """ViewSet for Lane — CRUD + profile/densitometry actions."""
 
+    permission_classes = [IsGelAnalyzerUser]
     queryset = (
         Lane.objects.select_related("analysis", "ladder_template").prefetch_related("bands").order_by("lane_number")
     )
@@ -379,46 +501,32 @@ class LaneViewSet(viewsets.ModelViewSet):
         return super().get_throttles()
 
     def partial_update(self, request, *args, **kwargs):
-        """PATCH /api/v1/lanes/<id>/ — with quantification-aware downgrade guard.
+        """PATCH /v1/lanes/<id>/ — with quantification-aware downgrade guard.
 
         If the lane is being moved out of CALIBRATION/CONTROL and dependent
-        ProteinQuantCalibrationPoint rows exist, return 409 unless ?force=true
-        is passed; with force, purge the points and demote the bands to OTHER
-        before performing the regular update.
+        ProteinQuantCalibrationPoint rows exist on its bands, return 409
+        unless ``?force=true`` is passed in the query string; with force,
+        purge the calibration points and demote the corresponding bands to
+        OTHER before performing the regular update.
+
+        The 409 carries ``dependent_band_ids`` so the frontend can render
+        an informed confirmation ("This lane has 3 calibration points;
+        switching to SAMPLE will discard them — continue?") before
+        re-issuing the PATCH with ``?force=true``.
+
+        The rule is ``guard_lane_type_change``, shared with the editor's lane
+        PUT and bulk update; the purge and the update commit together.
         """
         from django.db import transaction
 
-        from gel_analyzer.models import Band as _Band
-        from gel_analyzer.models import ProteinQuantCalibrationPoint
-
         instance = self.get_object()
-        new_type = request.data.get("lane_type")
         force = request.query_params.get("force", "").lower() == "true"
-
-        is_downgrade = (
-            new_type
-            and instance.lane_type in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL)
-            and new_type not in (Lane.LaneType.CALIBRATION, Lane.LaneType.CONTROL)
-        )
-        if is_downgrade:
-            dependent_ids = list(
-                ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).values_list("band_id", flat=True)
-            )
-            if dependent_ids and not force:
-                return Response(
-                    {
-                        "detail": "Lane has calibration points. Pass ?force=true to purge them.",
-                        "dependent_band_ids": [str(b) for b in dependent_ids],
-                    },
-                    status=drf_status.HTTP_409_CONFLICT,
-                )
-            if dependent_ids and force:
-                with transaction.atomic():
-                    ProteinQuantCalibrationPoint.objects.filter(band__lane=instance).delete()
-                    _Band.objects.filter(lane=instance, band_type=_Band.BandType.CALIBRATION).update(
-                        band_type=_Band.BandType.OTHER
-                    )
-        return super().partial_update(request, *args, **kwargs)
+        try:
+            with transaction.atomic():
+                guard_lane_type_change(instance, request.data.get("lane_type"), force=force)
+                return super().partial_update(request, *args, **kwargs)
+        except CalibrationPointsHeld as refusal:
+            return Response(refusal.payload(), status=drf_status.HTTP_409_CONFLICT)
 
     @extend_schema(
         summary="Get Lane Intensity Profile",
@@ -489,6 +597,7 @@ class LaneViewSet(viewsets.ModelViewSet):
 class BandViewSet(viewsets.ModelViewSet):
     """ViewSet for Band — CRUD + densitometry/MW estimation."""
 
+    permission_classes = [IsGelAnalyzerUser]
     queryset = Band.objects.select_related("lane", "lane__analysis").order_by("position_y")
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = BandFilter
@@ -505,29 +614,23 @@ class BandViewSet(viewsets.ModelViewSet):
             return [WriteRateThrottle()]
         return super().get_throttles()
 
-    @extend_schema(summary="Get Band Densitometry Result", tags=["Band Data"])
+    @extend_schema(
+        summary="Get Band Densitometry Result",
+        tags=["Band Data"],
+        description=(
+            "Returns the Gaussian-fit densitometry result for a single band "
+            "(peak center, sigma, integrated area, R², SNR, and the optional "
+            "quantification projection)."
+        ),
+        responses={200: DensitometryResultSerializer, 404: OpenApiTypes.OBJECT},
+    )
     @action(detail=True, methods=["get"], url_path="densitometry")
     def densitometry(self, request, pk=None):
         """Get Gaussian fit parameters for this band."""
         band = self.get_object()
         try:
             result = DensitometryResult.objects.get(band=band)
-            return Response(
-                {
-                    "band_id": str(band.id),
-                    "peak_center_y": result.peak_center_y,
-                    "peak_amplitude": result.peak_amplitude,
-                    "peak_sigma": result.peak_sigma,
-                    "fwhm": result.fwhm,
-                    "integrated_area": result.integrated_area,
-                    "background_area": result.background_area,
-                    "corrected_area": result.corrected_area,
-                    "fit_r_squared": result.fit_r_squared,
-                    "snr": result.snr,
-                    "relative_percent_lane": result.relative_percent_lane,
-                    "relative_percent_gel": result.relative_percent_gel,
-                }
-            )
+            return Response(DensitometryResultSerializer(result).data)
         except DensitometryResult.DoesNotExist:
             return Response(
                 {"detail": "No densitometry result for this band."},
@@ -563,6 +666,7 @@ class BandViewSet(viewsets.ModelViewSet):
 class LadderTemplateViewSet(viewsets.ModelViewSet):
     """ViewSet for LadderTemplate — CRUD + default template."""
 
+    permission_classes = [IsGelAnalyzerUser]
     queryset = LadderTemplate.objects.all().order_by("name")
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = LadderTemplateFilter
@@ -598,20 +702,45 @@ class LadderTemplateViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 
+_COMPARISON_WRITE_RULE = (
+    "Creator only: 403 on a public comparison that is not yours, 404 on another account's private one "
+    "(it is not readable, as if it did not exist)."
+)
+
+
 @extend_schema_view(
-    list=extend_schema(summary="List Comparisons", tags=["Comparisons"]),
-    retrieve=extend_schema(summary="Get Comparison", tags=["Comparisons"]),
+    list=extend_schema(
+        summary="List Comparisons",
+        tags=["Comparisons"],
+        description="Your own comparisons and every public one. Another account's private comparison is never listed.",
+    ),
+    retrieve=extend_schema(
+        summary="Get Comparison",
+        tags=["Comparisons"],
+        description="Readable when it is yours or public; another account's private comparison answers 404.",
+    ),
     create=extend_schema(summary="Create Comparison", tags=["Comparisons"]),
-    partial_update=extend_schema(summary="Update Comparison", tags=["Comparisons"]),
-    destroy=extend_schema(summary="Delete Comparison", tags=["Comparisons"]),
+    partial_update=extend_schema(summary="Update Comparison", tags=["Comparisons"], description=_COMPARISON_WRITE_RULE),
+    destroy=extend_schema(summary="Delete Comparison", tags=["Comparisons"], description=_COMPARISON_WRITE_RULE),
 )
 class SavedComparisonViewSet(viewsets.ModelViewSet):
-    """ViewSet for SavedComparison — CRUD + full comparison data."""
+    """ViewSet for SavedComparison — CRUD + full comparison data.
 
+    A comparison is its creator's unless public (``gel_analyzer/access.py``, A SAVED
+    COMPARISON IS ITS CREATOR'S): ``get_queryset`` hides another account's private one
+    from every action -- the list, the detail, ``data/`` and the writes, which then 404 --
+    and ``IsSavedComparisonOwnerOrReadOnly`` refuses a write on a public one that is not
+    the caller's (403).
+    """
+
+    permission_classes = [IsGelAnalyzerUser, IsSavedComparisonOwnerOrReadOnly]
     queryset = SavedComparison.objects.all().order_by("-created_at")
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = SavedComparisonFilter
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        return saved_comparisons_readable_by(self.request.user, super().get_queryset())
 
     def get_serializer_class(self):
         return SavedComparisonSerializer
@@ -627,7 +756,10 @@ class SavedComparisonViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Get Full Comparison Data",
         tags=["Comparisons"],
-        description="Returns all lanes with profiles and densitometry for overlay charts.",
+        description=(
+            "Returns all lanes with profiles and densitometry for overlay charts. Same visibility as Get "
+            "Comparison: another account's private comparison answers 404."
+        ),
     )
     @action(detail=True, methods=["get"], url_path="data")
     def comparison_data(self, request, pk=None):
@@ -673,32 +805,32 @@ class SavedComparisonViewSet(viewsets.ModelViewSet):
 
 
 # =============================================================================
-# Protein Quantification Endpoints
+# Protein Quantification — function-based views
 # =============================================================================
 
 
 def _serialize_calib(c):
-    """Serialize a ProteinQuantCalibration row for the quantification endpoints."""
-    return {
-        "id": str(c.id),
-        "method": c.method,
-        "unit": c.unit,
-        "coefficients": c.coefficients,
-        "r_squared": c.r_squared,
-        "equation": c.equation,
-        "excluded_band_ids": c.excluded_band_ids,
-        "is_active": c.is_active,
-        "superseded_at": c.superseded_at.isoformat() if c.superseded_at else None,
-        "created_by": c.created_by.username if c.created_by else None,
-        "created_at": c.created_at.isoformat(),
-        "notes": c.notes,
-    }
+    """Serialize a ProteinQuantCalibration row for the quantification endpoints.
+
+    Delegates to ProteinQuantCalibrationSerializer so the wire format is
+    described by drf-spectacular. The legacy ad-hoc keys (``created_by`` as
+    username string, ``superseded_at`` ISO-formatted) are preserved for
+    backward compatibility with the existing quantification-modal JS.
+    """
+    base = ProteinQuantCalibrationSerializer(c).data
+    # The Phoresis JS expected created_by as a username string, not a user PK;
+    # also keep id as a plain str to match the historical wire shape.
+    base["id"] = str(c.id)
+    base["created_by"] = c.created_by.username if c.created_by else None
+    return base
 
 
 def _build_full_result(analysis, params):
-    """Run a full preview: fit + project samples + project controls."""
+    """Run a full preview: fit + project samples + project controls, each flagged against the standards' range."""
     from gel_analyzer.services.quantification.service import (
         ProteinQuantCalibrationService,
+        calibration_area_span,
+        calibration_range_of,
     )
 
     svc = ProteinQuantCalibrationService(params)
@@ -706,17 +838,21 @@ def _build_full_result(analysis, params):
     result = svc.fit(cal_points, excluded_band_ids=params.excluded_band_ids)
     if not result.success:
         return result, svc
+    span = calibration_area_span(((p.band_id, p.corrected_area) for p in cal_points), params.excluded_band_ids)
+    result.calibration_area_range = span
     # Add control projections
     ctrls = svc.collect_control_points(analysis)
     for c in ctrls:
         if c.corrected_area is not None:
             c.predicted_amount = svc.project(c.corrected_area, result)
+            c.calibration_range = calibration_range_of(c.corrected_area, span)
     result.control_points = ctrls
     # Sample projections
     samples = svc.collect_sample_bands(analysis)
     for s in samples:
         if s.corrected_area is not None:
             s.predicted_amount = svc.project(s.corrected_area, result)
+            s.calibration_range = calibration_range_of(s.corrected_area, span)
     result.sample_projections = samples
     return result, svc
 
@@ -724,12 +860,36 @@ def _build_full_result(analysis, params):
 @extend_schema(
     summary="Get / Save Protein Quantification Calibration",
     tags=["Quantification"],
+    description=(
+        "GET returns the active calibration for this analysis (or null). "
+        "POST fits a new calibration from CALIBRATION-typed bands, supersedes "
+        "any prior active calibration, and back-fills estimated_amount on every "
+        "POI band's DensitometryResult in a single transaction. POST is refused "
+        "with 403 on an APPROVED analysis: an approved analysis is final."
+    ),
+    request=ProteinQuantFitPreviewSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="GET: {active: ProteinQuantCalibration | null}",
+        ),
+        201: ProteinQuantCalibrationSerializer,
+        403: OpenApiTypes.OBJECT,
+        404: OpenApiTypes.OBJECT,
+        422: OpenApiTypes.OBJECT,
+    },
+    examples=[
+        OpenApiExample(
+            "Save linear µg calibration",
+            value={"method": "LINEAR", "unit": "UG", "notes": "Standard curve from std-mix lot 42"},
+            request_only=True,
+        ),
+    ],
 )
 @api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsGelAnalyzerUser])
 def quantification_root(request, analysis_id):
     """GET → active calibration (or null); POST → save & apply a new fit."""
-    from gel_analyzer.models import ProteinQuantCalibration
     from gel_analyzer.services.quantification.models import QuantParams
 
     try:
@@ -741,7 +901,12 @@ def quantification_root(request, analysis_id):
         active = ProteinQuantCalibration.objects.filter(analysis=analysis, is_active=True).first()
         return Response({"active": _serialize_calib(active) if active else None})
 
-    # POST = save & apply
+    # POST = save & apply, never on an approved analysis (services/analysis_status.py); save_active
+    # checks again under the row lock, for an approval landing between this check and the write.
+    from gel_analyzer.services.analysis_status import APPROVED_IS_FINAL, AnalysisIsFinal, is_final
+
+    if is_final(analysis):
+        return Response({"detail": APPROVED_IS_FINAL}, status=drf_status.HTTP_403_FORBIDDEN)
     params = QuantParams(
         method=request.data.get("method", "LINEAR"),
         unit=request.data.get("unit", "UG"),
@@ -754,20 +919,37 @@ def quantification_root(request, analysis_id):
             status=drf_status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
     # save_active uses transaction.atomic() internally, but apply_to_analysis is
-    # the second leg of "Save & apply" (spec §7.1, §8.3) and must commit together
-    # — otherwise a crash between the two leaves the analysis with an active
-    # calibration but no estimated_amount values written.
+    # the second leg of "Save & apply" and must commit together — otherwise a
+    # crash between the two leaves the analysis with an active calibration but
+    # no estimated_amount values written.
     from django.db import transaction
 
-    with transaction.atomic():
-        calib = svc.save_active(analysis, result, user=request.user, notes=request.data.get("notes", ""))
-        svc.apply_to_analysis(calib)
+    try:
+        with transaction.atomic():
+            calib = svc.save_active(analysis, result, user=request.user, notes=request.data.get("notes", ""))
+            svc.apply_to_analysis(calib)
+    except AnalysisIsFinal as refusal:
+        return Response({"detail": str(refusal)}, status=drf_status.HTTP_403_FORBIDDEN)
     return Response(_serialize_calib(calib), status=drf_status.HTTP_201_CREATED)
 
 
-@extend_schema(summary="Preview Protein Quantification Fit", tags=["Quantification"])
+@extend_schema(
+    summary="Preview Protein Quantification Fit",
+    tags=["Quantification"],
+    description=(
+        "Dry-run a fit without persisting. Returns 200 with QuantFitResult.to_dict() "
+        "on success, 422 with the same shape on failure (e.g. missing densitometry "
+        "for calibration bands, fewer than 4 points for FOUR_PL, singular fit)."
+    ),
+    request=ProteinQuantFitPreviewSerializer,
+    responses={
+        200: ProteinQuantFitResultSerializer,
+        404: OpenApiTypes.OBJECT,
+        422: ProteinQuantFitResultSerializer,
+    },
+)
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsGelAnalyzerUser])
 def quantification_preview(request, analysis_id):
     """Dry-run a fit without persisting; returns result.to_dict() with status
     200 on success or 422 on failure (e.g. missing densitometry, < 4 points
@@ -794,19 +976,36 @@ def quantification_preview(request, analysis_id):
 @extend_schema(
     summary="Patch / Deactivate Protein Quantification Calibration",
     tags=["Quantification"],
+    description=(
+        "PATCH updates ``excluded_band_ids`` and/or ``notes`` on an existing "
+        "calibration without re-fitting (use the root POST to re-fit). "
+        "DELETE deactivates the calibration (sets is_active=False, "
+        "superseded_at=now()) but keeps the row for audit. Both are refused "
+        "with 403 on an APPROVED analysis: an approved analysis is final."
+    ),
+    request=ProteinQuantCalibrationSerializer,
+    responses={
+        200: ProteinQuantCalibrationSerializer,
+        204: None,
+        403: OpenApiTypes.OBJECT,
+        404: OpenApiTypes.OBJECT,
+    },
 )
 @api_view(["PATCH", "DELETE"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsGelAnalyzerUser])
 def quantification_detail(request, analysis_id, calib_id):
     """PATCH → update excluded_band_ids/notes; DELETE → deactivate."""
     from django.utils import timezone
 
-    from gel_analyzer.models import ProteinQuantCalibration
-
     try:
-        calib = ProteinQuantCalibration.objects.get(pk=calib_id, analysis_id=analysis_id)
+        calib = ProteinQuantCalibration.objects.select_related("analysis").get(pk=calib_id, analysis_id=analysis_id)
     except ProteinQuantCalibration.DoesNotExist:
         return Response({"detail": "Calibration not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+    from gel_analyzer.services.analysis_status import APPROVED_IS_FINAL, is_final
+
+    if is_final(calib.analysis):
+        return Response({"detail": APPROVED_IS_FINAL}, status=drf_status.HTTP_403_FORBIDDEN)
 
     if request.method == "PATCH":
         # update_fields prevents racing with recompute_if_active, which writes
@@ -830,13 +1029,26 @@ def quantification_detail(request, analysis_id, calib_id):
     return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(summary="Quantification Calibration History", tags=["Quantification"])
+@extend_schema(
+    summary="Quantification Calibration History",
+    tags=["Quantification"],
+    description=(
+        "Returns every calibration ever saved for this analysis "
+        "(active + superseded), ordered by created_at descending. Used by the "
+        "quantification audit panel."
+    ),
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="{history: ProteinQuantCalibration[]}",
+        ),
+        404: OpenApiTypes.OBJECT,
+    },
+)
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsGelAnalyzerUser])
 def quantification_history(request, analysis_id):
     """Return all calibrations (active + superseded) for the analysis."""
-    from gel_analyzer.models import ProteinQuantCalibration
-
     # Mirror the 404 guard used by the sibling views — otherwise a fabricated
     # analysis_id silently returns {"history": []} with HTTP 200 and clients
     # cannot distinguish "no history" from "wrong analysis".

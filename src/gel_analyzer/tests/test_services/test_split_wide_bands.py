@@ -7,10 +7,7 @@ import pytest
 
 from gel_analyzer.services.band_detection.hybrid_detector import HybridDetector
 from gel_analyzer.services.band_detection.hybrid_params import HybridDetectionParams
-from gel_analyzer.services.band_detection.models import (
-    BandDetectionSource,
-    DetectedBand,
-)
+from gel_analyzer.services.band_detection.models import BandDetectionSource, DetectedBand
 
 
 def _band(bbox_y, bbox_height, bbox_x=100, bbox_w=40, confidence=0.8) -> DetectedBand:

@@ -68,12 +68,19 @@ class RobustTask(Task):
             self._do_handle_failure(exc)
             raise
 
+    def _close_worker_connections(self) -> None:
+        # An eager task (CELERY_TASK_ALWAYS_EAGER, or .apply()) runs inside its caller and shares
+        # the caller's database connection: closing it here would break the request -- or the
+        # test -- that called it. Only a worker process owns its connections.
+        if not getattr(self.request, "is_eager", False):
+            close_old_connections()
+
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         self._do_handle_failure(exc)
-        close_old_connections()
+        self._close_worker_connections()
 
     def after_return(self, status, retval, task_id, args, kwargs, einfo):
-        close_old_connections()
+        self._close_worker_connections()
 
     def _do_handle_failure(self, exc) -> None:
         if getattr(self, "_failure_handled", False):

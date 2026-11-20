@@ -5,15 +5,7 @@ Django Filter classes for Gel Analyzer API.
 import django_filters
 from django_filters import CharFilter, NumberFilter, UUIDFilter
 
-from gel_analyzer.models import (
-    Band,
-    DensitometryJob,
-    GelAnalysis,
-    GelImage,
-    LadderTemplate,
-    Lane,
-    SavedComparison,
-)
+from gel_analyzer.models import Band, DensitometryJob, GelAnalysis, GelImage, LadderTemplate, Lane, SavedComparison
 
 
 class GelImageFilter(django_filters.FilterSet):

@@ -14,10 +14,7 @@ import numpy as np
 from django.test import SimpleTestCase
 
 from gel_analyzer.services.band_detection.derivative_detector import DerivativeDetector
-from gel_analyzer.services.band_detection.models import (
-    BandDetectionParams,
-    IntensityProfile,
-)
+from gel_analyzer.services.band_detection.models import BandDetectionParams, IntensityProfile
 from gel_analyzer.services.band_detection.profile_processor import ProfileProcessor
 
 

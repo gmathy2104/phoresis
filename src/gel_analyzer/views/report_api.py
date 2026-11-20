@@ -21,6 +21,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 
+from gel_analyzer.access import saved_comparisons_readable_by
 from gel_analyzer.models import GelAnalysis, SavedComparison
 from gel_analyzer.services.report import (
     GelAnalysisReportBuilder,
@@ -225,8 +226,9 @@ def api_generate_comparison_report(request, pk: UUID):
 
     Response: File download with appropriate Content-Type
     """
+    # A private comparison is its creator's (gel_analyzer/access.py): another account gets a 404.
     comparison = get_object_or_404(
-        SavedComparison.objects.select_related("created_by"),
+        saved_comparisons_readable_by(request.user, SavedComparison.objects.select_related("created_by")),
         pk=pk,
     )
 

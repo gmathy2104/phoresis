@@ -8,8 +8,8 @@ class GelAnalyzerConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     verbose_name = "Gel Analyzer"
 
-    def ready(self) -> None:
-        # `signals.py` is intentionally a stub in Phoresis — see its docstring.
-        # Importing it here is harmless and keeps the AppConfig contract
-        # consistent with future extensions.
-        from . import signals  # noqa: F401
+    def ready(self):
+        """Initialize app when Django starts."""
+        # Import signals and system checks to register them
+        import gel_analyzer.checks  # noqa: F401
+        import gel_analyzer.signals  # noqa: F401
