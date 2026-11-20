@@ -9,6 +9,28 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.2.0](https://github.com/gmathy2104/phoresis/compare/v1.1.1...v1.2.0) (2026-11-20)
+
+
+### Features
+
+* **gel_analyzer:** filters, sorting and assay on the gel list pages ([53878fe](https://github.com/gmathy2104/phoresis/commit/53878fe2c03023b8d0f99155df911a0a65f305fa))
+* **gel_analyzer:** gel assays, HCP reference lane, calibration range and saturation fields ([a8c83e1](https://github.com/gmathy2104/phoresis/commit/a8c83e199b5fa630b7fed5a85524e5269cb4e5b2))
+* **gel_analyzer:** gel dashboard — pick gels and lanes, see them with the gel widgets ([f184ed3](https://github.com/gmathy2104/phoresis/commit/f184ed307eed7b2697e01d9f9c8868b57146fd54))
+* **gel_analyzer:** ONNX Runtime Web is vendored — no CDN left in the app ([b370008](https://github.com/gmathy2104/phoresis/commit/b370008e69b91fddcaf0f10f91e06702a5cb1bbd))
+* **gel_analyzer:** resync the calculation services with ds-hub-django ([14ef7a9](https://github.com/gmathy2104/phoresis/commit/14ef7a9b27fe02f527cdaf7a75b24b24620050c9))
+* **gel_analyzer:** resync the views, API, forms and tasks with ds-hub-django ([b5d5900](https://github.com/gmathy2104/phoresis/commit/b5d5900e9668bec91cb33d444a1bd9ea8efd4b41))
+* **gel_analyzer:** resync the Word, Excel and PowerPoint reports with ds-hub-django ([4046441](https://github.com/gmathy2104/phoresis/commit/40464412772e6a9de51e8b09046503b1f176ff04))
+* **gel_analyzer:** the workbench front end of ds-hub-django — editor, densitometry, comparison ([f067943](https://github.com/gmathy2104/phoresis/commit/f067943b49583a9363f3918fd4228006aa689212))
+
+
+### Bug fixes
+
+* **deps:** keep OpenCV, numpy and scipy where the detector is validated ([8a63606](https://github.com/gmathy2104/phoresis/commit/8a63606b24e326c5c16b60b5a2f4b616359916eb))
+* **gel_analyzer:** keep Phoresis's calibration fixes through the resync ([9769bcd](https://github.com/gmathy2104/phoresis/commit/9769bcdef4c0b5b0c13f01d6668f45b9ee4bbdb1))
+* **gel_analyzer:** ship the ONNX Runtime source map, or the release does not boot ([4096fd9](https://github.com/gmathy2104/phoresis/commit/4096fd9b06c8e9e99037a57c3e18e92aedd9bb87))
+* green CI on main — band model tests without LFS, vulnerable indirect dependencies ([ed814ee](https://github.com/gmathy2104/phoresis/commit/ed814ee6a73027bd92ee5a976d302d8021515eb1))
+
 ## [1.1.1](https://github.com/gmathy2104/phoresis/compare/v1.1.0...v1.1.1) (2026-05-08)
 
 
