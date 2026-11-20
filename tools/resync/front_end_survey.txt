@@ -1,0 +1,161 @@
+conflict   1  static/gel_analyzer/css/comparison.css
+new        0  static/gel_analyzer/css/containment.css  new in ds-hub
+conflict   2  static/gel_analyzer/css/densitometry.css
+new        0  static/gel_analyzer/css/ga-analysis-detail.css  new in ds-hub
+new        0  static/gel_analyzer/css/ga-filterbar.css  new in ds-hub
+new        0  static/gel_analyzer/css/ga-forms.css  new in ds-hub
+new        0  static/gel_analyzer/css/ga-pages.css  new in ds-hub
+new        0  static/gel_analyzer/css/ga-workbench.css  new in ds-hub
+new        0  static/gel_analyzer/css/ga_modern.css  new in ds-hub
+merge      0  static/gel_analyzer/css/gel_viewer.css
+conflict  16  static/gel_analyzer/css/gel_viewer_standalone.css
+new        0  static/gel_analyzer/css/lane-strips.css  new in ds-hub
+new        0  static/gel_analyzer/css/sample-lane-gel.css  new in ds-hub
+same       0  static/gel_analyzer/css/template_studio.css  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/core/event-bus.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/densitometry/3D_TERRAIN_VIEW.md  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/densitometry/README.md  unchanged in Phoresis (took ds-hub)
+conflict   4  static/gel_analyzer/js/densitometry/densitometry-api-client.js
+conflict   2  static/gel_analyzer/js/densitometry/densitometry-app.js
+merge      0  static/gel_analyzer/js/densitometry/densitometry-event-bus.js
+conflict   1  static/gel_analyzer/js/densitometry/densitometry-state.js
+conflict   2  static/gel_analyzer/js/densitometry/panels/band-zoom-panel.js
+conflict  16  static/gel_analyzer/js/densitometry/panels/chromatogram-panel.js
+conflict   2  static/gel_analyzer/js/densitometry/panels/gel-overview-panel.js
+new        0  static/gel_analyzer/js/densitometry/panels/lanes-view.js  new in ds-hub
+conflict   7  static/gel_analyzer/js/densitometry/panels/quantification-curve-renderer.js  added on both sides (no base)
+conflict  13  static/gel_analyzer/js/densitometry/panels/quantification-modal.js  added on both sides (no base)
+new        0  static/gel_analyzer/js/densitometry/panels/readout-panel.js  new in ds-hub
+conflict   9  static/gel_analyzer/js/densitometry/panels/results-table-panel.js
+new        0  static/gel_analyzer/js/ga-filterbar.js  new in ds-hub
+new        0  static/gel_analyzer/js/ga-toast.js  new in ds-hub
+merge      0  static/gel_analyzer/js/gel-viewer/README.md
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/autodetect-replace.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/band-delete-confirm.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/context-menu-target.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/form-after-save.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/ladder-template-apply.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/lane-delete-saves.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/lane-type-confirm.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/layers-esc.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/poi-band-mw-edit-keeps-ladder.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/session-expired.test.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/__tests__/set-mw.test.js  new in ds-hub
+conflict  10  static/gel_analyzer/js/gel-viewer/api-client.js
+merge      0  static/gel_analyzer/js/gel-viewer/confirmation-manager.js  unchanged in Phoresis (took ds-hub)
+new        0  static/gel_analyzer/js/gel-viewer/corner-handles.js  new in ds-hub
+conflict   1  static/gel_analyzer/js/gel-viewer/event-bus.js
+merge      0  static/gel_analyzer/js/gel-viewer/event-handler.js
+conflict  20  static/gel_analyzer/js/gel-viewer/gel-viewer.js
+new        0  static/gel_analyzer/js/gel-viewer/inference/band-model-engine.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/inference/band-model-worker.js  new in ds-hub
+same       0  static/gel_analyzer/js/gel-viewer/inference/inference-engine.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/inference/inference-utils.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/inference/inference-worker.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/inference/postprocess.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/inference/sam-decoder-engine.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/inference/sam-decoder-worker.js  unchanged in Phoresis (took ds-hub)
+new        0  static/gel_analyzer/js/gel-viewer/ladder-template-apply.js  new in ds-hub
+new        0  static/gel_analyzer/js/gel-viewer/layers.js  new in ds-hub
+merge      0  static/gel_analyzer/js/gel-viewer/modals/sample-selector.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/panels/adjustments-panel.js  unchanged in Phoresis (took ds-hub)
+new        0  static/gel_analyzer/js/gel-viewer/panels/band-model-panel.js  new in ds-hub
+conflict   1  static/gel_analyzer/js/gel-viewer/panels/band-table-panel.js
+conflict  12  static/gel_analyzer/js/gel-viewer/panels/calibration-panel.js
+conflict  10  static/gel_analyzer/js/gel-viewer/panels/context-menu.js
+merge      0  static/gel_analyzer/js/gel-viewer/panels/cv2-detection-panel.js  unchanged in Phoresis (took ds-hub)
+conflict   4  static/gel_analyzer/js/gel-viewer/panels/data-table-panel.js
+merge      0  static/gel_analyzer/js/gel-viewer/panels/detection-panel-base.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/panels/detection-panel.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/panels/electropherogram-panel.js
+new        0  static/gel_analyzer/js/gel-viewer/panels/gel-legend.js  new in ds-hub
+conflict  23  static/gel_analyzer/js/gel-viewer/panels/properties-panel.js
+new        0  static/gel_analyzer/js/gel-viewer/panels/reading-card.js  new in ds-hub
+merge      0  static/gel_analyzer/js/gel-viewer/panels/review-panel.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/panels/teacher-panel.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/renderer.js
+conflict   1  static/gel_analyzer/js/gel-viewer/state-manager.js
+new        0  static/gel_analyzer/js/gel-viewer/toast-manager.js  new in ds-hub
+same       0  static/gel_analyzer/js/gel-viewer/tools/band-tool.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/tools/crop-tool.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/tools/lane-tool.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/tools/pan-tool.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/tools/select-tool.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/gel-viewer/tools/split-tool.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/tools/tool-manager.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel-viewer/viewport.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/gel_viewer_old.js  unchanged in Phoresis (took ds-hub)
+conflict   4  static/gel_analyzer/js/lane-spreadsheet.js
+same       0  static/gel_analyzer/js/report/comparison-report-capture.js  unchanged in Phoresis (took ds-hub)
+new        0  static/gel_analyzer/js/sample-comparison/comparison-kinds.js  new in ds-hub
+same       0  static/gel_analyzer/js/sample-comparison/comparison-metrics.js  unchanged in Phoresis (took ds-hub)
+new        0  static/gel_analyzer/js/sample-comparison/comparison-page-chrome.js  new in ds-hub
+same       0  static/gel_analyzer/js/sample-comparison/drag-reorder.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/sample-comparison/mw-utils.js  unchanged in Phoresis (took ds-hub)
+conflict   4  static/gel_analyzer/js/sample-comparison/panels/band-detail-panel.js
+merge      0  static/gel_analyzer/js/sample-comparison/panels/chromatogram-panel.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/sample-comparison/panels/gel-overview-panel.js  unchanged in Phoresis (took ds-hub)
+conflict   8  static/gel_analyzer/js/sample-comparison/panels/poi-purity-panel.js
+conflict   6  static/gel_analyzer/js/sample-comparison/panels/results-table-panel.js
+merge      0  static/gel_analyzer/js/sample-comparison/panels/sample-cards-panel.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/sample-comparison/sample-comparison-api.js  unchanged in Phoresis (took ds-hub)
+conflict   1  static/gel_analyzer/js/sample-comparison/sample-comparison-app.js
+merge      0  static/gel_analyzer/js/sample-comparison/sample-comparison-state.js  unchanged in Phoresis (took ds-hub)
+conflict   4  static/gel_analyzer/js/shared/api-error.js  added on both sides (no base)
+conflict   2  static/gel_analyzer/js/shared/auto-save.js  added on both sides (no base)
+conflict   4  static/gel_analyzer/js/shared/chromatogram-utils.js
+new        0  static/gel_analyzer/js/shared/lane-geometry.js  new in ds-hub
+merge      0  static/gel_analyzer/js/shared/mw-utils.js  unchanged in Phoresis (took ds-hub)
+new        0  static/gel_analyzer/js/shared/panel-splitter.js  new in ds-hub
+new        0  static/gel_analyzer/js/shared/readout-charts.js  new in ds-hub
+new        0  static/gel_analyzer/js/shared/workbench-summary.js  new in ds-hub
+same       0  static/gel_analyzer/js/template-studio/index.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/template-studio/lane-picker.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/template-studio/strip-view.js  unchanged in Phoresis (took ds-hub)
+merge      0  static/gel_analyzer/js/template-studio/validation-grid.js  unchanged in Phoresis (took ds-hub)
+same       0  static/gel_analyzer/js/vendor/svg.min.js  unchanged in ds-hub (kept ours)
+new        0  static/gel_analyzer/js/viz/README.md  new in ds-hub
+new        0  static/gel_analyzer/js/viz/brush-zoom.js  new in ds-hub
+new        0  static/gel_analyzer/js/viz/lane-strips.js  new in ds-hub
+new        0  static/gel_analyzer/js/viz/mount.js  new in ds-hub
+new        0  static/gel_analyzer/js/viz/panel-base.js  new in ds-hub
+new        0  static/gel_analyzer/js/viz/sample-lane-gel.js  new in ds-hub
+new        0  templates/gel_analyzer/_ga_base_minimal.html  deleted in Phoresis, changed in ds-hub
+new        0  templates/gel_analyzer/_ga_modern_base.html  new in ds-hub
+new        0  templates/gel_analyzer/_help_button.html  new in ds-hub
+conflict   2  templates/gel_analyzer/admin/template_calibration.html
+merge      0  templates/gel_analyzer/admin/template_studio.html
+conflict   1  templates/gel_analyzer/admin/template_training_list.html
+conflict   5  templates/gel_analyzer/analyses/annotate_standalone.html
+conflict   1  templates/gel_analyzer/analyses/create.html
+conflict  19  templates/gel_analyzer/analyses/densitometry.html
+conflict   2  templates/gel_analyzer/analyses/detail.html
+new        0  templates/gel_analyzer/analyses/includes/_annotate_more_menu.html  new in ds-hub
+conflict   3  templates/gel_analyzer/analyses/includes/_calibration_panel.html
+merge      0  templates/gel_analyzer/analyses/includes/_cv2_detection_panel.html  unchanged in Phoresis (took ds-hub)
+merge      0  templates/gel_analyzer/analyses/includes/_detection_panel.html  unchanged in Phoresis (took ds-hub)
+merge      0  templates/gel_analyzer/analyses/includes/_electropherogram_panel.html
+merge      0  templates/gel_analyzer/analyses/includes/_review_panel.html  unchanged in Phoresis (took ds-hub)
+same       0  templates/gel_analyzer/analyses/includes/_teacher_panel.html  unchanged in Phoresis (took ds-hub)
+conflict   2  templates/gel_analyzer/analyses/list.html
+new        0  templates/gel_analyzer/assays/form.html  new in ds-hub
+new        0  templates/gel_analyzer/assays/list.html  new in ds-hub
+conflict   5  templates/gel_analyzer/comparisons/compare.html
+conflict   4  templates/gel_analyzer/comparisons/list.html
+new        0  templates/gel_analyzer/home.html  deleted in Phoresis, changed in ds-hub
+conflict   1  templates/gel_analyzer/images/delete.html
+conflict   1  templates/gel_analyzer/images/detail.html
+merge      0  templates/gel_analyzer/images/edit.html  new in ds-hub
+conflict   1  templates/gel_analyzer/images/list.html
+conflict   1  templates/gel_analyzer/images/upload.html
+conflict   3  templates/gel_analyzer/includes/_quantification_modal.html  added on both sides (no base)
+new        0  templates/gel_analyzer/partials/_filter_picker.html  new in ds-hub
+new        0  templates/gel_analyzer/partials/_gam_errors.html  new in ds-hub
+new        0  templates/gel_analyzer/partials/_gam_field.html  new in ds-hub
+new        0  templates/gel_analyzer/partials/_linked_sample_row.html  new in ds-hub
+new        0  templates/gel_analyzer/partials/_pager.html  new in ds-hub
+new        0  templates/gel_analyzer/viz/_comparison_assets.html  new in ds-hub
+new        0  templates/gel_analyzer/viz/_comparison_styles.html  new in ds-hub
+new        0  templates/gel_analyzer/viz/_foundation_assets.html  new in ds-hub
+new        0  templates/gel_analyzer/viz/showcase.html  new in ds-hub
+new        0  templates/gel_analyzer/workbench/_identity.html  new in ds-hub
