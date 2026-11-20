@@ -6,6 +6,7 @@ Copyright (c) Microsoft Corporation. No CDN (AGENTS.md §1).
 | File | Role |
 |---|---|
 | `ort.min.js` | The runtime, loaded by the three inference workers with `importScripts`. |
+| `ort.min.js.map` | Its source map. Required: the production static storage (manifest) resolves the `sourceMappingURL` of every script and stops `collectstatic` when the file is missing. |
 | `ort-wasm-simd-threaded.jsep.mjs` | Its WebAssembly loader (WASM and WebGPU back ends). |
 | `ort-wasm-simd-threaded.jsep.wasm` | The WebAssembly binary (Git LFS). |
 
