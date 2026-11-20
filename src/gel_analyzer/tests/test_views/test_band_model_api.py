@@ -12,6 +12,27 @@ from django.urls import reverse
 from gel_analyzer.models import Band, GelAnalysis, Lane, LaneDensitometrySummary
 from gel_analyzer.services.analysis_status import APPROVED_IS_FINAL
 
+
+@pytest.fixture(autouse=True)
+def band_model_without_lfs(monkeypatch, request):
+    """Where the model file is a Git LFS pointer, take the configuration without proving the file.
+
+    The CI jobs that only test clone without LFS on purpose: the 53 MB model is then a 134-byte
+    pointer, the endpoints answer 503 ("its file does not match its configuration") and every test
+    below fails on a file it does not test -- they test what the server builds from the model's
+    boxes. With the real file (a developer's clone, the image build) nothing is patched and the
+    sha256 is verified as in production.
+    """
+    # The one test of the refusal itself keeps the real verification: a pointer is a mismatch too.
+    if request.node.name == "test_model_file_not_matching_settings_is_never_served":
+        return
+    from gel_analyzer.checks import _is_lfs_pointer
+    from gel_analyzer.services import band_model
+
+    if _is_lfs_pointer(band_model.band_model_path(band_model.band_model_config())):
+        monkeypatch.setattr("gel_analyzer.views.band_model_api.verified_band_model", band_model.band_model_config)
+
+
 # One box in the sample lane (x 50, w 40), one in the ladder lane (x 100, w 40).
 SAVE_BOXES = [[55, 95, 85, 105, 0.9], [105, 145, 135, 155, 0.8]]
 
