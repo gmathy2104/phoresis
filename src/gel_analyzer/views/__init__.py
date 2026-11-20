@@ -76,6 +76,7 @@ from .api import (
 from .band_model_api import api_band_model_context, api_band_model_preview, api_band_model_save
 from .comparison import comparison_list_view, sample_comparison_view
 from .comparison_api import api_saved_comparison_detail, api_saved_comparisons
+from .dashboard import gel_dashboard_view
 from .densitometry import densitometry_view
 from .densitometry_api import (  # Peak Detection API
     api_band_densitometry,
@@ -110,6 +111,8 @@ from .training import (
 )
 
 __all__ = [
+    # Gel dashboard
+    "gel_dashboard_view",
     "image_list_view",
     "image_upload_view",
     "image_detail_view",

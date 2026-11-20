@@ -84,6 +84,7 @@ from gel_analyzer.views import (
     api_template_training_status,
     comparison_list_view,
     densitometry_view,
+    gel_dashboard_view,
     image_delete_view,
     image_detail_view,
     image_edit_view,
@@ -243,6 +244,8 @@ urlpatterns = [
     path("api/analyses/<uuid:pk>/band-model/save/", api_band_model_save, name="api_band_model_save"),
     # The tilt of the detected lanes, for the review's "Follow the lanes" (computes only)
     path("api/analyses/<uuid:pk>/lanes/tilt/", api_lane_tilt, name="api_lane_tilt"),
+    # Gel dashboard: pick gels and lanes, see them with the gel widgets
+    path("explore/", gel_dashboard_view, name="gel_dashboard"),
     # Comparison Views
     path("comparisons/", comparison_list_view, name="comparison_list"),
     path("comparisons/compare/", sample_comparison_view, name="sample_comparison"),

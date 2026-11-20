@@ -1,0 +1,132 @@
+{% extends 'gel_analyzer/_ga_base_minimal.html' %}
+{% load static %}
+
+{% block title %}Gel dashboard — Phoresis{% endblock %}
+
+{% block theme_head %}{% include 'gel_analyzer/workbench/_theme_head.html' %}{% endblock %}
+
+{% block extra_css %}
+{% include "gel_analyzer/viz/_comparison_styles.html" %}
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/ga-workbench.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/lane-strips.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/sample-lane-gel.css' %}">
+<link rel="stylesheet" href="{% static 'gel_analyzer/css/gel-dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+  The gel dashboard (views/dashboard.py). The picker and the two tiles are built by
+  js/viz/gel-dashboard.js; the comparison tile's panels are built by the component itself
+  (GelAnalyzer.Viz.Comparison.mount) inside #gd-comparison -- no panel markup is written here.
+{% endcomment %}
+<div class="dm-app ga-cmp-app gd-app">
+    <header class="ga-wb-bar">
+        <div class="ga-wb-row">
+            <a class="ga-wb-iconbtn" href="{% url 'dashboard:home' %}" title="Back to Phoresis" aria-label="Back to Phoresis">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i>
+            </a>
+            <nav class="ga-wb-crumbs" aria-label="Breadcrumb">
+                <a href="{% url 'gel_analyzer:image_list' %}">Gel images</a><i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </nav>
+            <h1 class="ga-wb-title">Gel dashboard</h1>
+            <span class="ga-wb-badge" id="gd-count">0 lanes</span>
+            {# One assay at a time: filled by comparison-kinds.js, hidden while the ticked lanes share one assay. #}
+            <div class="ga-wb-kinds" id="gd-kinds" role="group" aria-label="Assay shown" hidden></div>
+            <span class="gd-other" id="gd-other" hidden></span>
+            <div class="ga-wb-right">
+                <a class="ga-wb-btn is-disabled" id="gd-open-comparison" aria-disabled="true"
+                   data-href="{% url 'gel_analyzer:sample_comparison' %}"
+                   title="Open these lanes in the comparison page, to save or report them">
+                    <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open as comparison
+                </a>
+                <button type="button" class="ga-wb-btn" id="gd-clear" disabled>
+                    <i class="bi bi-x-lg" aria-hidden="true"></i> Clear
+                </button>
+                {% include 'gel_analyzer/workbench/_theme_toggle.html' %}
+            </div>
+        </div>
+    </header>
+
+    <div class="gd-body">
+        <aside class="gd-picker" aria-label="Gels and lanes">
+            <div class="gd-picker-head">
+                <label class="gd-search">
+                    <i class="bi bi-search" aria-hidden="true"></i>
+                    <input type="search" id="gd-search" placeholder="Filter by gel, analysis or sample…" autocomplete="off"
+                           aria-label="Filter the gels">
+                </label>
+                <p class="gd-picker-note" id="gd-picker-note">
+                    {{ gel_count }} analysed gel{{ gel_count|pluralize }}. Tick lanes to show them — up to {{ max_lanes }}.
+                </p>
+            </div>
+            <div class="gd-gels" id="gd-gels"></div>
+        </aside>
+
+        <main class="gd-main">
+            <section class="gd-tile gd-tile-gel" aria-labelledby="gd-gel-title">
+                <header class="gd-tile-head">
+                    <h2 class="gd-tile-title" id="gd-gel-title"><i class="bi bi-image" aria-hidden="true"></i> Gel</h2>
+                    <span class="gd-tile-sub" id="gd-gel-sub"></span>
+                    <div class="gd-tile-actions">
+                        <label class="gd-check"><input type="checkbox" id="gd-gel-bands" checked> Bands</label>
+                        <label class="gd-check"><input type="checkbox" id="gd-gel-dim" checked> Dim the other lanes</label>
+                        <a class="ga-wb-btn" id="gd-gel-open" hidden><i class="bi bi-card-text" aria-hidden="true"></i> Analysis</a>
+                    </div>
+                </header>
+                <div class="gd-tile-body">
+                    <div class="gd-empty" id="gd-gel-empty">Tick a lane on the left: its whole gel appears here, with the lane's bands and intensity profile.</div>
+                    <div class="ga-viz-root gd-gel-host" id="gd-gel" hidden></div>
+                </div>
+            </section>
+
+            <section class="gd-tile gd-tile-cmp" aria-label="Lanes, profiles and readouts">
+                <div class="gd-empty" id="gd-cmp-empty">The ticked lanes are compared here: side by side on a common kDa axis, their intensity profiles, their purity, their bands.</div>
+                <div class="gd-cmp-host" id="gd-comparison" hidden></div>
+            </section>
+        </main>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% comment %}
+  The comparison component's assets, as on the comparison page, without its page-chrome controller
+  (the dashboard has its own controls): foundation (vendored d3, event bus, shared utils, Viz
+  runtime), the sample-comparison modules and panels, then the two lane components.
+{% endcomment %}
+{% include "gel_analyzer/viz/_foundation_assets.html" %}
+<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-state.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-api.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/mw-utils.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/comparison-metrics.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/drag-reorder.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/sample-cards-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/gel-overview-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/chromatogram-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/poi-purity-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/band-detail-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/panels/results-table-panel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/sample-comparison-app.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/viz/lane-strips.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/viz/sample-lane-gel.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/readout-charts.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/shared/workbench-summary.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/sample-comparison/comparison-kinds.js' %}"></script>
+<script src="{% static 'gel_analyzer/js/viz/gel-dashboard.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    GelAnalyzer.Viz.GelDashboard.init({
+        gels: {{ gels_json }},
+        selected: {{ selected_json }},
+        maxLanes: {{ max_lanes }},
+        purityThresholds: {{ purity_thresholds_json }},
+        csrfToken: '{{ csrf_token }}',
+        apiUrls: {
+            laneData: '{% url "gel_analyzer:api_lane_comparison_data" pk=0 %}'.replace('/0/', '/{laneId}/'),
+            laneProfile: '{% url "gel_analyzer:api_lane_profile" pk=0 %}'.replace('/0/', '/{laneId}/'),
+            imagesWithDensitometry: '{% url "gel_analyzer:api_images_with_densitometry" %}',
+        },
+    });
+});
+</script>
+{% endblock %}

@@ -352,6 +352,22 @@
                 return true;
             },
             removeSample: (id) => (current ? current.removeSample(id) : undefined),
+            /**
+             * Phoresis (gel dashboard): take a lane out of the roster whatever its kind. removeSample only reaches
+             * the kind shown now; a lane of another kind is dropped from the roster directly.
+             */
+            dropSample(id) {
+                const item = roster.find((i) => i.id === id);
+                if (!item) return false;
+                if (current && kindOf(item).key === activeKey) {
+                    current.removeSample(id);   // SAMPLE_REMOVED -> onRemoved updates the roster and the chrome
+                    return true;
+                }
+                roster.splice(roster.indexOf(item), 1);
+                ids.delete(id);
+                renderChrome();
+                return true;
+            },
             on(event, fn) {
                 listeners.push([event, fn]);
                 if (current) current.on(event, fn);

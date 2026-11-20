@@ -1,0 +1,380 @@
+/*
+ * The gel dashboard (templates/gel_analyzer/dashboard/gels.html, js/viz/gel-dashboard.js).
+ *
+ * Prefix: .gd-
+ * Colours are the gel workbench's tokens (--ga-wb-*, css/ga-workbench.css: night by default, day under
+ * :root[data-theme="light"]): a new colour here is a token, never a hex.
+ */
+
+.gd-app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-height: 0;
+    background: var(--ga-wb-bg);
+    color: var(--ga-wb-text);
+}
+
+.gd-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+}
+
+.gd-other {
+    font-size: 12px;
+    color: var(--ga-wb-muted);
+}
+
+/* ---------------------------------------------------------------- picker */
+
+.gd-picker {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--ga-wb-border);
+    background: var(--ga-wb-surface);
+}
+
+.gd-picker-head {
+    padding: 12px 12px 8px;
+    border-bottom: 1px solid var(--ga-wb-border);
+}
+
+.gd-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--ga-wb-border-2);
+    border-radius: var(--ga-wb-radius);
+    background: var(--ga-wb-inset);
+    color: var(--ga-wb-muted);
+}
+
+.gd-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--ga-wb-text);
+    font: inherit;
+    font-size: 13px;
+}
+
+.gd-search:focus-within {
+    border-color: var(--ga-wb-accent);
+}
+
+.gd-picker-note {
+    margin: 8px 2px 0;
+    font-size: 12px;
+    color: var(--ga-wb-muted);
+}
+
+.gd-gels {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px 8px 16px;
+}
+
+.gd-none {
+    margin: 16px 6px;
+    font-size: 13px;
+    color: var(--ga-wb-muted);
+}
+
+.gd-gel {
+    border-bottom: 1px solid var(--ga-wb-border);
+}
+
+.gd-gel > summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 8px;
+    align-items: center;
+    padding: 8px 6px;
+    cursor: pointer;
+    list-style: none;
+    border-radius: var(--ga-wb-radius);
+}
+
+.gd-gel > summary::-webkit-details-marker {
+    display: none;
+}
+
+.gd-gel > summary:hover {
+    background: var(--ga-wb-hover);
+}
+
+.gd-gel-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ga-wb-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gd-gel-n {
+    min-width: 20px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--ga-wb-accent);
+    color: var(--ga-wb-on-accent);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.gd-gel-meta {
+    grid-column: 1 / -1;
+    font-size: 11.5px;
+    color: var(--ga-wb-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gd-gel-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 2px 6px 6px;
+}
+
+.gd-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ga-wb-accent-text);
+    font: inherit;
+    font-size: 12px;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.gd-link:hover {
+    text-decoration: underline;
+}
+
+.gd-link:disabled {
+    color: var(--ga-wb-faint);
+    cursor: default;
+    text-decoration: none;
+}
+
+.gd-lanes {
+    margin: 0;
+    padding: 0 0 8px;
+    list-style: none;
+}
+
+.gd-lane {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    border-radius: var(--ga-wb-radius);
+}
+
+.gd-lane:hover {
+    background: var(--ga-wb-hover);
+}
+
+.gd-lane label {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 13px;
+    color: var(--ga-wb-text-2);
+    cursor: pointer;
+}
+
+.gd-lane.is-off label {
+    color: var(--ga-wb-faint);
+    cursor: default;
+}
+
+.gd-lane.is-busy {
+    opacity: 0.6;
+}
+
+.gd-lane-n {
+    flex: none;
+    min-width: 22px;
+    padding: 1px 4px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--ga-wb-lt-sample);
+}
+
+.gd-lane-n--ladder { color: var(--ga-wb-lt-ladder); }
+.gd-lane-n--control { color: var(--ga-wb-lt-control); }
+.gd-lane-n--empty { color: var(--ga-wb-lt-empty); }
+.gd-lane-n--dot { color: var(--ga-wb-lt-dot); }
+.gd-lane-n--calibration { color: var(--ga-wb-lt-calibration); }
+
+.gd-lane-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gd-lane-purity {
+    flex: none;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ga-wb-muted);
+}
+
+.gd-lane-focus {
+    flex: none;
+    padding: 2px 5px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--ga-wb-muted);
+    cursor: pointer;
+}
+
+.gd-lane-focus:hover,
+.gd-lane-focus.is-on {
+    background: var(--ga-wb-accent-soft);
+    color: var(--ga-wb-accent-text);
+}
+
+/* ---------------------------------------------------------------- tiles */
+
+.gd-main {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.gd-tile {
+    /* Tiles keep their height and the column scrolls: a flex item would shrink the comparison to fit. */
+    flex: none;
+    border: 1px solid var(--ga-wb-border);
+    border-radius: var(--ga-wb-radius);
+    background: var(--ga-wb-surface);
+    box-shadow: var(--ga-wb-shadow);
+}
+
+.gd-tile-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--ga-wb-border);
+}
+
+.gd-tile-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ga-wb-text);
+}
+
+.gd-tile-sub {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--ga-wb-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gd-tile-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+}
+
+.gd-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--ga-wb-text-2);
+    cursor: pointer;
+}
+
+.gd-tile-body {
+    padding: 12px;
+}
+
+.gd-empty {
+    padding: 28px 16px;
+    font-size: 13px;
+    color: var(--ga-wb-muted);
+    text-align: center;
+}
+
+/* The whole gel: the component's own tokens (css/sample-lane-gel.css, night defaults) follow the workbench's. */
+.gd-gel-host {
+    --slg-slab: var(--ga-wb-inset);
+    --slg-lane: var(--ga-wb-border-strong);
+    --slg-accent: var(--ga-wb-accent);
+    --slg-accent-text: var(--ga-wb-accent-text);
+    --slg-on-accent: var(--ga-wb-on-accent);
+    --slg-poi: var(--ga-wb-b-poi);
+    --slg-other: var(--ga-wb-b-other);
+    --slg-muted: var(--ga-wb-muted);
+    --slg-text-2: var(--ga-wb-text-2);
+    --slg-border: var(--ga-wb-border-2);
+    --slg-profile: var(--ga-wb-text-2);
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+.gd-gel-host .ga-slg-svg {
+    max-height: 460px;
+}
+
+/* The comparison component fills its tile; its own stylesheets lay out its panels. */
+.gd-tile-cmp {
+    overflow: hidden;
+}
+
+.gd-cmp-host {
+    height: 820px;
+    min-height: 560px;
+}
+
+@media (max-width: 900px) {
+    .gd-app {
+        height: auto;
+        min-height: 100vh;
+    }
+    .gd-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .gd-picker {
+        border-right: 0;
+        border-bottom: 1px solid var(--ga-wb-border);
+        max-height: 46vh;
+    }
+    .gd-main {
+        overflow: visible;
+    }
+    .gd-tile-actions {
+        margin-left: 0;
+    }
+}

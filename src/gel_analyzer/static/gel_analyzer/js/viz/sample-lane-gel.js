@@ -178,7 +178,9 @@
 
       if (selfPts) {
         el('polygon', { points: pointsAttr(selfPts), class: 'ga-slg-self' }, svg);
-        var label = 'L' + entry.lane_number + ' · this sample';
+        // cfg.selfLabel (Phoresis, gel dashboard): what the pill says after the lane number; the hub's sample
+        // page keeps its "this sample".
+        var label = 'L' + entry.lane_number + ' · ' + (this.options.selfLabel || 'this sample');
         var pillH = fs * 1.5;
         var pillW = fs * 0.58 * label.length + fs;
         // Under the image, centred on the middle of the lane's bottom row (the row nearest the pill).
@@ -233,7 +235,10 @@
     mount: function (containerEl, cfg) {
       var handle = Viz.mount(containerEl, {
         panelDefs: [{ name: 'gel', PanelClass: SampleLaneGelPanel, containerClass: 'ga-slg' }],
-        options: { entry: cfg.entry, dimOthers: cfg.dimOthers !== false, bandOverlay: cfg.bandOverlay !== false },
+        options: {
+          entry: cfg.entry, dimOthers: cfg.dimOthers !== false, bandOverlay: cfg.bandOverlay !== false,
+          selfLabel: cfg.selfLabel || '',
+        },
       });
       return {
         update: function (opts) {
