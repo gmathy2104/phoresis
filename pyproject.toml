@@ -143,6 +143,9 @@ section-order = ["future", "standard-library", "third-party", "django", "first-p
 django = ["django"]
 
 [tool.ruff.format]
+# Markdown is documentation written by hand: ruff (0.16+) would reformat every Python
+# code block in it, including the deliberately elided examples of the design docs.
+exclude = ["*.md"]
 quote-style = "double"
 indent-style = "space"
 
@@ -153,6 +156,10 @@ python_files = ["test_*.py", "*_test.py"]
 pythonpath = ["src"]
 addopts = ["--strict-markers", "-ra"]
 testpaths = ["src"]
+markers = [
+    "unit: a test of one function or class, no HTTP round trip",
+    "integration: a test that goes through the views or the API",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
