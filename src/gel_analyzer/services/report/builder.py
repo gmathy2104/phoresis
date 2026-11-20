@@ -142,10 +142,15 @@ class BaseReportBuilder:
 
         self.document.add_paragraph()
 
-    def _add_data_table(self, headers: list, rows: list):
-        """Add a data table with brand-blue header and alternating row fill."""
+    def _add_data_table(self, headers: list, rows: list, highlight_rows=None):
+        """Add a data table with styled headers.
+
+        highlight_rows: optional iterable of 0-based data-row indices to shade
+        light red (used for out-of-spec QC rows).
+        """
         if not rows:
             return
+        highlight = set(highlight_rows or [])
 
         table = self.document.add_table(rows=1 + len(rows), cols=len(headers))
         table.style = "Table Grid"
@@ -175,10 +180,14 @@ class BaseReportBuilder:
                 run = para.add_run(str(value) if value is not None else "-")
                 run.font.size = Pt(TABLE_SIZE)
                 run.font.name = BODY_FONT
-                if zebra:
-                    shading = OxmlElement("w:shd")
-                    shading.set(qn("w:fill"), TABLE_ALT_ROW)
-                    cell._tc.get_or_add_tcPr().append(shading)
+                if i in highlight:
+                    shd = OxmlElement("w:shd")
+                    shd.set(qn("w:fill"), "FCE4E4")
+                    cell._tc.get_or_add_tcPr().append(shd)
+                elif zebra:
+                    shd = OxmlElement("w:shd")
+                    shd.set(qn("w:fill"), TABLE_ALT_ROW)
+                    cell._tc.get_or_add_tcPr().append(shd)
 
         self.document.add_paragraph()
 
@@ -225,7 +234,7 @@ class BaseReportBuilder:
 class GelAnalysisReportBuilder(BaseReportBuilder):
     """
     Generates comprehensive Word document for Gel Analysis reports
-    using python-docx with GSKPrecision font family.
+    using python-docx with the Phoresis brand palette.
     """
 
     def __init__(self, data: ReportData, images: dict):
@@ -427,20 +436,26 @@ class GelAnalysisReportBuilder(BaseReportBuilder):
         except Exception as e:
             logger.error(f"Error in add_gel_image_section: {e}")
 
-    def _render_annotated_gel(self) -> BytesIO | None:
+    def _render_annotated_gel(self):
         """Pillow-rendered annotated gel matching the live overlay."""
         if not getattr(self.data, "gel_image_id", None):
             return None
         try:
             from gel_analyzer.models import GelImage
 
-            from .gel_overlay import render_gel_overlay
+            from .gel_overlay import GelOverlayVariant, render_gel_overlay
 
             gel_image = GelImage.objects.get(pk=self.data.gel_image_id)
             image_file = gel_image.display_file or gel_image.original_file
             if not image_file:
                 return None
-            return render_gel_overlay(image_file, self.data.lanes, draw_band_overlay=True)
+            calibration = self.data.calibrations[0] if getattr(self.data, "calibrations", None) else None
+            return render_gel_overlay(
+                image_file,
+                self.data.lanes,
+                variant=GelOverlayVariant.FULL,
+                calibration=calibration,
+            )
         except Exception as e:
             logger.warning(f"Annotated gel render failed for analysis report: {e}")
             return None

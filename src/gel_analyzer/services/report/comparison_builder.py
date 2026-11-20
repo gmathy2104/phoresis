@@ -11,23 +11,29 @@ from pathlib import Path
 
 from docx.shared import Inches
 
+from gel_analyzer.services.lane_geometry.shape import outer_bbox
 from phoresis_core.logging_config import get_logger
 
 from .builder import BaseReportBuilder
 from .comparison_data_collector import ComparisonLaneData, ComparisonReportData
 from .constants import (
+    BAND_PALETTE_HEX,
     HEADING_FONT,
     IMAGE_FULL_WIDTH,
     IMAGE_HALF_WIDTH,
     METHODOLOGY_CALIBRATION,
     METHODOLOGY_DENSITOMETRY,
-    METHODOLOGY_PURITY,
     MUTED_GRAY,
     PHORESIS_ACCENT,
     PHORESIS_LOGO_PATH,
+    READOUT_METHODOLOGY,
     SMALL_SIZE,
     TITLE_SIZE,
+    saturation_text,
 )
+from .digital_gel import render_digital_gel
+from .lane_crop import bottom_centre, crop_lane, outline_of_row, top_left
+from .page_rows import cell_text, mean_purity_text, sample_text
 
 logger = get_logger(__name__)
 
@@ -109,10 +115,9 @@ class ComparisonReportBuilder(BaseReportBuilder):
             self.document.add_paragraph()
 
         # Summary stats
-        gel_types_str = ", ".join(self.data.gel_types) if self.data.gel_types else "Mixed"
         self._add_paragraph(
             f"Lanes: {self.data.lane_count} | "
-            f"Gel Types: {gel_types_str} | "
+            f"Assays: {self._assays_text()} | "
             f"Calibrated: {self.data.calibrated_count}/{self.data.lane_count}",
             font_size=12,
             align="center",
@@ -133,12 +138,15 @@ class ComparisonReportBuilder(BaseReportBuilder):
 
         self.document.add_page_break()
 
+    def _assays_text(self) -> str:
+        """The comparison's kinds (assays), as its page names them."""
+        return ", ".join(kind.label for kind in self.data.kinds) or "None"
+
     def add_comparison_overview(self, section_number: int = 1):
         """Add comparison overview section."""
         try:
             self._add_section_heading(f"{section_number}. COMPARISON OVERVIEW")
 
-            gel_types_str = ", ".join(self.data.gel_types) if self.data.gel_types else "Mixed"
             calibration_status = (
                 f"All lanes calibrated ({self.data.calibrated_count})"
                 if self.data.all_calibrated
@@ -149,8 +157,14 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 ("Name", self.data.name),
                 ("Description", self.data.description or "N/A"),
                 ("Lane Count", str(self.data.lane_count)),
-                ("Gel Types", gel_types_str),
+                ("Assays", self._assays_text()),
                 ("Calibration Status", calibration_status),
+            ]
+            # The mean purity of each purity kind, over the lanes compared (services/mean_purity.py).
+            data += [
+                (f"Mean purity · {kind.label}", mean_purity_text(kind.mean)) for kind in self.data.kinds if kind.mean
+            ]
+            data += [
                 ("Created By", self.data.created_by_name),
                 ("Created Date", self.data.created_at),
                 ("Public", "Yes" if self.data.is_public else "No"),
@@ -162,7 +176,8 @@ class ComparisonReportBuilder(BaseReportBuilder):
             logger.error(f"Error in add_comparison_overview: {e}")
 
     def add_sample_summary_table(self, section_number: int = 2):
-        """Add sample summary table."""
+        """One table per kind (assay), as the comparison page groups its lanes: the kind's readout columns with the
+        page's cells (page_rows)."""
         try:
             self._add_section_heading(f"{section_number}. SAMPLE SUMMARY")
 
@@ -170,44 +185,40 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 self._add_paragraph("No lanes in comparison.", font_size=SMALL_SIZE)
                 return
 
-            headers = [
-                "#",
-                "Sample",
-                "Source Analysis",
-                "Gel Type",
-                "Lane #",
-                "Condition",
-                "Load (\u00b5g)",
-                "Purity (%)",
-                "Notes",
-            ]
+            positions = {id(lane): i for i, lane in enumerate(self.data.lanes, 1)}
+            for kind in self.data.kinds:
+                if len(self.data.kinds) > 1:
+                    self._add_section_heading(kind.label, level=2)
+                headers = ["#", "Sample", "Source Analysis", "Lane #", "Condition", "Load (\u00b5g)"]
+                headers += [column["label"] for column in kind.columns] + ["Notes"]
+                flagged = any(lane.saturated_bands for lane in kind.lanes)
+                headers += ["Saturated"] if flagged else []
 
-            rows = []
-            for i, lane in enumerate(self.data.lanes, 1):
-                purity_str = f"{lane.poi_percentage:.1f}" if lane.poi_percentage is not None else "-"
-                condition_str = lane.condition or "-"
-                load_str = "-"
-                if lane.protein_load_ug is not None:
-                    load_str = f"{lane.protein_load_ug:.1f}"
-                    if lane.protein_load_type:
-                        load_str += f" ({lane.protein_load_type})"
-                notes_str = (lane.notes[:30] + "...") if lane.notes and len(lane.notes) > 30 else (lane.notes or "-")
+                rows = []
+                for lane in kind.lanes:
+                    load_str = "-"
+                    if lane.protein_load_ug is not None:
+                        load_str = f"{lane.protein_load_ug:.1f}"
+                        if lane.protein_load_type:
+                            load_str += f" ({lane.protein_load_type})"
+                    notes_str = (
+                        (lane.notes[:30] + "...") if lane.notes and len(lane.notes) > 30 else (lane.notes or "-")
+                    )
+                    rows.append(
+                        [
+                            str(positions[id(lane)]),
+                            sample_text(lane) + (" (REF)" if lane.is_reference else ""),
+                            lane.analysis_name[:25] + "..." if len(lane.analysis_name) > 25 else lane.analysis_name,
+                            str(lane.lane_number),
+                            lane.condition or "-",
+                            load_str,
+                        ]
+                        + [cell_text(lane, column["key"]) or "-" for column in kind.columns]
+                        + [notes_str]
+                        + (["⚠ " + ", ".join(lane.saturated_bands) if lane.saturated_bands else ""] if flagged else [])
+                    )
 
-                rows.append(
-                    [
-                        str(i),
-                        lane.sample_name,
-                        lane.analysis_name[:25] + "..." if len(lane.analysis_name) > 25 else lane.analysis_name,
-                        lane.gel_type,
-                        str(lane.lane_number),
-                        condition_str,
-                        load_str,
-                        purity_str,
-                        notes_str,
-                    ]
-                )
-
-            self._add_data_table(headers, rows)
+                self._add_data_table(headers, rows)
 
         except Exception as e:
             logger.error(f"Error in add_sample_summary_table: {e}")
@@ -242,9 +253,10 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 align="center",
             )
 
-    def _render_electropherogram(self, lane, index):
+    def _render_electropherogram(self, lane, index, dark_theme: bool = True):
         """
-        Render a single-lane electropherogram with matplotlib.
+        Render a single-lane electropherogram with matplotlib: dark for the Word report, light (``dark_theme=False``)
+        on a slide, as the densitometry deck's own curve.
 
         Args:
             lane: ComparisonLaneData with profile_data
@@ -262,19 +274,17 @@ class ComparisonReportBuilder(BaseReportBuilder):
         profile = lane.profile_data
         intensities = np.array(profile["intensities"], dtype=float)
 
-        # Mirror the live densitometry chromatogram: single blue profile
-        # line, peak markers coloured by the chart-band palette
-        # (green/amber/gray) — see CHART_* tokens in constants.py.
-        from .constants import (
-            CHART_BAND_PALETTE_HEX,
-            CHART_DARK_BG,
-            CHART_DARK_GRID,
-            CHART_DARK_TEXT,
-            CHART_PROFILE_COLOR,
-        )
+        # The live densitometry chromatogram's single blue profile line; the peak markers take the gel
+        # overlay's band colours (BAND_PALETTE_HEX), as the annotation view draws them.
+        from .constants import CHART_PROFILE_COLOR
 
-        def _peak_color(b):
-            return CHART_BAND_PALETTE_HEX.get((b.band_type_code or "OTHER").upper(), CHART_BAND_PALETTE_HEX["OTHER"])
+        PEAK_COLORS = {
+            "Protein of Interest": BAND_PALETTE_HEX["POI"],  # #A855F7 purple
+            "Other": BAND_PALETTE_HEX["OTHER"],  # #22C55E green (spec §5)
+            "MW Ladder": BAND_PALETTE_HEX["MW_REFERENCE"],  # #F97316 orange
+            "MW Reference": BAND_PALETTE_HEX["MW_REFERENCE"],  # #F97316 orange
+            "Calibration Point": BAND_PALETTE_HEX.get("CALIBRATION", "#F87171"),
+        }
 
         # --- Determine X-axis data ---
         mw_values = profile.get("mw_values")
@@ -308,11 +318,17 @@ class ComparisonReportBuilder(BaseReportBuilder):
         del index  # kept in signature for caller compatibility
         hex_color = CHART_PROFILE_COLOR
 
-        # --- Create figure with dark theme ---
-        plt.rcParams["font.family"] = ["Inter", "Segoe UI", "DejaVu Sans", "sans-serif"]
-        fig, ax = plt.subplots(figsize=(7, 2.5), dpi=150)
-        fig.patch.set_facecolor(CHART_DARK_BG)
-        ax.set_facecolor(CHART_DARK_BG)
+        # --- Create figure: dark for Word, light on a slide (the densitometry deck's own curve) ---
+        ink = {
+            "bg": "#1e1e22" if dark_theme else "#ffffff",
+            "text": "white" if dark_theme else "#333333",
+            "label": "#b0b0b0" if dark_theme else "#333333",
+            "tick": "#808080" if dark_theme else "#333333",
+            "spine": "#404040" if dark_theme else "#cccccc",
+        }
+        fig, ax = plt.subplots(figsize=(7, 2.5), dpi=200)
+        fig.patch.set_facecolor(ink["bg"])
+        ax.set_facecolor(ink["bg"])
 
         # Profile line
         ax.plot(x_values, y_values, color=hex_color, linewidth=1.5, zorder=3)
@@ -343,7 +359,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             idx = np.argmin(np.abs(x_values - bx))
             by = y_values[idx]
 
-            peak_color = _peak_color(band)
+            peak_color = PEAK_COLORS.get(band.band_type, "#9E9E9E")
             ax.plot(bx, by, "o", color=peak_color, markersize=6, markeredgecolor="white", markeredgewidth=1.5, zorder=5)
 
             # MW label above peak
@@ -354,27 +370,28 @@ class ComparisonReportBuilder(BaseReportBuilder):
                     textcoords="offset points",
                     xytext=(0, 10),
                     fontsize=7,
-                    color="white",
+                    color=ink["text"],
                     fontweight="bold",
                     ha="center",
                     zorder=6,
                 )
 
-        # --- Axis styling (dark theme) ---
-        ax.set_xlabel(x_label, color=CHART_DARK_TEXT, fontsize=9)
-        ax.set_ylabel("Intensity", color=CHART_DARK_TEXT, fontsize=9)
-        ax.tick_params(colors=CHART_DARK_TEXT, labelsize=8)
+        # --- Axis styling ---
+        ax.set_xlabel(x_label, color=ink["label"], fontsize=9)
+        ax.set_ylabel("Intensity", color=ink["label"], fontsize=9)
+        ax.tick_params(colors=ink["tick"], labelsize=8)
         for spine in ax.spines.values():
-            spine.set_color(CHART_DARK_GRID)
+            spine.set_color(ink["spine"])
         ax.set_ylim(bottom=0)
 
         # Title with sample name
-        ax.set_title(f"{lane.sample_name} (L{lane.lane_number})", color="white", fontsize=10, fontweight="bold", pad=8)
+        ax.set_title(
+            f"{sample_text(lane)} (L{lane.lane_number})", color=ink["text"], fontsize=10, fontweight="bold", pad=8
+        )
 
-        plt.tight_layout()
-
+        fig.subplots_adjust(left=0.08, right=0.97, top=0.85, bottom=0.18)
         buf = BytesIO()
-        fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight")
+        fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
         plt.close(fig)
         buf.seek(0)
         return buf
@@ -432,224 +449,13 @@ class ComparisonReportBuilder(BaseReportBuilder):
             logger.error(f"Error in add_digital_gel_comparison: {e}")
 
     def _render_digital_gel(self, lanes):
+        """Delegate to the shared renderer (footer = gel type).
+
+        exclude_codes=() preserves the current comparison behaviour: the old
+        comparison _render_digital_gel did NOT filter EMPTY lanes, so keep
+        every column (do not adopt the default ('EMPTY',) filter in Ph1).
         """
-        Render a side-by-side digital gel image with Pillow.
-
-        Creates a single image with all comparison lanes as vertical columns,
-        bands positioned on a log10 MW scale, and a shared MW scale on the right.
-
-        Args:
-            lanes: list of ComparisonLaneData
-
-        Returns:
-            BytesIO with PNG image, or None on failure
-        """
-        import math
-
-        from PIL import Image, ImageDraw, ImageFont
-
-        # --- Layout constants ---
-        LANE_WIDTH = 100
-        LANE_GAP = 6
-        HEADER_HEIGHT = 36
-        BODY_HEIGHT = 400
-        FOOTER_HEIGHT = 24
-        MW_SCALE_WIDTH = 70
-        BAND_HEIGHT = 8
-        BAND_INSET = int(LANE_WIDTH * 0.10)  # 10% from each side
-        ACCENT_BAR_HEIGHT = 4
-
-        # --- Colors ---
-        BG_COLOR = (30, 30, 34)  # overall background
-        LANE_BG = (42, 42, 46)  # lane column background
-        HEADER_BG = (26, 26, 30)  # header background
-        TEXT_COLOR = (230, 230, 230)  # primary text
-        TEXT_DIM = (160, 160, 160)  # secondary text
-        SCALE_LINE = (80, 80, 85)  # MW scale tick lines
-
-        # Band fill RGB picked by ENUM CODE so POI never falls back to OTHER green.
-        from .constants import BAND_PALETTE
-
-        def _band_rgb(b):
-            return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
-
-        LANE_ACCENT_COLORS = [
-            (37, 99, 235),  # accent-600 (live UI primary)
-            (168, 85, 247),  # purple — POI
-            (34, 197, 94),  # green — other
-            (249, 115, 22),  # orange — MW reference
-            (236, 72, 153),  # pink
-            (20, 184, 166),  # teal
-            (245, 158, 11),  # amber
-            (99, 102, 241),  # indigo
-        ]
-
-        STANDARD_MWS = [10, 15, 20, 25, 37, 50, 75, 100, 150, 250]
-
-        # --- Compute global MW range ---
-        all_mws = []
-        for lane in lanes:
-            for band in lane.bands:
-                if band.estimated_mw_kda and band.estimated_mw_kda > 0:
-                    all_mws.append(band.estimated_mw_kda)
-
-        has_mw = len(all_mws) > 0
-        if has_mw:
-            mw_min_raw = min(all_mws)
-            mw_max_raw = max(all_mws)
-            # Add 10% padding on log scale
-            log_min = math.log10(mw_min_raw)
-            log_max = math.log10(mw_max_raw)
-            log_range = log_max - log_min
-            if log_range < 0.1:
-                log_range = 0.5  # minimum range
-            log_min -= log_range * 0.10
-            log_max += log_range * 0.10
-            mw_min = 10**log_min
-            mw_max = 10**log_max
-        else:
-            mw_min = 10
-            mw_max = 250
-
-        log_min = math.log10(mw_min)
-        log_max = math.log10(mw_max)
-        log_span = log_max - log_min
-        if log_span <= 0:
-            log_span = 1.0
-
-        # --- Calculate image dimensions ---
-        n_lanes = len(lanes)
-        total_width = LANE_GAP + n_lanes * (LANE_WIDTH + LANE_GAP) + MW_SCALE_WIDTH
-        total_height = HEADER_HEIGHT + BODY_HEIGHT + FOOTER_HEIGHT
-
-        # --- Create image ---
-        img = Image.new("RGB", (total_width, total_height), BG_COLOR)
-        draw = ImageDraw.Draw(img)
-
-        # --- Fonts ---
-        try:
-            font = ImageFont.truetype("arial.ttf", 12)
-            font_small = ImageFont.truetype("arial.ttf", 10)
-            font_bold = ImageFont.truetype("arialbd.ttf", 12)
-        except OSError:
-            try:
-                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 12)
-                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 10)
-                font_bold = font
-            except OSError:
-                font = ImageFont.load_default()
-                font_small = font
-                font_bold = font
-
-        def mw_to_y(mw_kda):
-            """Convert MW (kDa) to Y pixel position. High MW = top."""
-            log_mw = math.log10(max(mw_kda, 1))
-            fraction = (log_max - log_mw) / log_span
-            fraction = max(0.02, min(0.98, fraction))
-            return HEADER_HEIGHT + int(fraction * BODY_HEIGHT)
-
-        def position_to_y(pos_y, lane_height):
-            """Fallback: normalize position_y to body range."""
-            fraction = pos_y / lane_height if lane_height and lane_height > 0 else 0.5
-            fraction = max(0.02, min(0.98, fraction))
-            return HEADER_HEIGHT + int(fraction * BODY_HEIGHT)
-
-        # --- Draw each lane column ---
-        for i, lane in enumerate(lanes):
-            col_x = LANE_GAP + i * (LANE_WIDTH + LANE_GAP)
-            accent_color = LANE_ACCENT_COLORS[i % len(LANE_ACCENT_COLORS)]
-
-            # Lane column background
-            draw.rectangle([col_x, HEADER_HEIGHT, col_x + LANE_WIDTH, HEADER_HEIGHT + BODY_HEIGHT], fill=LANE_BG)
-
-            # Header background
-            draw.rectangle([col_x, 0, col_x + LANE_WIDTH, HEADER_HEIGHT], fill=HEADER_BG)
-
-            # Accent bar at top of header
-            draw.rectangle([col_x, 0, col_x + LANE_WIDTH, ACCENT_BAR_HEIGHT], fill=accent_color)
-
-            # Header text: sample name (truncated)
-            label = lane.sample_name[:14] if lane.sample_name else f"Lane {lane.lane_number}"
-            lbl_bbox = draw.textbbox((0, 0), label, font=font_small)
-            lbl_w = lbl_bbox[2] - lbl_bbox[0]
-            lbl_x = col_x + (LANE_WIDTH - lbl_w) // 2
-            lbl_y = ACCENT_BAR_HEIGHT + 4
-            draw.text((lbl_x, lbl_y), label, fill=TEXT_COLOR, font=font_small)
-
-            # Lane number below sample name
-            ln_label = f"L{lane.lane_number}"
-            ln_bbox = draw.textbbox((0, 0), ln_label, font=font_small)
-            ln_w = ln_bbox[2] - ln_bbox[0]
-            ln_x = col_x + (LANE_WIDTH - ln_w) // 2
-            ln_y = lbl_y + (lbl_bbox[3] - lbl_bbox[1]) + 2
-            draw.text((ln_x, ln_y), ln_label, fill=TEXT_DIM, font=font_small)
-
-            # --- Draw bands ---
-            for band in lane.bands:
-                # Determine Y position
-                if has_mw and band.estimated_mw_kda and band.estimated_mw_kda > 0:
-                    y_center = mw_to_y(band.estimated_mw_kda)
-                elif band.position_y is not None:
-                    y_center = position_to_y(band.position_y, lane.height)
-                else:
-                    continue
-
-                # Band color (keyed on enum code, not display string)
-                base_color = _band_rgb(band)
-
-                # Opacity from intensity
-                opacity = 0.7
-                if band.relative_percent_lane is not None:
-                    opacity = max(0.4, min(1.0, band.relative_percent_lane / 40.0))
-
-                # Blend band color with lane background using opacity
-                blended = tuple(int(base_color[c] * opacity + LANE_BG[c] * (1 - opacity)) for c in range(3))
-
-                # Draw band rectangle
-                bx1 = col_x + BAND_INSET
-                bx2 = col_x + LANE_WIDTH - BAND_INSET
-                by1 = y_center - BAND_HEIGHT // 2
-                by2 = y_center + BAND_HEIGHT // 2
-                draw.rectangle([bx1, by1, bx2, by2], fill=blended)
-
-                # Thin highlight line at band center for definition
-                highlight = tuple(min(255, c + 40) for c in blended)
-                draw.rectangle([bx1, y_center - 1, bx2, y_center + 1], fill=highlight)
-
-            # Footer: lane type or condition
-            footer_text = lane.gel_type[:14] if lane.gel_type else ""
-            if footer_text:
-                ft_bbox = draw.textbbox((0, 0), footer_text, font=font_small)
-                ft_w = ft_bbox[2] - ft_bbox[0]
-                ft_x = col_x + (LANE_WIDTH - ft_w) // 2
-                ft_y = HEADER_HEIGHT + BODY_HEIGHT + 4
-                draw.text((ft_x, ft_y), footer_text, fill=TEXT_DIM, font=font_small)
-
-        # --- Draw MW scale on the right ---
-        scale_x = LANE_GAP + n_lanes * (LANE_WIDTH + LANE_GAP) + 4
-
-        # Filter visible MW markers
-        visible_mws = [mw for mw in STANDARD_MWS if mw_min <= mw <= mw_max]
-        if not visible_mws and has_mw:
-            # If no standard markers fit, show min/max
-            visible_mws = [round(mw_min_raw), round(mw_max_raw)]
-
-        for mw in visible_mws:
-            y = mw_to_y(mw)
-            # Tick line across all lanes
-            draw.line([(LANE_GAP, y), (scale_x - 2, y)], fill=SCALE_LINE, width=1)
-            # MW value label
-            mw_label = f"{mw} kDa"
-            draw.text((scale_x + 2, y - 6), mw_label, fill=TEXT_DIM, font=font_small)
-
-        # Scale title
-        draw.text((scale_x + 2, HEADER_HEIGHT - 14), "MW", fill=TEXT_COLOR, font=font_bold)
-
-        # --- Save to BytesIO ---
-        buf = BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return buf
+        return render_digital_gel(lanes, calibration=None, footer_field="gel_type", exclude_codes=())
 
     def _render_reconstructed_gel(self, lanes, show_bands=False):
         """
@@ -729,20 +535,14 @@ class ComparisonReportBuilder(BaseReportBuilder):
         for lane in lanes:
             crop = None
             crop_box = None
-            if lane.gel_image_id and all(v is not None for v in (lane.x, lane.y, lane.width, lane.height)):
+            if lane.gel_image_id and outline_of_row(lane) is not None:
                 try:
                     gel_image = GelImage.objects.get(pk=lane.gel_image_id)
                     image_file = gel_image.display_file or gel_image.original_file
                     if image_file:
                         src = Image.open(image_file).convert("RGB")
-                        pad_x = max(3, lane.width // 15)
-                        pad_y = max(3, lane.height // 30)
-                        cx1 = max(0, lane.x - pad_x)
-                        cy1 = max(0, lane.y - pad_y)
-                        cx2 = min(src.width, lane.x + lane.width + pad_x)
-                        cy2 = min(src.height, lane.y + lane.height + pad_y)
-                        crop = src.crop((cx1, cy1, cx2, cy2))
-                        crop_box = (cx1, cy1, cx2, cy2)
+                        # The outline's padded box, masked outside a tilted lane (lane_crop.py).
+                        crop, crop_box = crop_lane(src, lane, 15, 3, 30, 3)
                         any_crop = True
                 except Exception as e:
                     logger.warning(f"Failed to crop gel for lane {lane.lane_number}: {e}")
@@ -945,7 +745,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
 
         accent_color = ACCENT_COLORS[index % len(ACCENT_COLORS)]
 
-        # --- Compute MW range from this lane's bands ---
+        # --- Compute MW range from this lane's bands: no MW, no MW scale ---
         all_mws = [b.estimated_mw_kda for b in lane.bands if b.estimated_mw_kda and b.estimated_mw_kda > 0]
         has_mw = len(all_mws) > 0
 
@@ -957,15 +757,9 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 log_range = 0.5
             log_min -= log_range * 0.15
             log_max += log_range * 0.15
-        else:
-            log_min = math.log10(10)
-            log_max = math.log10(250)
-
-        log_span = log_max - log_min
-        if log_span <= 0:
-            log_span = 1.0
-        mw_min = 10**log_min
-        mw_max = 10**log_max
+            log_span = log_max - log_min
+            mw_min = 10**log_min
+            mw_max = 10**log_max
 
         # --- Fonts ---
         try:
@@ -985,28 +779,37 @@ class ComparisonReportBuilder(BaseReportBuilder):
             fraction = max(0.02, min(0.98, fraction))
             return HEADER_HEIGHT + int(fraction * BODY_HEIGHT)
 
-        def position_to_y(pos_y, lane_height):
-            fraction = pos_y / lane_height if lane_height and lane_height > 0 else 0.5
-            fraction = max(0.02, min(0.98, fraction))
-            return HEADER_HEIGHT + int(fraction * BODY_HEIGHT)
+        def position_to_y(pos_y, rows):
+            # Band.position_y is an absolute image row. `rows` are the image rows
+            # (top, bottom) the gel crop shows, stretched over the full column height:
+            # on that scale a mark sits level with its band in the crop.
+            if not rows or rows[1] <= rows[0]:
+                return HEADER_HEIGHT + BODY_HEIGHT // 2
+            y = int((pos_y - rows[0]) / (rows[1] - rows[0]) * (HEADER_HEIGHT + BODY_HEIGHT + FOOTER_HEIGHT))
+            return max(HEADER_HEIGHT + int(0.02 * BODY_HEIGHT), min(HEADER_HEIGHT + int(0.98 * BODY_HEIGHT), y))
+
+        # Image rows of the lane's outline box with small padding (as crop_lane pads it): the crop's rows, and the
+        # scale of the bands without an MW.
+        crop_rows = None
+        outline = outline_of_row(lane)
+        if outline is not None:
+            _, outline_y, _, outline_h = outer_bbox(outline)
+            pad_y = max(5, outline_h // 20)
+            crop_rows = (max(0, outline_y - pad_y), outline_y + outline_h + pad_y)
 
         # --- 1. Crop real gel image ---
         gel_crop = None
         gel_crop_width = 0
-        if lane.gel_image_id and all(v is not None for v in (lane.x, lane.y, lane.width, lane.height)):
+        if lane.gel_image_id and crop_rows:
             try:
                 gel_image = GelImage.objects.get(pk=lane.gel_image_id)
                 image_file = gel_image.display_file or gel_image.original_file
                 if image_file:
                     src = Image.open(image_file).convert("RGB")
-                    # Crop to lane bbox with small padding
-                    pad_x = max(5, lane.width // 10)
-                    pad_y = max(5, lane.height // 20)
-                    cx1 = max(0, lane.x - pad_x)
-                    cy1 = max(0, lane.y - pad_y)
-                    cx2 = min(src.width, lane.x + lane.width + pad_x)
-                    cy2 = min(src.height, lane.y + lane.height + pad_y)
-                    gel_crop = src.crop((cx1, cy1, cx2, cy2))
+                    # The lane's outline box with small padding, masked outside a tilted lane (lane_crop.py); the
+                    # rows it shows, clipped to the image, are the bands' scale
+                    gel_crop, crop_box = crop_lane(src, lane, 10, 5, 20, 5)
+                    crop_rows = (crop_box[1], crop_box[3])
 
                     # Resize to match BODY_HEIGHT, preserving aspect ratio
                     crop_h = HEADER_HEIGHT + BODY_HEIGHT + FOOTER_HEIGHT
@@ -1038,7 +841,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             if has_mw and band.estimated_mw_kda and band.estimated_mw_kda > 0:
                 y_center = mw_to_y(band.estimated_mw_kda)
             elif band.position_y is not None:
-                y_center = position_to_y(band.position_y, lane.height)
+                y_center = position_to_y(band.position_y, crop_rows)
             else:
                 continue
 
@@ -1059,15 +862,26 @@ class ComparisonReportBuilder(BaseReportBuilder):
         scale_img = Image.new("RGB", (MW_SCALE_WIDTH, digital_total_h), BG_COLOR)
         sd = ImageDraw.Draw(scale_img)
 
-        visible_mws = [mw for mw in STANDARD_MWS if mw_min <= mw <= mw_max]
-        if not visible_mws and has_mw:
-            visible_mws = [round(min(all_mws)), round(max(all_mws))]
+        if has_mw:
+            visible_mws = [mw for mw in STANDARD_MWS if mw_min <= mw <= mw_max]
+            if not visible_mws:
+                visible_mws = [round(min(all_mws)), round(max(all_mws))]
 
-        for mw in visible_mws:
-            y = mw_to_y(mw)
-            sd.line([(0, y), (8, y)], fill=SCALE_LINE, width=1)
-            mw_label = f"{mw} kDa"
-            sd.text((10, y - 6), mw_label, fill=TEXT_DIM, font=font_small)
+            for mw in visible_mws:
+                y = mw_to_y(mw)
+                sd.line([(0, y), (8, y)], fill=SCALE_LINE, width=1)
+                mw_label = f"{mw} kDa"
+                sd.text((10, y - 6), mw_label, fill=TEXT_DIM, font=font_small)
+        else:
+            # No band carries an MW: the marks sit on the crop's rows (position_to_y),
+            # which no kDa ruler describes -- a tick beside a band would read as an MW
+            # the lab never estimated.
+            for i, text in enumerate(("No MW", "calibration")):
+                text_bbox = sd.textbbox((0, 0), text, font=font_small)
+                text_w = text_bbox[2] - text_bbox[0]
+                sd.text(
+                    ((MW_SCALE_WIDTH - text_w) // 2, HEADER_HEIGHT + 8 + i * 13), text, fill=TEXT_DIM, font=font_small
+                )
 
         sd.text((10, HEADER_HEIGHT - 14), "MW", fill=TEXT_COLOR, font=font)
 
@@ -1187,12 +1001,6 @@ class ComparisonReportBuilder(BaseReportBuilder):
         """
         Load gel image from DB and draw lane/band annotations with Pillow.
 
-        Delegates to ``gel_overlay.render_gel_overlay`` so the rendering
-        is shared with the densitometry and analysis builders, and so
-        the visual matches the live gel-viewer (lane-type colours, band-
-        type colours, polygon-aware shapes — see gel-preview.js and the
-        ``.gv-lane.*`` / ``.gv-band.*`` rules in gel_viewer_standalone.css).
-
         Args:
             gel_image_id: PK of GelImage model
             lanes: list of ComparisonLaneData for lanes on this gel
@@ -1200,15 +1008,105 @@ class ComparisonReportBuilder(BaseReportBuilder):
         Returns:
             BytesIO with annotated PNG, or None if image not available
         """
-        from gel_analyzer.models import GelImage
+        from PIL import Image, ImageDraw, ImageFont
 
-        from .gel_overlay import render_gel_overlay
+        from gel_analyzer.models import GelImage
 
         gel_image = GelImage.objects.get(pk=gel_image_id)
         image_file = gel_image.display_file or gel_image.original_file
         if not image_file:
             return None
-        return render_gel_overlay(image_file, lanes, draw_band_overlay=self.band_overlay)
+
+        # Load image and convert to RGBA for overlay compositing
+        img = Image.open(image_file).convert("RGBA")
+
+        # Create transparent overlay for annotations
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        # Color palette (matching frontend gel-overview-panel.js)
+        LANE_FILL = (59, 130, 246, 60)
+        LANE_BORDER = (59, 130, 246, 200)
+        BAND_COLORS = {
+            "Protein of Interest": (168, 85, 247, 120),
+            "Other": (34, 197, 94, 120),
+            "MW Ladder": (249, 115, 22, 120),
+        }
+        LABEL_BG = (0, 0, 0, 160)
+        LABEL_FG = (255, 255, 255, 255)
+
+        # Scale font size proportionally with image width
+        try:
+            font_size = max(14, img.width // 80)
+            font_small_size = max(11, img.width // 100)
+            font = ImageFont.truetype("arial.ttf", font_size)
+            font_small = ImageFont.truetype("arial.ttf", font_small_size)
+        except OSError:
+            try:
+                # macOS fallback
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", max(14, img.width // 80))
+                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", max(11, img.width // 100))
+            except OSError:
+                font = ImageFont.load_default()
+                font_small = font
+
+        for lane in lanes:
+            outline = outline_of_row(lane)
+            if outline is None:
+                continue
+
+            # Draw the lane by its outline (fill + border): a tilted lane's box takes in its neighbours
+            draw.polygon([(x, y) for x, y in outline], fill=LANE_FILL, outline=LANE_BORDER, width=2)
+            lx, ly = top_left(outline)
+            name_x, name_y = bottom_centre(outline)
+
+            # Lane label at top with dark background pill
+            label = f"L{lane.lane_number}"
+            bbox = draw.textbbox((0, 0), label, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw.rectangle([lx, ly - th - 6, lx + tw + 10, ly], fill=LABEL_BG)
+            draw.text((lx + 5, ly - th - 3), label, fill=LABEL_FG, font=font)
+
+            # Sample name below lane, centered
+            if lane.sample_name:
+                short_name = lane.sample_name[:20]
+                nbbox = draw.textbbox((0, 0), short_name, font=font_small)
+                nw = nbbox[2] - nbbox[0]
+                nh = nbbox[3] - nbbox[1]
+                nx = name_x - nw // 2
+                ny = name_y + 2
+                draw.rectangle([nx - 2, ny, nx + nw + 2, ny + nh + 4], fill=LABEL_BG)
+                draw.text((nx, ny + 2), short_name, fill=LABEL_FG, font=font_small)
+
+            # Draw bands
+            for band in lane.bands:
+                bx, by = band.bbox_x, band.bbox_y
+                bw, bh = band.bbox_width, band.bbox_height
+                if not all(v is not None for v in (bx, by, bw, bh)):
+                    continue
+
+                color = BAND_COLORS.get(band.band_type, BAND_COLORS["Other"])
+                draw.rectangle([bx, by, bx + bw, by + bh], fill=color, outline=color[:3] + (220,), width=1)
+
+                # MW label to the right of band (if calibrated)
+                if band.estimated_mw_kda:
+                    mw_label = f"{band.estimated_mw_kda:.0f} kDa"
+                    mbbox = draw.textbbox((0, 0), mw_label, font=font_small)
+                    mw_w = mbbox[2] - mbbox[0]
+                    mw_h = mbbox[3] - mbbox[1]
+                    mx = bx + bw + 3
+                    my = by + (bh - mw_h) // 2
+                    draw.rectangle([mx - 1, my - 1, mx + mw_w + 3, my + mw_h + 1], fill=LABEL_BG)
+                    draw.text((mx + 1, my), mw_label, fill=LABEL_FG, font=font_small)
+
+        # Composite overlay onto original image
+        result = Image.alpha_composite(img, overlay)
+        result = result.convert("RGB")  # Word needs RGB
+
+        buf = BytesIO()
+        result.save(buf, format="PNG", quality=95)
+        buf.seek(0)
+        return buf
 
     def _cluster_bands_by_mw(self, tolerance_pct: float) -> list:
         """
@@ -1303,7 +1201,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             # Table headers: MW (kDa) + one % Lane column per lane
             headers = ["MW (kDa)"]
             for lane in self.data.lanes:
-                headers.append(f"{lane.sample_name[:20]}")
+                headers.append(sample_text(lane)[:20])
 
             rows = []
             for cluster in clusters:
@@ -1346,10 +1244,11 @@ class ComparisonReportBuilder(BaseReportBuilder):
         """
         try:
             # Heading
-            self._add_section_heading(f"Lane {index}: {lane.sample_name}", level=2)
+            title = f"{index} · L{lane.lane_number} · {sample_text(lane)}"
+            self._add_section_heading(f"{title} (reference)" if lane.is_reference else title, level=2)
 
-            # --- 1. Summary info table ---
-            purity_str = f"{lane.poi_percentage:.1f}%" if lane.poi_percentage is not None else "N/A"
+            # --- 1. Summary info table: the lane's fields, its cells of its kind's readout columns (page_rows) ---
+            kind = self.data.kind_of(lane)
             total_area_str = f"{lane.total_integrated_area:.0f}" if lane.total_integrated_area is not None else "N/A"
             calibration_str = (
                 f"{lane.calibration_method} (R\u00b2={lane.calibration_r_squared:.3f})"
@@ -1364,13 +1263,20 @@ class ComparisonReportBuilder(BaseReportBuilder):
                     load_str += f" ({lane.protein_load_type})"
 
             data = [
-                ("Sample", lane.sample_name),
+                ("Sample", sample_text(lane)),
                 ("Source Analysis", lane.analysis_name),
-                ("Gel Type", lane.gel_type),
+                ("Assay", kind.label if kind else lane.gel_type),
                 ("Lane Number", str(lane.lane_number)),
                 ("Condition", condition_str),
                 ("Protein Load", load_str),
-                ("Purity", purity_str),
+            ]
+            if kind is not None:
+                data += [
+                    (column["label"], cell_text(lane, column["key"]) or "N/A")
+                    for column in kind.columns
+                    if column["key"] in lane.readout_cells and column["key"] != "bands"
+                ]
+            data += [
                 ("Total Integrated Area", total_area_str),
                 ("Band Count", f"{lane.band_count} ({lane.poi_band_count} POI)" if lane.band_count else "N/A"),
                 ("Calibration", calibration_str),
@@ -1391,16 +1297,17 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 self._add_paragraph("Band Densitometry:", font_size=SMALL_SIZE, bold=True)
 
                 headers = [
-                    "#",
+                    "Band",
                     "Type",
                     "MW (kDa)",
                     "Area",
                     "% Lane",
+                    "Saturation",
                 ]
 
                 rows = []
                 for band in lane.bands:
-                    band_num = str(band.band_number) if band.band_number else "-"
+                    band_num = band.name or "-"
                     mw_str = f"{band.estimated_mw_kda:.1f}" if band.estimated_mw_kda is not None else "-"
                     area_str = f"{band.corrected_area:.0f}" if band.corrected_area is not None else "-"
                     pct_lane_str = (
@@ -1414,6 +1321,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
                             mw_str,
                             area_str,
                             pct_lane_str,
+                            saturation_text(band),
                         ]
                     )
 
@@ -1423,59 +1331,59 @@ class ComparisonReportBuilder(BaseReportBuilder):
             logger.error(f"Error in _add_lane_detail for lane {lane.lane_number}: {e}")
 
     def add_poi_purity_chart(self, section_number: int):
-        """Add POI purity bar chart section."""
+        """The chart of each kind's readout (readout_chart), over that kind's lanes, and a purity kind's status table."""
         from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-        from .poi_purity_chart import render_poi_purity_chart
+        from .readout_chart import chart_title, render_readout_chart
 
         try:
             self.document.add_page_break()
-            self._add_section_heading(f"{section_number}. POI PURITY")
+            only_purity = all(kind.readout == "PURITY" for kind in self.data.kinds)
+            self._add_section_heading(f"{section_number}. {'POI PURITY' if only_purity else 'READOUTS BY ASSAY'}")
 
-            self._add_paragraph(
-                "Protein of Interest purity comparison across selected samples.",
-                font_size=SMALL_SIZE,
-            )
-
-            # Build purity data
-            purity_data = []
-            for lane in self.data.lanes:
-                purity_data.append(
-                    {
-                        "label": lane.sample_name or f"Lane {lane.lane_number}",
-                        "purity": lane.poi_percentage,
-                    }
+            charted = False
+            for kind in self.data.kinds:
+                title = chart_title(kind.readout, kind.lanes)
+                if title is None:
+                    continue
+                self._add_section_heading(title if len(self.data.kinds) == 1 else f"{title} — {kind.label}", level=2)
+                mean = None
+                if kind.mean is not None and kind.mean.value is not None:
+                    mean = (kind.mean.value, f"Mean {mean_purity_text(kind.mean)}")
+                chart_buf = render_readout_chart(
+                    kind.readout, kind.lanes, mean=mean, figsize=(7, 3.5), dpi=150, dark_theme=True
                 )
-
-            chart_buf = render_poi_purity_chart(purity_data, dark_theme=True)
-            if chart_buf:
+                if chart_buf is None:
+                    self._add_paragraph("No lane value to chart yet.", font_size=SMALL_SIZE, color=MUTED_GRAY)
+                    continue
+                charted = True
                 paragraph = self.document.add_paragraph()
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 run = paragraph.add_run()
                 run.add_picture(chart_buf, width=Inches(IMAGE_FULL_WIDTH))
                 self.document.add_paragraph()
 
-                # Summary table
+                if kind.readout != "PURITY":
+                    continue
+                # Summary table: the page's purity of each lane, against the fixed 90 % / 70 % lines
                 self._add_paragraph("Purity Summary:", font_size=SMALL_SIZE, bold=True)
-                headers = ["Sample", "POI Purity (%)", "Status"]
                 rows = []
-                for lane in self.data.lanes:
-                    purity_str = f"{lane.poi_percentage:.1f}" if lane.poi_percentage is not None else "-"
-                    if lane.poi_percentage is not None:
-                        if lane.poi_percentage >= 90:
-                            status = "Pass (Target)"
-                        elif lane.poi_percentage >= 70:
-                            status = "Pass (Minimum)"
-                        else:
-                            status = "Below minimum"
-                    else:
+                for lane in kind.lanes:
+                    purity = lane.readout_numbers.get("purity")
+                    if purity is None:
                         status = "N/A"
-                    rows.append([lane.sample_name, purity_str, status])
+                    elif purity >= 90:
+                        status = "Pass (Target)"
+                    elif purity >= 70:
+                        status = "Pass (Minimum)"
+                    else:
+                        status = "Below minimum"
+                    rows.append([sample_text(lane), cell_text(lane, "purity") or "-", status])
+                self._add_data_table(["Sample", "Purity", "Status"], rows)
 
-                self._add_data_table(headers, rows)
-            else:
+            if not charted:
                 self._add_paragraph(
-                    "No purity data available for selected samples.",
+                    "No lane value to chart for the selected samples.",
                     font_size=SMALL_SIZE,
                     color=MUTED_GRAY,
                     align="center",
@@ -1483,6 +1391,52 @@ class ComparisonReportBuilder(BaseReportBuilder):
 
         except Exception as e:
             logger.error(f"Error in add_poi_purity_chart: {e}")
+
+    def add_quantification_summary(self, section_number: int):
+        """Comparison: per-analysis protein-quantification calibration summary.
+
+        No shared calibration curve and no re-fit (avoids N+1) — the summary is
+        read straight from each analysis's active ProteinQuantCalibration via the
+        collector's ``analysis_quant_summaries`` map, grouped by analysis_id.
+        """
+        try:
+            data = self.data
+            self._add_section_heading(f"{section_number}. Protein Quantification")
+
+            if not data.has_quantification or not data.analysis_quant_summaries:
+                self._add_paragraph(
+                    "No protein quantification calibration on any compared analysis.",
+                    font_size=SMALL_SIZE,
+                )
+                return
+
+            self._add_paragraph(
+                "Estimated amounts (where calibrated) appear in the band comparison "
+                "and lane-detail tables. Per-analysis calibration summary:",
+                font_size=SMALL_SIZE,
+            )
+
+            # Map analysis_id -> analysis_name from the lanes
+            names = {}
+            for lane in data.lanes:
+                names.setdefault(lane.analysis_id, lane.analysis_name)
+
+            headers = ["Analysis", "Method", "Unit", "Equation", "R²", "Quality"]
+            rows = []
+            for aid, s in data.analysis_quant_summaries.items():
+                rows.append(
+                    [
+                        names.get(aid, aid),
+                        s["method"],
+                        s["unit"],
+                        s["equation"],
+                        f"{s['r_squared']:.4f}",
+                        s["r_squared_quality"],
+                    ]
+                )
+            self._add_data_table(headers, rows)
+        except Exception as e:
+            logger.error(f"Failed to add quantification summary: {e}")
 
     def add_materials_and_methods(self, section_number: int = 7):
         """Add materials and methods section."""
@@ -1502,11 +1456,13 @@ class ComparisonReportBuilder(BaseReportBuilder):
                 self._add_paragraph(METHODOLOGY_CALIBRATION.strip(), font_size=SMALL_SIZE)
                 self.document.add_paragraph()
 
-            # Purity (if applicable)
-            if any(lane.poi_percentage is not None for lane in self.data.lanes):
-                self._add_section_heading("Purity Calculation", level=2)
-                self._add_paragraph(METHODOLOGY_PURITY.strip(), font_size=SMALL_SIZE)
-                self.document.add_paragraph()
+            # What the lane values mean, for each readout the compared assays are read for
+            for readout in dict.fromkeys(kind.readout for kind in self.data.kinds):
+                if readout in READOUT_METHODOLOGY:
+                    title, text = READOUT_METHODOLOGY[readout]
+                    self._add_section_heading(title, level=2)
+                    self._add_paragraph(text.strip(), font_size=SMALL_SIZE)
+                    self.document.add_paragraph()
 
         except Exception as e:
             logger.error(f"Error in add_materials_and_methods: {e}")
@@ -1564,6 +1520,7 @@ class ComparisonReportBuilder(BaseReportBuilder):
             ("band_comparison", "add_band_comparison_table", "band comparison table"),
             ("lane_details", "add_lane_detail_sections", "lane detail sections"),
             ("poi_purity", "add_poi_purity_chart", "POI purity chart"),
+            ("quantification", "add_quantification_summary", "quantification summary"),
             ("materials_methods", "add_materials_and_methods", "materials and methods"),
         ]
 

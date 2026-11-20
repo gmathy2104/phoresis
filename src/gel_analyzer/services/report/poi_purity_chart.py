@@ -32,16 +32,19 @@ def render_poi_purity_chart(
     figsize: tuple = (7, 3.5),
     dpi: int = 150,
     dark_theme: bool = True,
+    mean: tuple[float, str] | None = None,
 ) -> BytesIO | None:
     """
     Render a POI purity bar chart with matplotlib.
 
     Args:
-        data: List of dicts with keys 'label' (str) and 'purity' (float|None).
-              Entries with purity=None are skipped.
+        data: List of dicts with keys 'label' (str) and 'purity' (float|None), optionally 'note' (str: why the
+              lane has no purity, shown in its slot instead of a bar) and 'muted' (bool: a hatched bar, a lane
+              the mean leaves out). Entries with purity=None and no note are skipped.
         figsize: Figure size in inches (width, height).
         dpi: Resolution.
         dark_theme: True for dark background (Word report), False for white (Excel/PPT).
+        mean: (value, text) of the gel's mean purity, drawn as a line; None draws none.
 
     Returns:
         BytesIO with PNG image, or None if no purity data available.
@@ -52,13 +55,14 @@ def render_poi_purity_chart(
     import matplotlib.pyplot as plt
     import numpy as np
 
-    # Filter to entries that have purity data
-    filtered = [d for d in data if d.get("purity") is not None]
-    if not filtered:
+    # Filter to entries that have purity data, or a note saying why they have none
+    filtered = [d for d in data if d.get("purity") is not None or d.get("note")]
+    if not any(d.get("purity") is not None for d in filtered):
         return None
 
     labels = [d["label"] for d in filtered]
-    purities = [d["purity"] for d in filtered]
+    notes = [d.get("note") if d.get("purity") is None else None for d in filtered]
+    purities = [d["purity"] if d.get("purity") is not None else 0.0 for d in filtered]
     n = len(labels)
 
     # Tier-based bar colours — matches the live densitometry POI-purity
@@ -92,9 +96,28 @@ def render_poi_purity_chart(
     x = np.arange(n)
     bar_width = min(0.6, 0.8 / max(1, n / 6))
     bars = ax.bar(x, purities, width=bar_width, color=colors, zorder=3)
+    for bar, entry in zip(bars, filtered, strict=False):
+        if entry.get("muted"):
+            bar.set_facecolor("none")
+            bar.set_edgecolor(text_color)
+            bar.set_hatch("///")
 
-    # Value labels above bars
-    for bar, purity in zip(bars, purities, strict=False):
+    # Value labels above bars; a lane with no purity says why, at the foot of its slot
+    for bar, purity, note in zip(bars, purities, notes, strict=False):
+        if note:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                2,
+                note,
+                ha="center",
+                va="bottom",
+                rotation=90,
+                fontsize=8,
+                fontstyle="italic",
+                color="#8a8a8a",
+                zorder=4,
+            )
+            continue
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 1.5,
@@ -125,6 +148,9 @@ def render_poi_purity_chart(
         label=f"Minimum ({POI_PURITY_MINIMUM}%)",
     )
 
+    if mean is not None:
+        ax.axhline(y=mean[0], color=text_color, linestyle=":", linewidth=1.3, zorder=2, label=mean[1])
+
     # Axis styling
     ax.set_xticks(x)
     ax.set_xticklabels(
@@ -144,12 +170,21 @@ def render_poi_purity_chart(
         spine.set_color(grid_color)
 
     # Legend
+    handles, _labels = ax.get_legend_handles_labels()
+    if any(entry.get("muted") for entry in filtered):
+        from matplotlib.patches import Patch
+
+        handles.append(
+            Patch(facecolor="none", edgecolor=text_color, hatch="///", label="Control lane (not in the mean)")
+        )
+    # Above the plot, under the title: inside it, the legend sat on the tallest bars.
     legend = ax.legend(
-        loc="upper right",
+        handles=handles,
+        loc="lower left",
+        bbox_to_anchor=(0.0, 1.0),
+        ncol=len(handles),
         fontsize=8,
-        framealpha=0.8,
-        facecolor=bg_color,
-        edgecolor=grid_color,
+        frameon=False,
     )
     for text in legend.get_texts():
         text.set_color(text_color)
@@ -159,7 +194,8 @@ def render_poi_purity_chart(
         color=text_color,
         fontsize=11,
         fontweight="bold",
-        pad=10,
+        loc="left",
+        pad=24,
     )
 
     plt.tight_layout()

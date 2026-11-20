@@ -1622,11 +1622,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             const gel_variants = gelVariants.length ? gelVariants : ['FULL'];
 
-            // Phoresis: its report builders are not resynced yet and read only format, sections and
-            // band_overlay (views/report_api.py); gel_variants is ignored there. So the variants drive
-            // band_overlay: "Lanes only" alone asks for the gel without its bands, as the former
-            // "band overlay" checkbox did when unticked.
-            const bandOverlay = gel_variants.some(v => v !== 'LANES_ONLY');
+            // band_overlay kept for back-compat (Word builder's single image).
+            const bandOverlay = true;
 
             if (sections.length === 0) {
                 gaToast('Please select at least one section.', 'warning');

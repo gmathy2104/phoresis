@@ -1,7 +1,7 @@
 """
 Excel workbook builder for densitometry reports.
 
-Generates multi-sheet .xlsx files with GSK branding using openpyxl.
+Generates multi-sheet .xlsx files with the Phoresis palette using openpyxl.
 """
 
 from io import BytesIO
@@ -17,8 +17,11 @@ from phoresis_core.logging_config import get_logger
 from .constants import (
     PHORESIS_LOGO_PATH,
     TABLE_HEADER_BG,
+    calibration_range_display,
+    is_outside_calibration_range,
 )
 from .densitometry_data_collector import DensitometryReportData
+from .page_rows import card_text, cell_text, readout_card, sample_text
 
 logger = get_logger(__name__)
 
@@ -36,9 +39,19 @@ _THIN_BORDER = Border(
     top=Side(style="thin", color="D0D0D0"),
     bottom=Side(style="thin", color="D0D0D0"),
 )
+# Light-red fill for out-of-spec QC recovery rows (Table B)
+_OUT_OF_SPEC_FILL = PatternFill(start_color="FCE4E4", end_color="FCE4E4", fill_type="solid")
 
 # Sections that are image-only and not applicable to Excel
 _EXCEL_SKIP_SECTIONS = {"gel_image", "digital_gel", "terrain_view", "materials_methods"}
+
+# The number format of a readout column (page_rows: ``readout_numbers``), at the page's decimals; every other
+# value is a % or a kDa, "0.0".
+_NUMBER_FORMATS = {"bands": "0", "band_count": "0", "hcp_total_signal": "#,##0"}
+# The readout's sheet, by readout (an Excel sheet name holds no "/"); a gel that measures nothing has none.
+_READOUT_SHEETS = {"PURITY": "POI Purity", "MOLECULE_VARIANTS": "HMWS-Main-LMWS", "HOST_CELL_PROTEINS": "HCP"}
+# The page columns that are not the readout's values: the readout sheet leaves them to the Sample Summary.
+_NOT_VALUE_COLUMNS = {"bands", "poi_kda", "measured"}
 
 
 class DensitometryExcelBuilder:
@@ -80,7 +93,8 @@ class DensitometryExcelBuilder:
         # Logo
         try:
             logo_path = Path(__file__).resolve().parents[3] / PHORESIS_LOGO_PATH
-            if logo_path.exists():
+            # No logo is configured (an empty path is the source folder itself, never an image).
+            if PHORESIS_LOGO_PATH and logo_path.is_file():
                 img = XlImage(str(logo_path))
                 img.width = 160
                 img.height = 50
@@ -99,13 +113,19 @@ class DensitometryExcelBuilder:
         ws["A4"].font = Font(name="Inter", bold=True, size=13)
 
         # Key-value pairs
+        # The page's readout card (Mean purity, Main band (mean), HCP reference) stands for the readout.
+        card = readout_card(self.data.cards)
+        readout_row = (
+            (card["label"], card_text(card)) if card is not None else ("Average Purity", self.data.average_purity_text)
+        )
         rows = [
+            ("Assay", self.data.assay_label),
             ("Gel Type", self.data.gel_type),
             ("Image", self.data.image_title),
-            ("Status", self.data.analysis_status),
+            ("Status", self.data.analysis_status + (f" — {self.data.status_hint}" if self.data.status_hint else "")),
             ("Total Lanes", self.data.total_lanes_count),
             ("Total Bands", self.data.total_bands_count),
-            ("Average Purity", f"{self.data.average_purity:.1f}%" if self.data.average_purity is not None else "N/A"),
+            readout_row,
             ("Densitometry Computed", self.data.densitometry_computed_at or "N/A"),
             ("Analyst", self.data.created_by_name),
             ("Created Date", self.data.created_at),
@@ -119,31 +139,44 @@ class DensitometryExcelBuilder:
             ws.cell(row=r, column=1, value=label).font = _LABEL_FONT
             ws.cell(row=r, column=2, value=value).font = _BODY_FONT
 
+        # The page's "To check" items, warnings first, under the facts.
+        r = start_row + len(rows) + 1
+        ws.cell(row=r, column=1, value="To check").font = _BOLD_FONT
+        for check in self.data.checks or [{"level": "", "title": "Nothing to check.", "detail": ""}]:
+            r += 1
+            ws.cell(
+                row=r, column=1, value={"warn": "Warning", "info": "Note"}.get(check["level"], "")
+            ).font = _LABEL_FONT
+            ws.cell(row=r, column=2, value=check["title"]).font = _BODY_FONT
+            ws.cell(row=r, column=3, value=check.get("detail") or "").font = _BODY_FONT
+
         ws.column_dimensions["A"].width = 22
         ws.column_dimensions["B"].width = 45
         ws.column_dimensions["C"].width = 20
 
+    def _write_readout_cell(self, ws, row, column, lane, key):
+        """The page's value of ``key`` for the lane: its number when it has one, else the reason it has none."""
+        number = lane.readout_numbers.get(key)
+        cell = ws.cell(row=row, column=column, value=number if number is not None else cell_text(lane, key))
+        if number is not None:
+            cell.number_format = _NUMBER_FORMATS.get(key, "0.0")
+        cell.font = _BODY_FONT
+        cell.border = _THIN_BORDER
+
     def _add_sample_summary_sheet(self):
         ws = self.wb.create_sheet("Sample Summary")
 
-        headers = [
-            "#",
-            "Sample",
-            "Type",
-            "Condition",
-            "Load (µg)",
-            "Bands",
-            "Purity (%)",
-            "Fit Quality",
-            "Notes",
-        ]
+        # The lane's own fields, then the readout's columns with the analysis page's values (page_rows).
+        columns = self.data.readout_columns
+        headers = (
+            ["Lane #", "Sample", "Type", "Condition", "Load (µg)"]
+            + [column["label"] for column in columns]
+            + ["Fit Quality", "Notes", "Saturated bands"]
+        )
         self._write_header_row(ws, headers)
 
         for i, lane in enumerate(self.data.lanes, 1):
             r = i + 1
-            purity = lane.poi_percentage
-            purity_str = f"{purity:.1f}" if purity is not None else ""
-
             load_str = ""
             if lane.protein_load_ug is not None:
                 load_str = f"{lane.protein_load_ug:.1f}"
@@ -158,18 +191,25 @@ class DensitometryExcelBuilder:
                     # Get most common quality
                     fit_quality = max(set(qualities), key=qualities.count)
 
-            values = [
-                i,
-                lane.sample_name,
+            own = [
+                lane.lane_number,
+                sample_text(lane) + (" (REF)" if lane.is_reference else ""),
                 lane.lane_type,
                 lane.condition or "",
                 load_str,
-                len(lane.bands),
-                purity_str,
+            ]
+            tail = [
                 fit_quality,
                 (lane.notes[:50] + "...") if lane.notes and len(lane.notes) > 50 else (lane.notes or ""),
+                ", ".join(lane.saturated_bands),  # the page's saturation check (page_rows)
             ]
-            for j, val in enumerate(values, 1):
+            for j, val in enumerate(own, 1):
+                cell = ws.cell(row=r, column=j, value=val)
+                cell.font = _BODY_FONT
+                cell.border = _THIN_BORDER
+            for j, column in enumerate(columns, len(own) + 1):
+                self._write_readout_cell(ws, r, j, lane, column["key"])
+            for j, val in enumerate(tail, len(own) + len(columns) + 1):
                 cell = ws.cell(row=r, column=j, value=val)
                 cell.font = _BODY_FONT
                 cell.border = _THIN_BORDER
@@ -182,7 +222,7 @@ class DensitometryExcelBuilder:
         headers = [
             "Sample",
             "Lane #",
-            "Band #",
+            "Band",
             "Type",
             "MW (kDa)",
             "Corrected Area",
@@ -191,6 +231,8 @@ class DensitometryExcelBuilder:
             "FWHM",
             "R²",
             "Quality",
+            "Saturated",
+            "Clipped pixels (%)",
         ]
         self._write_header_row(ws, headers)
 
@@ -198,9 +240,9 @@ class DensitometryExcelBuilder:
         for lane in self.data.lanes:
             for band in lane.bands:
                 values = [
-                    lane.sample_name,
+                    sample_text(lane),
                     lane.lane_number,
-                    band.band_number or "",
+                    band.name,  # "B3", as the page names it
                     band.band_type,
                     round(band.estimated_mw_kda, 1) if band.estimated_mw_kda else "",
                     round(band.corrected_area, 0) if band.corrected_area else "",
@@ -209,6 +251,12 @@ class DensitometryExcelBuilder:
                     round(band.fwhm, 2) if band.fwhm else "",
                     round(band.fit_r_squared, 3) if band.fit_r_squared else "",
                     band.fit_quality or "",
+                    {True: "Yes", False: "No"}.get(band.saturated, ""),
+                    (
+                        round(band.saturated_pixel_fraction * 100, 2)
+                        if band.saturated_pixel_fraction is not None
+                        else ""
+                    ),
                 ]
                 for j, val in enumerate(values, 1):
                     cell = ws.cell(row=row, column=j, value=val)
@@ -218,125 +266,37 @@ class DensitometryExcelBuilder:
 
         self._auto_width(ws, headers)
 
-    def _add_quantification_sheets(self):
-        """Add 3 sheets summarising the protein-quantification calibration:
-        ``Quantification_Calibration`` (header + points + residuals),
-        ``Quantification_Controls`` (controls QC table), and
-        ``Quantification_Samples`` (sample estimates)."""
-        data = self.data.quantification
-        if data is None:
-            return
-
-        calib = data["calibration"]
-        unit_label = "µg" if calib.unit == "UG" else "µg/mL"
-        n_used = sum(1 for p in data["result"].calibration_points if not p.is_excluded)
-
-        # 1. Quantification_Calibration
-        ws = self.wb.create_sheet("Quantification_Calibration")
-        ws.append(["Method", calib.method])
-        ws.append(["Unit", unit_label])
-        ws.append(["Equation", calib.equation or ""])
-        ws.append(["R²", round(calib.r_squared, 6) if calib.r_squared is not None else None])
-        ws.append(["N points (used)", n_used])
-        ws.append([])
-        headers = ["Lane", "Load amount", "Unit", "Corrected area", "Residual %", "Excluded"]
-        header_row_idx = ws.max_row + 1
-        ws.append(headers)
-        for j in range(1, len(headers) + 1):
-            cell = ws.cell(row=header_row_idx, column=j)
-            cell.font = _HEADER_FONT
-            cell.fill = _HEADER_FILL
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = _THIN_BORDER
-
-        for p in sorted(data["result"].calibration_points, key=lambda x: (x.lane_number, x.band_id)):
-            residual_pct = None
-            if p.residual is not None and p.load_amount:
-                residual_pct = round((p.residual / p.load_amount) * 100, 2)
-            row = [
-                p.lane_number,
-                p.load_amount,
-                p.load_unit or "",
-                p.corrected_area,
-                residual_pct,
-                bool(p.is_excluded),
-            ]
-            ws.append(row)
-
-        for i, h in enumerate(headers, 1):
-            ws.column_dimensions[get_column_letter(i)].width = max(len(str(h)) + 4, 14)
-
-        # 2. Quantification_Controls
-        ws = self.wb.create_sheet("Quantification_Controls")
-        c_headers = [
-            "Lane",
-            "Known amount",
-            "Predicted amount",
-            "Recovery %",
-            "Out of spec",
-        ]
-        self._write_header_row(ws, c_headers)
-        for c in sorted(data["controls"], key=lambda x: (x.lane_number, x.band_id)):
-            recovery = None
-            out_of_spec = None
-            if c.predicted_amount is not None and c.load_amount:
-                recovery = (c.predicted_amount / c.load_amount) * 100
-                out_of_spec = not (80.0 <= recovery <= 120.0)
-            ws.append(
-                [
-                    c.lane_number,
-                    c.load_amount,
-                    c.predicted_amount,
-                    round(recovery, 2) if recovery is not None else None,
-                    out_of_spec,
-                ]
-            )
-        self._auto_width(ws, c_headers)
-
-        # 3. Quantification_Samples
-        ws = self.wb.create_sheet("Quantification_Samples")
-        s_headers = ["Lane", "Band ID", "Corrected area", f"Estimated ({unit_label})"]
-        self._write_header_row(ws, s_headers)
-        for s in sorted(data["samples"], key=lambda x: (x.lane_number, x.band_id)):
-            ws.append(
-                [
-                    s.lane_number,
-                    s.band_id,
-                    s.corrected_area,
-                    s.predicted_amount,
-                ]
-            )
-        self._auto_width(ws, s_headers)
-
     def _add_poi_purity_sheet(self):
-        ws = self.wb.create_sheet("POI Purity")
+        """The readout's sheet: each lane the readout reads, with the page's values, and the readout's chart."""
+        sheet = _READOUT_SHEETS.get(self.data.readout)
+        if sheet is None:
+            return
+        ws = self.wb.create_sheet(sheet)
 
-        # Purity table
-        headers = ["Sample", "Lane #", "POI Purity (%)", "Status"]
+        columns = [column for column in self.data.readout_columns if column["key"] not in _NOT_VALUE_COLUMNS]
+        is_purity = self.data.readout == "PURITY"
+        headers = ["Lane #", "Sample"] + [column["label"] for column in columns] + (["Status"] if is_purity else [])
         self._write_header_row(ws, headers)
 
-        for i, lane in enumerate(self.data.lanes, 1):
-            r = i + 1
-            purity = lane.poi_percentage
-            purity_str = f"{purity:.1f}" if purity is not None else ""
-            if purity is not None:
-                if purity >= 90:
+        read = [lane for lane in self.data.lanes if any(column["key"] in lane.readout_cells for column in columns)]
+        for r, lane in enumerate(read, 2):
+            for j, val in enumerate([lane.lane_number, sample_text(lane) + (" (REF)" if lane.is_reference else "")], 1):
+                cell = ws.cell(row=r, column=j, value=val)
+                cell.font = _BODY_FONT
+                cell.border = _THIN_BORDER
+            for j, column in enumerate(columns, 3):
+                self._write_readout_cell(ws, r, j, lane, column["key"])
+            if is_purity:
+                purity = lane.readout_numbers.get("purity")
+                if purity is None:
+                    status = "N/A"
+                elif purity >= 90:
                     status = "Pass (Target)"
                 elif purity >= 70:
                     status = "Pass (Minimum)"
                 else:
                     status = "Below minimum"
-            else:
-                status = "N/A"
-
-            values = [
-                lane.sample_name,
-                lane.lane_number,
-                purity_str,
-                status,
-            ]
-            for j, val in enumerate(values, 1):
-                cell = ws.cell(row=r, column=j, value=val)
+                cell = ws.cell(row=r, column=len(columns) + 3, value=status)
                 cell.font = _BODY_FONT
                 cell.border = _THIN_BORDER
 
@@ -344,24 +304,128 @@ class DensitometryExcelBuilder:
 
         # Embed chart image
         try:
-            from .poi_purity_chart import render_poi_purity_chart
+            from .readout_chart import render_readout_chart
 
-            purity_data = [
-                {
-                    "label": lane.sample_name or f"Lane {lane.lane_number}",
-                    "purity": lane.poi_percentage,
-                }
-                for lane in self.data.lanes
-            ]
-            chart_buf = render_poi_purity_chart(purity_data, dark_theme=False, dpi=120)
+            mean = None
+            if self.data.average_purity is not None:
+                mean = (self.data.average_purity, f"Mean {self.data.average_purity_text}")
+            chart_buf = render_readout_chart(
+                self.data.readout, self.data.lanes, mean=mean, figsize=(7, 3.5), dpi=120, dark_theme=False
+            )
             if chart_buf:
                 img = XlImage(chart_buf)
                 img.width = 600
                 img.height = 300
-                chart_row = len(self.data.lanes) + 4
+                chart_row = len(read) + 4
                 ws.add_image(img, f"A{chart_row}")
         except Exception as e:
-            logger.warning(f"Failed to embed POI chart in Excel: {e}")
+            logger.warning(f"Failed to embed the readout chart in Excel: {e}")
+
+    def _add_quantification_sheet(self):
+        data = self.data
+        if not data.has_quantification or data.quant_calibration is None:
+            return
+        ws = self.wb.create_sheet("Quantification")
+        cal = data.quant_calibration
+
+        # Methodology / metadata block
+        meta = [
+            ("Method", cal.method),
+            ("Unit", cal.unit),
+            ("Equation", cal.equation),
+            ("R²", f"{cal.r_squared:.4f} ({cal.r_squared_quality})"),
+            ("Points used / excluded", f"{cal.n_points} / {cal.n_excluded}"),
+            ("Fitted by", f"{cal.created_by_name} on {cal.created_at}"),
+            ("Recovery in-spec range", "80–120%"),
+        ]
+        if cal.last_recomputed_at:
+            meta.append(("Auto-recomputed (drift)", cal.last_recomputed_at))
+        row = 1
+        for label, value in meta:
+            ws.cell(row=row, column=1, value=label).font = _LABEL_FONT
+            ws.cell(row=row, column=2, value=value).font = _BODY_FONT
+            row += 1
+        row += 1
+
+        if not data.quant_points:
+            ws.cell(
+                row=row,
+                column=1,
+                value="Fit unavailable — calibration data incomplete.",
+            ).font = _BODY_FONT
+            return
+
+        # Table A — calibration points
+        headers_a = ["Lane #", "Load", "Unit", "Corrected area", "Residual %", "Excluded"]
+        for j, h in enumerate(headers_a, 1):
+            c = ws.cell(row=row, column=j, value=h)
+            c.font = _HEADER_FONT
+            c.fill = _HEADER_FILL
+        row += 1
+        for p in data.quant_points:
+            vals = [
+                p.lane_number,
+                p.load_amount,
+                p.load_unit,
+                p.corrected_area,
+                p.residual_pct,
+                "Yes" if p.is_excluded else "",
+            ]
+            for j, v in enumerate(vals, 1):
+                ws.cell(row=row, column=j, value=v).font = _BODY_FONT
+            row += 1
+        row += 1
+
+        # Table B — controls / QC (red fill on out-of-spec rows)
+        if data.quant_controls:
+            headers_b = ["Lane #", "Known", "Predicted", "Recovery %", "Range", "Flag"]
+            for j, h in enumerate(headers_b, 1):
+                c = ws.cell(row=row, column=j, value=h)
+                c.font = _HEADER_FONT
+                c.fill = _HEADER_FILL
+            row += 1
+            for ctrl in data.quant_controls:
+                vals = [
+                    ctrl.lane_number,
+                    ctrl.known_amount,
+                    ctrl.predicted_amount,
+                    ctrl.recovery_pct,
+                    calibration_range_display(ctrl.calibration_range),
+                    "OUT OF SPEC" if ctrl.out_of_spec else "OK",
+                ]
+                for j, v in enumerate(vals, 1):
+                    cell = ws.cell(row=row, column=j, value=v)
+                    cell.font = _BODY_FONT
+                    if ctrl.out_of_spec:
+                        cell.fill = _OUT_OF_SPEC_FILL
+                row += 1
+            row += 1
+
+        # Table C — sample estimated amounts
+        if data.quant_samples:
+            headers_c = ["Lane #", "Sample", "Est. amount", "Unit", "Range"]
+            for j, h in enumerate(headers_c, 1):
+                c = ws.cell(row=row, column=j, value=h)
+                c.font = _HEADER_FONT
+                c.fill = _HEADER_FILL
+            row += 1
+            for s in data.quant_samples:
+                vals = [
+                    s.lane_number,
+                    s.sample_name,
+                    s.estimated_amount,
+                    s.unit,
+                    calibration_range_display(s.calibration_range),
+                ]
+                outside = is_outside_calibration_range(s.calibration_range)
+                for j, v in enumerate(vals, 1):
+                    cell = ws.cell(row=row, column=j, value=v)
+                    cell.font = _BODY_FONT
+                    if outside:
+                        cell.fill = _OUT_OF_SPEC_FILL
+                row += 1
+
+        self._auto_width(ws, headers_a)
 
     # ── Utilities ─────────────────────────────────────────────────
 
@@ -389,7 +453,7 @@ class DensitometryExcelBuilder:
             ("sample_summary", self._add_sample_summary_sheet, "sample summary"),
             ("lane_details", self._add_lane_details_sheet, "lane details"),
             ("poi_purity", self._add_poi_purity_sheet, "POI purity"),
-            ("quantification", self._add_quantification_sheets, "quantification"),
+            ("quantification", self._add_quantification_sheet, "quantification"),
         ]
 
         for key, method, desc in sheet_map:

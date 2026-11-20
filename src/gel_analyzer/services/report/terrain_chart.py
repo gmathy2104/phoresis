@@ -376,7 +376,13 @@ def render_terrain_chart(
         ax.set_zticklabels([f"{v / height_scale * 100:.0f}%" for v in z_ticks], fontsize=6)
 
         # ── Title ─────────────────────────────────────────────────────
-        sample_name = lane_data.sample_name or f"Lane {lane_data.lane_number}"
+        # A report lane carries the page's sample (page_rows): the lane number, then the sample or "no sample".
+        if hasattr(lane_data, "readout_cells"):
+            from .page_rows import sample_text
+
+            sample_name = f"L{lane_data.lane_number} · {sample_text(lane_data)}"
+        else:
+            sample_name = lane_data.sample_name or f"Lane {lane_data.lane_number}"
         ax.set_title(
             f"{sample_name} — 3D Intensity Profile",
             color=text_color,

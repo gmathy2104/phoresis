@@ -7,46 +7,57 @@ Inter typography) using python-pptx. Palette tokens come from
 """
 
 from io import BytesIO
-from pathlib import Path
 
-from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 from phoresis_core.logging_config import get_logger
 
 from .constants import (
+    BAND_PALETTE_HEX,
+    BODY_FONT,
+    GEL_VARIANT_TITLES,
+    GEL_VARIANTS_CANONICAL_ORDER,
+    GEL_VARIANTS_DEFAULT,
+    HEADING_FONT,
     METHODOLOGY_CALIBRATION,
     METHODOLOGY_DENSITOMETRY,
-    METHODOLOGY_PURITY,
+    METHODOLOGY_QUANTIFICATION,
+    MUTED_GRAY,
     PHORESIS_ACCENT,
-    PHORESIS_ACCENT_DARK,
-    PHORESIS_LOGO_PATH,
+    PHORESIS_INK,
+    READOUT_METHODOLOGY,
+    calibration_range_display,
+    is_outside_calibration_range,
 )
 from .densitometry_data_collector import DensitometryReportData
+from .digital_gel import render_digital_gel
+from .page_rows import cell_text, sample_text
+from .pptx_base import BasePptxReportBuilder
 
 logger = get_logger(__name__)
 
-# Brand palette (RGBColor) — derived from constants.py
+# Brand palette (the comparison deck's own), from constants.py
 _ACCENT = RGBColor(*PHORESIS_ACCENT)
-_ACCENT_DARK = RGBColor(*PHORESIS_ACCENT_DARK)
-_WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-_DARK = RGBColor(0x0F, 0x17, 0x2A)  # PHORESIS_INK
-_GREY = RGBColor(0x64, 0x74, 0x8B)  # MUTED_GRAY
-_GREY_LIGHT = RGBColor(0xF8, 0xFA, 0xFC)
-_TABLE_HEADER_BG = _ACCENT
-_TABLE_ALT_BG = RGBColor(0xF5, 0xF7, 0xFA)
+_DARK = RGBColor(*PHORESIS_INK)
+_GREY = RGBColor(*MUTED_GRAY)
+
+# Under the digital gel: what its amber dot and its placement mean (digital_gel.py).
+DIGITAL_GEL_CAPTION = (
+    "Amber dot: a lane whose bands have no MW. Unless every band has an MW, each band sits at its position on its "
+    "gel, and the kDa labels are the ladder's markers."
+)
 
 # Sections not applicable to PowerPoint
 _PPTX_SKIP_SECTIONS = set()  # All sections can produce slides
 
 
-class DensitometryPowerPointBuilder:
+class DensitometryPowerPointBuilder(BasePptxReportBuilder):
     """
-    Generates a 16:9 PowerPoint presentation for Densitometry Analysis reports
-    using the Phoresis brand palette (accent-600 blue, Inter).
+    Densitometry Analysis PowerPoint report — thin subclass of
+    BasePptxReportBuilder. Slides are built on the neutral 16:9 deck's layouts
+    (cover/section/title_text/title_chart/image_wide: pptx_base.LAYOUTS) via
+    new_slide()/set_title(), not hand-drawn bars.
     """
 
     def __init__(
@@ -54,15 +65,23 @@ class DensitometryPowerPointBuilder:
         data: DensitometryReportData,
         sections: list[str] | None = None,
         band_overlay: bool = True,
+        gel_variants: list[str] | None = None,
     ):
+        super().__init__()  # the neutral 16:9 deck in self.prs (+ self.warnings)
         self.data = data
         self.sections = sections
         self.band_overlay = band_overlay
-        self.prs = Presentation()
-        self.prs.slide_width = Inches(13.33)
-        self.prs.slide_height = Inches(7.5)
-        self.blank_layout = self.prs.slide_layouts[6]
+        # Selected gel-image variants (spec D3). Normalise to the canonical
+        # order; default to ["FULL"] when absent/empty.
+        self.gel_variants = self._normalize_gel_variants(gel_variants)
         self.slide_number = 0
+
+    @staticmethod
+    def _normalize_gel_variants(gel_variants: list[str] | None) -> list[str]:
+        """Keep only known variants, in canonical order; default ["FULL"]."""
+        selected = set(gel_variants or [])
+        ordered = [v for v in GEL_VARIANTS_CANONICAL_ORDER if v in selected]
+        return ordered or list(GEL_VARIANTS_DEFAULT)
 
     def _should_include(self, section_key: str) -> bool:
         if section_key in _PPTX_SKIP_SECTIONS:
@@ -72,166 +91,6 @@ class DensitometryPowerPointBuilder:
         return section_key in self.sections
 
     # ── Shared helpers ────────────────────────────────────────────
-
-    def _new_slide(self):
-        slide = self.prs.slides.add_slide(self.blank_layout)
-        self.slide_number += 1
-        return slide
-
-    def _add_header_bar(self, slide, title: str, height: float = 1.0):
-        """Add orange header bar with title text."""
-        header = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            Inches(0),
-            Inches(0),
-            Inches(13.33),
-            Inches(height),
-        )
-        header.fill.solid()
-        header.fill.fore_color.rgb = _ACCENT
-        header.line.fill.background()
-
-        # Accent line below
-        accent = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            Inches(0),
-            Inches(height),
-            Inches(13.33),
-            Inches(0.08),
-        )
-        accent.fill.solid()
-        accent.fill.fore_color.rgb = _ACCENT_DARK
-        accent.line.fill.background()
-
-        # Title text in header
-        txbox = slide.shapes.add_textbox(
-            Inches(0.5),
-            Inches(0.15),
-            Inches(12),
-            Inches(height - 0.2),
-        )
-        tf = txbox.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.text = title
-        p.font.size = Pt(28)
-        p.font.bold = True
-        p.font.color.rgb = _WHITE
-        p.font.name = "Inter"
-        p.alignment = PP_ALIGN.LEFT
-
-    def _add_slide_number(self, slide):
-        txbox = slide.shapes.add_textbox(
-            Inches(12.5),
-            Inches(7.1),
-            Inches(0.7),
-            Inches(0.3),
-        )
-        p = txbox.text_frame.paragraphs[0]
-        p.text = str(self.slide_number)
-        p.font.size = Pt(10)
-        p.font.color.rgb = _GREY
-        p.alignment = PP_ALIGN.RIGHT
-
-        # Generator footer on every slide.
-        author = self.data.report_generated_by or "Unknown"
-        when = self.data.report_generated_at or ""
-        analysis_label = getattr(self.data, "analysis_name", "") or getattr(self.data, "name", "") or ""
-        ftxt = f"Generated by {author}"
-        if when:
-            ftxt += f"  ·  {when}"
-        if analysis_label:
-            ftxt += f"  ·  {analysis_label}"
-        ftbox = slide.shapes.add_textbox(
-            Inches(0.3),
-            Inches(7.1),
-            Inches(11.5),
-            Inches(0.3),
-        )
-        fp = ftbox.text_frame.paragraphs[0]
-        fp.text = ftxt
-        fp.font.size = Pt(9)
-        fp.font.color.rgb = _GREY
-        fp.font.name = "Inter"
-        fp.alignment = PP_ALIGN.LEFT
-
-    def _add_kv_table(self, slide, data: list[tuple], top: float = 1.5):
-        """Add key-value pairs as a two-column table."""
-        rows = len(data)
-        table_shape = slide.shapes.add_table(
-            rows,
-            2,
-            Inches(0.5),
-            Inches(top),
-            Inches(8),
-            Inches(rows * 0.45),
-        )
-        table = table_shape.table
-        table.columns[0].width = Inches(2.5)
-        table.columns[1].width = Inches(5.5)
-
-        for i, (label, value) in enumerate(data):
-            lc = table.cell(i, 0)
-            lc.text = str(label)
-            for p in lc.text_frame.paragraphs:
-                p.font.size = Pt(12)
-                p.font.bold = True
-                p.font.color.rgb = _GREY
-                p.font.name = "Inter"
-
-            vc = table.cell(i, 1)
-            vc.text = str(value) if value else ""
-            for p in vc.text_frame.paragraphs:
-                p.font.size = Pt(12)
-                p.font.color.rgb = _DARK
-                p.font.name = "Inter"
-
-    def _add_data_table(self, slide, headers, rows, top=1.5, max_rows=15):
-        """Add a data table with orange headers. Returns number of rows written."""
-        display_rows = rows[:max_rows]
-        n_rows = len(display_rows) + 1
-        n_cols = len(headers)
-
-        col_width = min(2.0, 12.0 / max(n_cols, 1))
-        table_width = col_width * n_cols
-
-        table_shape = slide.shapes.add_table(
-            n_rows,
-            n_cols,
-            Inches(0.5),
-            Inches(top),
-            Inches(table_width),
-            Inches(n_rows * 0.38),
-        )
-        table = table_shape.table
-
-        # Headers
-        for j, h in enumerate(headers):
-            cell = table.cell(0, j)
-            cell.text = str(h)
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = _TABLE_HEADER_BG
-            for p in cell.text_frame.paragraphs:
-                p.font.size = Pt(10)
-                p.font.bold = True
-                p.font.color.rgb = _WHITE
-                p.font.name = "Inter"
-                p.alignment = PP_ALIGN.CENTER
-
-        # Data
-        for i, row_data in enumerate(display_rows):
-            for j, val in enumerate(row_data):
-                cell = table.cell(i + 1, j)
-                cell.text = str(val) if val is not None else ""
-                if i % 2 == 1:
-                    cell.fill.solid()
-                    cell.fill.fore_color.rgb = _TABLE_ALT_BG
-                for p in cell.text_frame.paragraphs:
-                    p.font.size = Pt(9)
-                    p.font.color.rgb = _DARK
-                    p.font.name = "Inter"
-
-        return len(display_rows)
 
     def _add_image_to_slide(self, slide, image_buf, top=1.5, max_width=11.0, max_height=5.5):
         """Add an image centered on the slide."""
@@ -264,140 +123,95 @@ class DensitometryPowerPointBuilder:
     # ── Slide builders ────────────────────────────────────────────
 
     def _add_title_slide(self):
-        slide = self._new_slide()
-
-        # Large header bar
-        header = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            Inches(0),
-            Inches(0),
-            Inches(13.33),
-            Inches(2.8),
+        # The deck's cover ('Title Slide') — no hand-drawn bar.
+        slide = self.new_slide("cover")
+        self.slide_number += 1
+        self.set_title(slide, "Densitometry Analysis Report")
+        # The analysis, then what the gel is read for and where the analysis stands, as the page's header says.
+        self.set_subtitle(
+            slide, f"{self.data.analysis_name or ''}\n{self.data.assay_label} · {self.data.analysis_status}"
         )
-        header.fill.solid()
-        header.fill.fore_color.rgb = _ACCENT
-        header.line.fill.background()
 
-        accent = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,
-            Inches(0),
-            Inches(2.8),
-            Inches(13.33),
-            Inches(0.08),
-        )
-        accent.fill.solid()
-        accent.fill.fore_color.rgb = _ACCENT_DARK
-        accent.line.fill.background()
-
-        # Logo
-        try:
-            logo_path = Path(__file__).resolve().parents[3] / PHORESIS_LOGO_PATH
-            if logo_path.exists():
-                slide.shapes.add_picture(
-                    str(logo_path),
-                    Inches(10.5),
-                    Inches(0.3),
-                    Inches(2.2),
-                )
-        except Exception as e:
-            logger.warning(f"Failed to add logo to PPTX: {e}")
-
-        # Title
-        txbox = slide.shapes.add_textbox(
-            Inches(0.8),
-            Inches(0.5),
-            Inches(9),
-            Inches(1.2),
-        )
-        tf = txbox.text_frame
-        p = tf.paragraphs[0]
-        p.text = "Densitometry Analysis Report"
-        p.font.size = Pt(44)
-        p.font.bold = True
-        p.font.color.rgb = _WHITE
-        p.font.name = "Inter"
-
-        # Subtitle (analysis name)
-        txbox2 = slide.shapes.add_textbox(
-            Inches(0.8),
-            Inches(1.8),
-            Inches(9),
-            Inches(0.8),
-        )
-        p2 = txbox2.text_frame.paragraphs[0]
-        p2.text = self.data.analysis_name
-        p2.font.size = Pt(22)
-        p2.font.color.rgb = RGBColor(0xFF, 0xE0, 0xC0)
-        p2.font.name = "Inter"
-
-        # Info below header
-        avg_purity_str = f"{self.data.average_purity:.1f}%" if self.data.average_purity is not None else "N/A"
-        info_lines = [
+        # Keep the key facts (previously printed on the cover) as speaker notes
+        # so the cover stays clean/native; the Overview slide lists them too.
+        avg_purity_str = self.data.average_purity_text
+        self.add_speaker_notes(
+            slide,
             f"Gel Type: {self.data.gel_type}  |  Lanes: {self.data.total_lanes_count}  |  "
-            f"Bands: {self.data.total_bands_count}  |  Avg Purity: {avg_purity_str}",
-            f"Status: {self.data.analysis_status}  |  Analyst: {self.data.created_by_name}  |  {self.data.created_at}",
+            f"Bands: {self.data.total_bands_count}  |  Avg Purity: {avg_purity_str}\n"
+            f"Status: {self.data.analysis_status}  |  Analyst: {self.data.created_by_name}  |  "
+            f"{self.data.created_at}\n"
             f"Report generated: {self.data.report_generated_at}  |  By: {self.data.report_generated_by}",
-        ]
-
-        y = 3.3
-        for line in info_lines:
-            txbox = slide.shapes.add_textbox(
-                Inches(0.8),
-                Inches(y),
-                Inches(11),
-                Inches(0.35),
-            )
-            p = txbox.text_frame.paragraphs[0]
-            p.text = line
-            p.font.size = Pt(13)
-            p.font.color.rgb = _GREY
-            p.font.name = "Inter"
-            y += 0.45
+        )
 
     def _add_overview_slide(self):
+        """The analysis page's summary: its metric cards, its "To check" items, and the analysis's facts beside them
+        (page_rows: the page's own cards and checks -- the deck once said nothing of a saturated band or a lane
+        without its POI band)."""
         slide = self._new_slide()
         self._add_header_bar(slide, "Analysis Overview")
-
-        avg_purity_str = f"{self.data.average_purity:.1f}%" if self.data.average_purity is not None else "N/A"
-
-        data = [
-            ("Name", self.data.analysis_name),
-            ("Gel Type", self.data.gel_type),
-            ("Image", self.data.image_title),
-            ("Status", self.data.analysis_status),
-            ("Total Lanes", str(self.data.total_lanes_count)),
-            ("Total Bands", str(self.data.total_bands_count)),
-            ("Average Purity", avg_purity_str),
-            ("Densitometry Date", self.data.densitometry_computed_at or "N/A"),
-            ("Analyst", self.data.created_by_name),
-            ("Created Date", self.data.created_at),
-        ]
-        self._add_kv_table(slide, data)
+        self.add_cards(slide, self.data.cards, top=1.35)
+        self.add_checks(slide, self.data.checks, left=0.5, top=2.65, width=7.7)
+        calibration = self.data.calibrations[0] if self.data.calibrations else None
+        quant = self.data.quant_calibration
+        self.add_facts(
+            slide,
+            [
+                ("Assay", self.data.assay_label),
+                ("Gel type", self.data.gel_type),
+                ("Image", self.data.image_title),
+                (
+                    "Status",
+                    self.data.analysis_status + (f" — {self.data.status_hint}" if self.data.status_hint else ""),
+                ),
+                ("Analyst", self.data.created_by_name),
+                ("Created", self.data.created_at),
+                ("Densitometry", self.data.densitometry_computed_at or "not run"),
+                (
+                    "MW calibration",
+                    f"{calibration.template_name} (R² {calibration.r_squared:.3f})" if calibration else "None",
+                ),
+                ("Quantification", f"{quant.method}, R² {quant.r_squared:.3f}" if quant else "None"),
+            ],
+            left=8.5,
+            top=2.65,
+            width=4.33,
+        )
         self._add_slide_number(slide)
 
+    def _lane_title(self, lane) -> str:
+        """``Lane <n>: <sample>``, the HCP reference lane saying so."""
+        title = f"Lane {lane.lane_number}: {sample_text(lane)}"
+        return f"{title} (reference)" if lane.is_reference else title
+
     def _add_sample_summary_slides(self):
-        headers = ["#", "Sample", "Type", "Lane #", "Condition", "Load (µg)", "Purity (%)", "Bands"]
+        # The lane's own fields, then the readout's columns with the analysis page's cells (page_rows).
+        columns = self.data.readout_columns
+        headers = ["Lane", "Sample", "Type", "Condition", "Load (µg)"] + [column["label"] for column in columns]
+        # The page's saturation check, lane by lane: a column only on a gel that has a saturated band.
+        flagged = any(lane.saturated_bands for lane in self.data.lanes)
+        if flagged:
+            headers.append("Saturated")
         rows = []
-        for i, lane in enumerate(self.data.lanes, 1):
-            purity_str = f"{lane.poi_percentage:.1f}" if lane.poi_percentage is not None else "-"
+        for lane in self.data.lanes:
             load_str = ""
             if lane.protein_load_ug is not None:
                 load_str = f"{lane.protein_load_ug:.1f}"
             rows.append(
                 [
-                    str(i),
-                    lane.sample_name,
-                    lane.lane_type,
                     str(lane.lane_number),
+                    sample_text(lane) + (" (REF)" if lane.is_reference else ""),
+                    lane.lane_type,
                     lane.condition or "-",
                     load_str,
-                    purity_str,
-                    str(lane.band_count) if lane.band_count else "-",
                 ]
+                + [cell_text(lane, column["key"]) for column in columns]
+                + (["⚠ " + ", ".join(lane.saturated_bands) if lane.saturated_bands else ""] if flagged else [])
             )
 
-        # Paginate at 12 rows per slide
-        page_size = 12
+        # Condition and load only where a lane has one; as many rows a slide as fit.
+        headers, rows = self.drop_empty_columns(headers, rows, {"Condition", "Load (µg)"})
+        page_size = self.rows_fitting(1.5)
         for offset in range(0, len(rows), page_size):
             slide = self._new_slide()
             page_rows = rows[offset : offset + page_size]
@@ -409,133 +223,26 @@ class DensitometryPowerPointBuilder:
             self._add_data_table(slide, headers, page_rows)
             self._add_slide_number(slide)
 
-    def _add_gel_image_slide(self):
-        """Add full gel image slide (deprecated - use _add_gel_table_slide instead)."""
-        slide = self._new_slide()
-        self._add_header_bar(slide, "Gel Image")
+    def _add_gel_variant_slides(self):
+        """The SELECTED gel-image variants, one slide each (spec D3), in the whole-gel look of the app's "Full gel" tile
+        (gel_figure): the photo with every lane outlined, above each lane its number and sample, under it the page's
+        value, the ladder's kDa on the left; the legend in the text area beside. LANES_ONLY draws no band, FULL every
+        band by its type, KEY_BANDS the bands the readout is read from (on a western, by their role). Canonical order
+        LANES_ONLY -> KEY_BANDS -> FULL; default ["FULL"]."""
+        from .gel_figure import legend_lines
+        from .gel_overlay import GelOverlayVariant
 
-        # Render full gel image
-        gel_buf = self._render_full_gel_image(show_bands=self.band_overlay)
-
-        if gel_buf:
-            self._add_image_to_slide(slide, gel_buf, top=1.5)
-        else:
-            txbox = slide.shapes.add_textbox(
-                Inches(4),
-                Inches(3.5),
-                Inches(5),
-                Inches(0.5),
+        saturated = any(band.saturated for lane in self.data.lanes for band in lane.bands)
+        for label in self.gel_variants:
+            variant = GelOverlayVariant(label)
+            picture = self.safe_render(lambda v=variant: self._render_gel_variant(v), label=f"gel image {label}")
+            self.add_figure_slide(
+                f"Gel image — {GEL_VARIANT_TITLES[label]}",
+                picture,
+                legend_lines(variant, self.data.readout, has_ticks=bool(self.data.mw_ticks), has_saturated=saturated),
+                placeholder_label=f"Gel image ({GEL_VARIANT_TITLES[label]})",
             )
-            txbox.text_frame.paragraphs[0].text = "No gel image available"
-            txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
-
-        self._add_slide_number(slide)
-
-    def _add_gel_table_slide(self):
-        """Add combined slide with gel image (left) and sample summary table (right)."""
-        slide = self._new_slide()
-        self._add_header_bar(slide, "Gel Overview & Sample Summary", height=0.8)
-
-        # --- Left side: Gel image ---
-        gel_buf = self._render_full_gel_image(show_bands=self.band_overlay)
-
-        # Layout: gel takes left ~55%, table takes right ~45%
-        gel_left = 0.3
-        gel_max_width = 6.8
-        gel_max_height = 6.0
-        table_left = 7.4
-        table_width = 5.6
-
-        if gel_buf:
-            from PIL import Image as PILImage
-
-            gel_buf.seek(0)
-            img = PILImage.open(gel_buf)
-            w, h = img.size
-            aspect = w / h
-
-            if aspect > gel_max_width / gel_max_height:
-                display_w = gel_max_width
-                display_h = display_w / aspect
-            else:
-                display_h = gel_max_height
-                display_w = display_h * aspect
-
-            gel_buf.seek(0)
-            slide.shapes.add_picture(
-                gel_buf,
-                Inches(gel_left),
-                Inches(1.0),
-                Inches(display_w),
-                Inches(display_h),
-            )
-
-        # --- Right side: Compact sample summary table ---
-        headers = ["#", "Sample", "Type", "Ln", "Purity%"]
-        rows = []
-        for i, lane in enumerate(self.data.lanes, 1):
-            purity_str = f"{lane.poi_percentage:.1f}" if lane.poi_percentage is not None else "-"
-            rows.append(
-                [
-                    str(i),
-                    (lane.sample_name[:18] + "..")
-                    if lane.sample_name and len(lane.sample_name) > 20
-                    else (lane.sample_name or "-"),
-                    (lane.lane_type[:8] if lane.lane_type else "-"),
-                    str(lane.lane_number),
-                    purity_str,
-                ]
-            )
-
-        display_rows = rows[:15]
-        n_rows = len(display_rows) + 1
-        n_cols = len(headers)
-        row_height = 0.28
-        header_font_size = Pt(7)
-        body_font_size = Pt(7)
-
-        table_shape = slide.shapes.add_table(
-            n_rows,
-            n_cols,
-            Inches(table_left),
-            Inches(1.0),
-            Inches(table_width),
-            Inches(n_rows * row_height),
-        )
-        table = table_shape.table
-
-        # Set column widths (proportional)
-        col_widths = [0.3, 2.2, 0.8, 0.4, 0.7]  # total ~4.4 but table stretches to table_width
-        for j, cw in enumerate(col_widths):
-            table.columns[j].width = Inches(cw)
-
-        # Headers
-        for j, h in enumerate(headers):
-            cell = table.cell(0, j)
-            cell.text = str(h)
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = _TABLE_HEADER_BG
-            for p in cell.text_frame.paragraphs:
-                p.font.size = header_font_size
-                p.font.bold = True
-                p.font.color.rgb = _WHITE
-                p.font.name = "Inter"
-                p.alignment = PP_ALIGN.CENTER
-
-        # Data rows
-        for i, row_data in enumerate(display_rows):
-            for j, val in enumerate(row_data):
-                cell = table.cell(i + 1, j)
-                cell.text = str(val) if val is not None else ""
-                if i % 2 == 1:
-                    cell.fill.solid()
-                    cell.fill.fore_color.rgb = _TABLE_ALT_BG
-                for p in cell.text_frame.paragraphs:
-                    p.font.size = body_font_size
-                    p.font.color.rgb = _DARK
-                    p.font.name = "Inter"
-
-        self._add_slide_number(slide)
+            self.slide_number += 1
 
     def _add_digital_gel_slide(self):
         """Add digital gel slide (all lanes)."""
@@ -546,7 +253,8 @@ class DensitometryPowerPointBuilder:
         digital_buf = self._render_digital_gel(self.data.lanes)
 
         if digital_buf:
-            self._add_image_to_slide(slide, digital_buf, top=1.5)
+            self._add_image_to_slide(slide, digital_buf, top=1.4, max_height=4.9)
+            self.add_caption(slide, DIGITAL_GEL_CAPTION)
         else:
             txbox = slide.shapes.add_textbox(
                 Inches(4),
@@ -560,23 +268,21 @@ class DensitometryPowerPointBuilder:
         self._add_slide_number(slide)
 
     def _add_poi_purity_slide(self):
-        from .poi_purity_chart import render_poi_purity_chart
+        """The chart of the gel's readout (readout_chart): purity, HMWS / main band / LMWS or HCP % of reference;
+        no slide on a gel that measures nothing."""
+        from .readout_chart import chart_title, render_readout_chart
 
+        title = chart_title(self.data.readout, self.data.lanes)
+        if title is None:
+            return
         slide = self._new_slide()
-        self._add_header_bar(slide, "POI Purity")
+        self._add_header_bar(slide, title)
 
-        purity_data = [
-            {
-                "label": lane.sample_name or f"Lane {lane.lane_number}",
-                "purity": lane.poi_percentage,
-            }
-            for lane in self.data.lanes
-        ]
-        chart_buf = render_poi_purity_chart(
-            purity_data,
-            figsize=(10, 4.5),
-            dpi=150,
-            dark_theme=False,
+        mean = None
+        if self.data.average_purity is not None:
+            mean = (self.data.average_purity, f"Mean {self.data.average_purity_text}")
+        chart_buf = render_readout_chart(
+            self.data.readout, self.data.lanes, mean=mean, figsize=(10, 4.5), dpi=150, dark_theme=False
         )
         if chart_buf:
             self._add_image_to_slide(slide, chart_buf, top=1.4, max_height=5.8)
@@ -587,232 +293,83 @@ class DensitometryPowerPointBuilder:
                 Inches(5),
                 Inches(0.5),
             )
-            txbox.text_frame.paragraphs[0].text = "No purity data available"
+            txbox.text_frame.paragraphs[0].text = "No lane value to chart yet"
             txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
 
         self._add_slide_number(slide)
 
-    def _add_quantification_slide(self):
-        """Add a single Quantification slide with the calibration curve PNG,
-        a KPI box (R², N, mean recovery%), and a top-8 sample table."""
-        data = self.data.quantification
-        if data is None:
-            return
-
-        slide = self._new_slide()
-        self._add_header_bar(slide, "Quantification")
-
-        calib = data["calibration"]
-        unit_label = "µg" if calib.unit == "UG" else "µg/mL"
-
-        # Calibration curve PNG (left half)
-        try:
-            slide.shapes.add_picture(
-                BytesIO(data["curve_png"]),
-                Inches(0.5),
-                Inches(1.4),
-                Inches(7.0),
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to embed calibration curve in PPTX: {exc}")
-
-        # KPI box (top right)
-        n_used = sum(1 for p in data["result"].calibration_points if not p.is_excluded)
-        recoveries = [
-            (c.predicted_amount / c.load_amount) * 100
-            for c in data["controls"]
-            if c.predicted_amount is not None and c.load_amount
-        ]
-        kpi_box = slide.shapes.add_textbox(
-            Inches(8.0),
-            Inches(1.4),
-            Inches(4.8),
-            Inches(2.0),
-        )
-        tf = kpi_box.text_frame
-        tf.word_wrap = True
-        p0 = tf.paragraphs[0]
-        p0.text = f"Method: {calib.method}    Unit: {unit_label}"
-        p0.font.size = Pt(13)
-        p0.font.color.rgb = _DARK
-        p0.font.name = "Inter"
-
-        for line in [
-            f"R² = {calib.r_squared:.4f}",
-            f"N = {n_used}",
-            (f"Mean recovery = {sum(recoveries) / len(recoveries):.1f}%" if recoveries else "Mean recovery = —"),
-        ]:
-            p = tf.add_paragraph()
-            p.text = line
-            p.font.size = Pt(16)
-            p.font.bold = True
-            p.font.color.rgb = _ACCENT_DARK
-            p.font.name = "Inter"
-
-        # Top-8 sample table (bottom right)
-        samples = sorted(
-            data["samples"],
-            key=lambda s: s.predicted_amount if s.predicted_amount is not None else -1,
-            reverse=True,
-        )[:8]
-        if samples:
-            headers = ["Lane", "Area", f"Est. ({unit_label})"]
-            rows = []
-            for s in samples:
-                area_str = f"{s.corrected_area:.0f}" if s.corrected_area is not None else "—"
-                est_str = f"{s.predicted_amount:.2f}" if s.predicted_amount is not None else "—"
-                rows.append([str(s.lane_number), area_str, est_str])
-            n_rows = len(rows) + 1
-            table_shape = slide.shapes.add_table(
-                n_rows,
-                3,
-                Inches(8.0),
-                Inches(3.6),
-                Inches(4.8),
-                Inches(min(n_rows * 0.38, 3.4)),
-            )
-            table = table_shape.table
-            for j, h in enumerate(headers):
-                cell = table.cell(0, j)
-                cell.text = h
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = _TABLE_HEADER_BG
-                for p in cell.text_frame.paragraphs:
-                    p.font.size = Pt(10)
-                    p.font.bold = True
-                    p.font.color.rgb = _WHITE
-                    p.font.name = "Inter"
-                    p.alignment = PP_ALIGN.CENTER
-            for i, row in enumerate(rows):
-                for j, val in enumerate(row):
-                    cell = table.cell(i + 1, j)
-                    cell.text = val
-                    if i % 2 == 1:
-                        cell.fill.solid()
-                        cell.fill.fore_color.rgb = _TABLE_ALT_BG
-                    for p in cell.text_frame.paragraphs:
-                        p.font.size = Pt(10)
-                        p.font.color.rgb = _DARK
-                        p.font.name = "Inter"
-
-        self._add_slide_number(slide)
-
     def _add_lane_detail_slides(self):
-        """Add one slide per SAMPLE lane with summary and electropherogram."""
-        sample_lanes = [lane for lane in self.data.lanes if lane.lane_type not in ("MW Ladder", "Empty")]
+        """One slide per lane but a ladder or an empty one, in the sample identity card's look (gel_figure): the lane
+        put forward on its whole gel, its bands named, its profile beside on the same rows, the ladder's kDa; its facts
+        and its band table on the right. Without its card entry or its image, the electropherogram as before."""
+        sample_lanes = [lane for lane in self.data.lanes if lane.lane_type_code not in ("LADDER", "EMPTY")]
 
         for lane in sample_lanes:
             slide = self._new_slide()
-            self._add_header_bar(
-                slide,
-                f"Lane {lane.lane_number}: {lane.sample_name}",
-            )
-
-            # Summary info (left side)
-            purity_str = f"{lane.poi_percentage:.1f}%" if lane.poi_percentage is not None else "N/A"
-            info = [
-                ("Sample", lane.sample_name),
+            title = self._lane_title(lane)
+            self._add_header_bar(slide, title)
+            facts = [
+                ("Sample", sample_text(lane)),
                 ("Type", lane.lane_type),
                 ("Condition", lane.condition or "N/A"),
-                ("Purity", purity_str),
-                ("Bands", str(lane.band_count) if lane.band_count else "N/A"),
             ]
-
-            y = 1.4
-            for label, value in info:
-                txbox = slide.shapes.add_textbox(
-                    Inches(0.5),
-                    Inches(y),
-                    Inches(4),
-                    Inches(0.3),
+            facts += [
+                (column["label"], cell_text(lane, column["key"]) or "—")
+                for column in self.data.readout_columns
+                if column["key"] in lane.readout_cells
+            ]
+            figure = self.safe_render(
+                lambda lane=lane: self._render_lane_figure(lane), label=f"lane {lane.lane_number}"
+            )
+            if figure is None:
+                figure = self.safe_render(
+                    lambda lane=lane: self._render_electropherogram(lane), label=f"lane {lane.lane_number} profile"
                 )
-                p = txbox.text_frame.paragraphs[0]
-                run = p.add_run()
-                run.text = f"{label}: "
-                run.font.bold = True
-                run.font.size = Pt(11)
-                run.font.color.rgb = _GREY
-                run.font.name = "Inter"
-                run2 = p.add_run()
-                run2.text = value
-                run2.font.size = Pt(11)
-                run2.font.color.rgb = _DARK
-                run2.font.name = "Inter"
-                y += 0.35
-
-            # Electropherogram (right side)
-            try:
-                chart_buf = self._render_electropherogram(lane)
-                if chart_buf:
-                    chart_buf.seek(0)
-                    slide.shapes.add_picture(
-                        chart_buf,
-                        Inches(5.5),
-                        Inches(1.3),
-                        Inches(7.5),
-                        Inches(3.0),
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to render lane {lane.lane_number} electropherogram for PPTX: {e}")
-
-            # Band table below
-            if lane.bands:
-                band_headers = ["#", "Type", "MW (kDa)", "Area", "% Lane"]
-                band_rows = []
-                for band in lane.bands:
-                    band_rows.append(
-                        [
-                            str(band.band_number) if band.band_number else "-",
-                            band.band_type,
-                            f"{band.estimated_mw_kda:.1f}" if band.estimated_mw_kda else "-",
-                            f"{band.corrected_area:.0f}" if band.corrected_area else "-",
-                            f"{band.relative_percent_lane:.1f}" if band.relative_percent_lane is not None else "-",
-                        ]
-                    )
-                self._add_data_table(slide, band_headers, band_rows, top=4.8, max_rows=8)
-
+            self.add_lane_panel(slide, title, lane, facts, figure)
             self._add_slide_number(slide)
 
+    def _render_lane_figure(self, lane) -> BytesIO | None:
+        """The lane in the identity card's look (``gel_figure.render_lane_figure``), or None without its card entry or
+        its gel image."""
+        entry = self.data.strips.get(lane.lane_id)
+        if entry is None or not self.data.gel_image_id:
+            return None
+        from gel_analyzer.models import GelImage
+
+        from .gel_figure import render_lane_figure
+
+        gel_image = GelImage.objects.get(pk=self.data.gel_image_id)
+        image_file = gel_image.display_file or gel_image.original_file
+        if not image_file:
+            return None
+        return render_lane_figure(image_file, entry, lane, readout=self.data.readout)
+
     def _add_terrain_view_slides(self):
-        """Add one 3D terrain slide per SAMPLE lane."""
+        """The 3D terrain of every lane but a ladder or an empty one, four lanes a slide (owner, 2026-10-13: one a
+        slide made nine slides a deck)."""
         from .terrain_chart import render_terrain_chart
 
-        sample_lanes = [lane for lane in self.data.lanes if lane.lane_type not in ("MW Ladder", "Empty")]
-
-        for lane in sample_lanes:
+        lanes = [lane for lane in self.data.lanes if lane.lane_type_code not in ("LADDER", "EMPTY")]
+        cell_w, cell_h = 6.1, 2.6
+        for offset in range(0, len(lanes), 4):
+            group = lanes[offset : offset + 4]
             slide = self._new_slide()
-            sample_name = lane.sample_name or f"Lane {lane.lane_number}"
-            self._add_header_bar(slide, f"3D Terrain — {sample_name}")
-
-            try:
-                chart_buf = render_terrain_chart(
-                    lane,
-                    figsize=(10, 5.5),
-                    dpi=150,
-                    dark_theme=False,
+            numbers = ", ".join(str(lane.lane_number) for lane in group)
+            self._add_header_bar(slide, f"3D Terrain — lane{'s' if len(group) > 1 else ''} {numbers}")
+            for k, lane in enumerate(group):
+                left, top = 0.5 + (k % 2) * (cell_w + 0.13), 1.35 + (k // 2) * (cell_h + 0.15)
+                chart_buf = self.safe_render(
+                    lambda lane=lane: render_terrain_chart(lane, figsize=(6.1, 2.6), dpi=150, dark_theme=False),
+                    label=f"terrain lane {lane.lane_number}",
                 )
                 if chart_buf:
-                    self._add_image_to_slide(slide, chart_buf, top=1.3, max_height=5.8)
-                else:
-                    txbox = slide.shapes.add_textbox(
-                        Inches(4),
-                        Inches(3.5),
-                        Inches(5),
-                        Inches(0.5),
+                    self.add_picture_fit(
+                        slide, chart_buf, left=left, top=top, max_width=cell_w, max_height=cell_h, center=True
                     )
-                    txbox.text_frame.paragraphs[0].text = "No terrain data available"
-                    txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
-            except Exception as e:
-                logger.warning(f"Failed to render terrain chart for lane {lane.lane_number}: {e}")
-                txbox = slide.shapes.add_textbox(
-                    Inches(4),
-                    Inches(3.5),
-                    Inches(5),
-                    Inches(0.5),
-                )
-                txbox.text_frame.paragraphs[0].text = "Failed to render terrain chart"
-                txbox.text_frame.paragraphs[0].font.color.rgb = _GREY
-
+                else:
+                    self.add_render_placeholder(
+                        slide, f"3D terrain of lane {lane.lane_number}", left=left, top=top + 1.0, width=cell_w
+                    )
             self._add_slide_number(slide)
 
     def _add_materials_methods_slide(self):
@@ -822,8 +379,9 @@ class DensitometryPowerPointBuilder:
         methods = [("Densitometry Analysis", METHODOLOGY_DENSITOMETRY)]
         if self.data.has_calibration:
             methods.append(("MW Calibration", METHODOLOGY_CALIBRATION))
-        if any(lane.poi_percentage is not None for lane in self.data.lanes):
-            methods.append(("Purity Calculation", METHODOLOGY_PURITY))
+        # What the lane values mean, for the readout the gel is read for.
+        if self.data.readout in READOUT_METHODOLOGY:
+            methods.append(READOUT_METHODOLOGY[self.data.readout])
 
         y = 1.5
         for title, text in methods:
@@ -839,7 +397,7 @@ class DensitometryPowerPointBuilder:
             p.font.size = Pt(13)
             p.font.bold = True
             p.font.color.rgb = _ACCENT
-            p.font.name = "Inter"
+            p.font.name = HEADING_FONT
             y += 0.4
 
             # Body
@@ -855,235 +413,33 @@ class DensitometryPowerPointBuilder:
             p.text = text.strip()
             p.font.size = Pt(10)
             p.font.color.rgb = _DARK
-            p.font.name = "Inter"
+            p.font.name = BODY_FONT
             y += 1.7
 
         self._add_slide_number(slide)
 
     # ── Image rendering helpers ───────────────────────────────────
 
-    def _render_full_gel_image(self, show_bands: bool = True) -> BytesIO | None:
-        """
-        Render the full gel image with optional band overlays.
-
-        Args:
-            show_bands: Whether to draw band overlay rectangles
-
-        Returns:
-            BytesIO with PNG image, or None on failure
-        """
-        from PIL import Image as PILImage
-        from PIL import ImageDraw
-
-        from gel_analyzer.models import GelImage
-
+    def _render_gel_variant(self, variant) -> BytesIO | None:
+        """The gel in the whole-gel look (``gel_figure.render_gel_figure``), or None without its image."""
         if not self.data.gel_image_id:
             return None
+        from gel_analyzer.models import GelImage
 
-        try:
-            gel_image = GelImage.objects.get(pk=self.data.gel_image_id)
-            image_file = gel_image.display_file or gel_image.original_file
-            if not image_file:
-                return None
+        from .gel_figure import render_gel_figure
 
-            img = PILImage.open(image_file).convert("RGB")
-
-            if show_bands:
-                # Draw band overlays
-                draw = ImageDraw.Draw(img, "RGBA")
-                for lane in self.data.lanes:
-                    for band in lane.bands:
-                        if band.bbox_x is not None and band.bbox_y is not None:
-                            from .constants import BAND_PALETTE
-
-                            _bp = BAND_PALETTE.get((band.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])
-                            color = _bp["stroke"][:3] + (90,)
-                            draw.rectangle(
-                                [
-                                    band.bbox_x,
-                                    band.bbox_y,
-                                    band.bbox_x + band.bbox_width,
-                                    band.bbox_y + band.bbox_height,
-                                ],
-                                outline=color[:3] + (180,),
-                                fill=color,
-                                width=2,
-                            )
-
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            buf.seek(0)
-            return buf
-
-        except Exception as e:
-            logger.warning(f"Failed to render full gel image: {e}")
+        gel_image = GelImage.objects.get(pk=self.data.gel_image_id)
+        image_file = gel_image.display_file or gel_image.original_file
+        if not image_file:
             return None
+        return render_gel_figure(
+            image_file, self.data.lanes, variant=variant, readout=self.data.readout, ticks=self.data.mw_ticks
+        )
 
     def _render_digital_gel(self, lanes) -> BytesIO | None:
-        """
-        Render a side-by-side digital gel image with Pillow.
-
-        Creates a single image with all lanes as vertical columns,
-        bands positioned on a log10 MW scale.
-
-        Args:
-            lanes: list of LaneReportData
-
-        Returns:
-            BytesIO with PNG image, or None on failure
-        """
-        import math
-
-        from PIL import Image as PILImage
-        from PIL import ImageDraw, ImageFont
-
-        # Filter out empty/ladder lanes if needed
-        sample_lanes = [lane for lane in lanes if lane.lane_type not in ("Empty",)]
-        if not sample_lanes:
-            return None
-
-        # --- Layout constants ---
-        LANE_WIDTH = 100
-        LANE_GAP = 6
-        HEADER_HEIGHT = 36
-        BODY_HEIGHT = 400
-        FOOTER_HEIGHT = 24
-        MW_SCALE_WIDTH = 70
-        BAND_HEIGHT = 8
-        BAND_INSET = int(LANE_WIDTH * 0.10)
-        ACCENT_BAR_HEIGHT = 4
-
-        # --- Colors ---
-        BG_COLOR = (30, 30, 34)
-        LANE_BG = (42, 42, 46)
-        TEXT_COLOR = (230, 230, 230)
-        TEXT_DIM = (160, 160, 160)
-        SCALE_LINE = (80, 80, 85)
-
-        from .constants import BAND_PALETTE
-
-        def _band_rgb(b):
-            return BAND_PALETTE.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE["OTHER"])["stroke"][:3]
-
-        ACCENT_COLORS = [
-            (59, 130, 246),
-            (168, 85, 247),
-            (34, 197, 94),
-            (249, 115, 22),
-            (236, 72, 153),
-            (20, 184, 166),
-            (245, 158, 11),
-            (99, 102, 241),
-        ]
-
-        # --- Calculate dimensions ---
-        n_lanes = len(sample_lanes)
-        total_width = n_lanes * LANE_WIDTH + (n_lanes - 1) * LANE_GAP + MW_SCALE_WIDTH + 20
-        total_height = HEADER_HEIGHT + BODY_HEIGHT + FOOTER_HEIGHT
-
-        # --- Create image ---
-        img = PILImage.new("RGB", (total_width, total_height), BG_COLOR)
-        draw = ImageDraw.Draw(img)
-
-        # --- Determine MW range for all calibrated lanes ---
-        all_mw_values = []
-        for lane in sample_lanes:
-            for band in lane.bands:
-                if band.estimated_mw_kda and band.estimated_mw_kda > 0:
-                    all_mw_values.append(band.estimated_mw_kda)
-
-        if not all_mw_values:
-            # No MW data, return None
-            return None
-
-        mw_min = min(all_mw_values)
-        mw_max = max(all_mw_values)
-        log_mw_min = math.log10(mw_min)
-        log_mw_max = math.log10(mw_max)
-
-        def mw_to_y(mw):
-            """Convert MW (kDa) to Y coordinate (log scale)."""
-            if mw <= 0:
-                return HEADER_HEIGHT
-            log_mw = math.log10(mw)
-            fraction = (log_mw - log_mw_min) / (log_mw_max - log_mw_min) if log_mw_max > log_mw_min else 0
-            return HEADER_HEIGHT + int(fraction * BODY_HEIGHT)
-
-        # --- Draw lanes ---
-        x_offset = 10
-        try:
-            font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 9)
-            font_label = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 10)
-        except Exception:
-            font_small = ImageFont.load_default()
-            font_label = ImageFont.load_default()
-
-        for i, lane in enumerate(sample_lanes):
-            lane_left = x_offset + i * (LANE_WIDTH + LANE_GAP)
-
-            # Lane background
-            draw.rectangle(
-                [lane_left, HEADER_HEIGHT, lane_left + LANE_WIDTH, HEADER_HEIGHT + BODY_HEIGHT], fill=LANE_BG
-            )
-
-            # Accent bar
-            accent_color = ACCENT_COLORS[i % len(ACCENT_COLORS)]
-            draw.rectangle(
-                [lane_left, HEADER_HEIGHT, lane_left + LANE_WIDTH, HEADER_HEIGHT + ACCENT_BAR_HEIGHT], fill=accent_color
-            )
-
-            # Lane label in header
-            label = lane.sample_name[:12] if lane.sample_name and len(lane.sample_name) > 12 else lane.sample_name
-            bbox = draw.textbbox((0, 0), label, font=font_label)
-            text_width = bbox[2] - bbox[0]
-            draw.text(
-                (lane_left + (LANE_WIDTH - text_width) // 2, HEADER_HEIGHT // 2 - 8),
-                label,
-                fill=TEXT_COLOR,
-                font=font_label,
-            )
-
-            # Lane number in footer
-            lane_num_text = f"L{lane.lane_number}"
-            bbox = draw.textbbox((0, 0), lane_num_text, font=font_small)
-            text_width = bbox[2] - bbox[0]
-            draw.text(
-                (lane_left + (LANE_WIDTH - text_width) // 2, HEADER_HEIGHT + BODY_HEIGHT + 6),
-                lane_num_text,
-                fill=TEXT_DIM,
-                font=font_small,
-            )
-
-            # Draw bands
-            for band in lane.bands:
-                if band.estimated_mw_kda and band.estimated_mw_kda > 0:
-                    y = mw_to_y(band.estimated_mw_kda)
-                    band_color = _band_rgb(band)
-                    draw.rectangle(
-                        [
-                            lane_left + BAND_INSET,
-                            y - BAND_HEIGHT // 2,
-                            lane_left + LANE_WIDTH - BAND_INSET,
-                            y + BAND_HEIGHT // 2,
-                        ],
-                        fill=band_color,
-                    )
-
-        # --- Draw MW scale on the right ---
-        scale_x = x_offset + n_lanes * (LANE_WIDTH + LANE_GAP) + 10
-
-        # Draw tick marks at log intervals
-        mw_ticks = [10, 20, 30, 50, 70, 100, 150, 200, 250]
-        for mw in mw_ticks:
-            if mw_min <= mw <= mw_max:
-                y = mw_to_y(mw)
-                draw.line([scale_x, y, scale_x + 5, y], fill=SCALE_LINE, width=1)
-                draw.text((scale_x + 8, y - 6), f"{mw}", fill=TEXT_DIM, font=font_small)
-
-        buf = BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return buf
+        """Delegate to the shared renderer (fixes inverted axis, POI colour,
+        and the old return-None-on-uncalibrated bug)."""
+        return render_digital_gel(lanes, calibration=None, footer_field="lane_type")
 
     def _render_electropherogram(self, lane) -> BytesIO | None:
         """
@@ -1112,10 +468,13 @@ class DensitometryPowerPointBuilder:
             return None
 
         try:
-            from .constants import BAND_PALETTE_HEX
-
-            def _peak_color(b):
-                return BAND_PALETTE_HEX.get((b.band_type_code or "OTHER").upper(), BAND_PALETTE_HEX["OTHER"])
+            PEAK_COLORS = {
+                "Protein of Interest": BAND_PALETTE_HEX["POI"],  # #A855F7 purple
+                "Other": BAND_PALETTE_HEX["OTHER"],  # #22C55E green (spec §5)
+                "MW Reference": BAND_PALETTE_HEX["MW_REFERENCE"],  # #F97316 orange
+                "MW Ladder": BAND_PALETTE_HEX["MW_REFERENCE"],  # #F97316 orange
+                "Calibration Point": BAND_PALETTE_HEX.get("CALIBRATION", "#F87171"),
+            }
 
             # --- Determine X-axis data ---
             mw_values = profile.get("mw_values")
@@ -1144,7 +503,7 @@ class DensitometryPowerPointBuilder:
                 return None
 
             # --- Create figure with light theme (for PowerPoint) ---
-            fig, ax = plt.subplots(figsize=(7, 2.5), dpi=150)
+            fig, ax = plt.subplots(figsize=(7, 2.5), dpi=200)
             fig.patch.set_facecolor("#ffffff")
             ax.set_facecolor("#ffffff")
 
@@ -1178,7 +537,7 @@ class DensitometryPowerPointBuilder:
                 idx = np.argmin(np.abs(x_values - bx))
                 by = y_values[idx]
 
-                peak_color = _peak_color(band)
+                peak_color = PEAK_COLORS.get(band.band_type, "#9E9E9E")
                 ax.plot(
                     bx, by, "o", color=peak_color, markersize=6, markeredgecolor="white", markeredgewidth=1.5, zorder=5
                 )
@@ -1206,13 +565,13 @@ class DensitometryPowerPointBuilder:
             ax.set_ylim(bottom=0)
 
             # Title with sample name
-            sample_name = lane.sample_name or f"Lane {lane.lane_number}"
-            ax.set_title(f"{sample_name} (L{lane.lane_number})", color="#333333", fontsize=10, fontweight="bold", pad=8)
+            ax.set_title(
+                f"{sample_text(lane)} (L{lane.lane_number})", color="#333333", fontsize=10, fontweight="bold", pad=8
+            )
 
-            plt.tight_layout()
-
+            fig.subplots_adjust(left=0.08, right=0.97, top=0.85, bottom=0.18)
             buf = BytesIO()
-            fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight")
+            fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
             plt.close(fig)
             buf.seek(0)
             return buf
@@ -1220,6 +579,232 @@ class DensitometryPowerPointBuilder:
         except Exception as e:
             logger.warning(f"Failed to render electropherogram: {e}")
             return None
+
+    # ── Protein quantification ────────────────────────────────────
+
+    def _qsd_add_table(self, slide, headers, rows, *, top_in, highlight_rows=None):
+        """The quantification tables: the compact table across the slide, out-of-spec rows filled light red."""
+        return self._add_data_table(slide, headers, rows, top=top_in, highlight_rows=highlight_rows or ())
+
+    def _calibration_curve_series(self):
+        """Build the XY_SCATTER series list for the base ``add_xy_scatter``.
+
+        Returns ``[(name, [(x, y), ...]), ...]`` for: calibration points,
+        excluded points (faded — separate series), the fit line as a sampled
+        polyline series (spec C4 — no combo charts), and control points.
+        Pure data; no chart objects.
+        """
+        import numpy as np
+
+        from gel_analyzer.models import ProteinQuantCalibration
+        from gel_analyzer.services.quantification.models import QuantParams, QuantResult
+        from gel_analyzer.services.quantification.service import ProteinQuantCalibrationService
+
+        data = self.data
+        series: list[tuple] = []
+
+        inc = [
+            (p.corrected_area, p.load_amount)
+            for p in data.quant_points
+            if not p.is_excluded and p.corrected_area is not None and p.load_amount is not None
+        ]
+        exc = [
+            (p.corrected_area, p.load_amount)
+            for p in data.quant_points
+            if p.is_excluded and p.corrected_area is not None and p.load_amount is not None
+        ]
+
+        if inc:
+            series.append(("Calibration", inc))
+        if exc:
+            series.append(("Excluded", exc))
+
+        # Fit line — read-only re-projection sampled across the calibration
+        # x-range (markers turned off on the rendered series below).
+        if len(inc) >= 2:
+            calib = ProteinQuantCalibration.objects.filter(analysis_id=data.analysis_id, is_active=True).first()
+            if calib:
+                svc = ProteinQuantCalibrationService(QuantParams(method=calib.method, unit=calib.unit))
+                fit_result = QuantResult(
+                    success=True,
+                    method=calib.method,
+                    unit=calib.unit,
+                    coefficients=calib.coefficients,
+                    r_squared=calib.r_squared,
+                    equation=calib.equation,
+                )
+                xs = list(np.linspace(min(x for x, _ in inc), max(x for x, _ in inc), 50))
+                fit_pts = []
+                for x in xs:
+                    y = svc.project(float(x), fit_result)
+                    if y is not None:
+                        fit_pts.append((float(x), float(y)))
+                if fit_pts:
+                    series.append(("Fit", fit_pts))
+
+        # Control points (known vs predicted)
+        ctrl_pts = [
+            (c.known_amount, c.predicted_amount)
+            for c in data.quant_controls
+            if c.known_amount is not None and c.predicted_amount is not None
+        ]
+        if ctrl_pts:
+            series.append(("Controls", ctrl_pts))
+
+        return series
+
+    def _add_calibration_curve_chart(self, slide):
+        """Native XY_SCATTER calibration curve under the slide's title.
+
+        Uses the base ``add_xy_scatter`` (the chart is a shape in the
+        'title_chart' slide's CHART_BOX). Turns markers off on the Fit
+        series so it reads as a line. Returns the chart, or None when there
+        is nothing to plot (caller draws a visible placeholder).
+        """
+        data = self.data
+        if not data.quant_points:
+            return None
+        series = self._calibration_curve_series()
+        if not series:
+            return None
+
+        unit = data.quant_calibration.unit if data.quant_calibration else ""
+        chart = self.add_xy_scatter(
+            slide,
+            series=series,
+            x_title="Corrected area",
+            y_title=f"Amount ({unit})" if unit else "Amount",
+        )
+        if chart is None:
+            return None
+
+        chart.has_title = True
+        chart.chart_title.text_frame.text = "Calibration curve"
+
+        # Fit series → markers off (best-effort; never fail the slide).
+        try:
+            from pptx.oxml.ns import qn
+
+            for plot in chart.plots:
+                for s in plot.series:
+                    if s.name == "Fit":
+                        ser = s._element
+                        marker = ser.makeelement(qn("c:marker"), {})
+                        symbol = marker.makeelement(qn("c:symbol"), {"val": "none"})
+                        marker.append(symbol)
+                        ser.append(marker)
+        except Exception:
+            pass
+
+        return chart
+
+    def _add_quantification_slides(self):
+        """PPTX: methodology slide + curve slide + Table A/B/C slides."""
+        data = self.data
+        if not data.has_quantification or data.quant_calibration is None:
+            return
+        cal = data.quant_calibration
+
+        # Methodology slide
+        slide = self._new_slide()
+        self._add_header_bar(slide, "Protein Quantification")
+        tb = slide.shapes.add_textbox(Inches(0.6), Inches(1.2), Inches(12.0), Inches(5.8))
+        tf = tb.text_frame
+        tf.word_wrap = True
+        tf.text = METHODOLOGY_QUANTIFICATION.strip()
+        for line in [
+            f"Method: {cal.method}",
+            f"Unit: {cal.unit}",
+            f"Equation: {cal.equation}",
+            f"R²: {cal.r_squared:.4f} ({cal.r_squared_quality})",
+            f"Points used / excluded: {cal.n_points} / {cal.n_excluded}",
+            f"Fitted by: {cal.created_by_name} on {cal.created_at}",
+            "Recovery in-spec range: 80–120%",
+        ] + ([f"Note: fit auto-recomputed (drift) at {cal.last_recomputed_at}"] if cal.last_recomputed_at else []):
+            p = tf.add_paragraph()
+            p.text = line
+            p.font.size = Pt(12)
+
+        if not data.quant_points:
+            return
+
+        # Curve slide — 'title_chart' layout, a native XY_SCATTER drawn under the
+        # title via the base add_xy_scatter (spec C4). Falls back gracefully
+        # (safe_render) if the chart cannot be drawn.
+        curve_slide = self._new_slide("title_chart")
+        self._add_header_bar(curve_slide, "Calibration Curve")
+        chart = self.safe_render(
+            lambda: self._add_calibration_curve_chart(curve_slide),
+            label="calibration curve chart",
+        )
+        if chart is None:
+            self.add_render_placeholder(curve_slide, "Calibration curve", top=3.0)
+
+        # Table A — calibration points
+        a_slide = self._new_slide()
+        self._add_header_bar(a_slide, "Calibration Points")
+        headers_a = ["Lane #", "Load", "Unit", "Corrected area", "Residual %", "Excluded"]
+        rows_a = [
+            [
+                p.lane_number,
+                f"{p.load_amount:.3g}" if p.load_amount is not None else "—",
+                p.load_unit or "",
+                f"{p.corrected_area:.1f}" if p.corrected_area is not None else "—",
+                f"{p.residual_pct:.2f}" if p.residual_pct is not None else "—",
+                "Yes" if p.is_excluded else "",
+            ]
+            for p in data.quant_points
+        ]
+        self._qsd_add_table(a_slide, headers_a, rows_a, top_in=1.4)
+
+        # Table B — controls / QC (omit if none; red fill on out-of-spec)
+        if data.quant_controls:
+            b_slide = self._new_slide()
+            self._add_header_bar(b_slide, "Controls / QC Recovery")
+            headers_b = ["Lane #", "Known", "Predicted", "Recovery %", "Range", "Flag"]
+            rows_b = [
+                [
+                    c.lane_number,
+                    f"{c.known_amount:.3g}" if c.known_amount is not None else "—",
+                    f"{c.predicted_amount:.3g}" if c.predicted_amount is not None else "—",
+                    f"{c.recovery_pct:.2f}" if c.recovery_pct is not None else "—",
+                    calibration_range_display(c.calibration_range),
+                    "OUT OF SPEC" if c.out_of_spec else "OK",
+                ]
+                for c in data.quant_controls
+            ]
+            self._qsd_add_table(
+                b_slide,
+                headers_b,
+                rows_b,
+                top_in=1.4,
+                highlight_rows=[i for i, c in enumerate(data.quant_controls) if c.out_of_spec],
+            )
+
+        # Table C — sample estimated amounts
+        if data.quant_samples:
+            c_slide = self._new_slide()
+            self._add_header_bar(c_slide, "Sample Estimated Amounts")
+            headers_c = ["Lane #", "Sample", "Est. amount", "Unit", "Range"]
+            rows_c = [
+                [
+                    s.lane_number,
+                    s.sample_name or "—",
+                    f"{s.estimated_amount:.3g}" if s.estimated_amount is not None else "N/A",
+                    s.unit or "",
+                    calibration_range_display(s.calibration_range),
+                ]
+                for s in data.quant_samples
+            ]
+            self._qsd_add_table(
+                c_slide,
+                headers_c,
+                rows_c,
+                top_in=1.4,
+                highlight_rows=[
+                    i for i, s in enumerate(data.quant_samples) if is_outside_calibration_range(s.calibration_range)
+                ],
+            )
 
     # ── Build ─────────────────────────────────────────────────────
 
@@ -1236,11 +821,11 @@ class DensitometryPowerPointBuilder:
         slide_map = [
             ("overview", self._add_overview_slide, "overview"),
             ("sample_summary", self._add_sample_summary_slides, "sample summary"),
-            ("gel_image", self._add_gel_table_slide, "gel overview & table"),
+            ("gel_image", self._add_gel_variant_slides, "gel image variants"),
             ("digital_gel", self._add_digital_gel_slide, "digital gel"),
             ("poi_purity", self._add_poi_purity_slide, "POI purity"),
-            ("quantification", self._add_quantification_slide, "quantification"),
             ("lane_details", self._add_lane_detail_slides, "lane details"),
+            ("quantification", self._add_quantification_slides, "quantification"),
             ("terrain_view", self._add_terrain_view_slides, "terrain view"),
             ("materials_methods", self._add_materials_methods_slide, "materials & methods"),
         ]

@@ -382,8 +382,10 @@
                                 <input type="checkbox" checked data-section-key="lane_details">
                                 <span>Individual Lane Details</span>
                             </label>
-                            {# ds-hub's "Protein Quantification" section (key "quantification") comes back with the report builders' resync: #}
-                            {# today's endpoint (views/report_api.py) answers 400 to a section key it does not know. #}
+                            <label class="dm-report-section-option dm-report-child-option" data-section="quantification" data-parent-group="detailed">
+                                <input type="checkbox" checked data-section-key="quantification">
+                                <span>Protein Quantification</span>
+                            </label>
                         </div>
                     </div>
 

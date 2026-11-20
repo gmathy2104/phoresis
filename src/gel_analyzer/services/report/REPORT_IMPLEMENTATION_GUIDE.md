@@ -1,6 +1,6 @@
 # Report Generation Implementation Guide
 
-Reference architecture for building multi-format (Word/Excel/PowerPoint) report modules in ds-hub-django. Based on the **Comparison Report** implementation. Follow this pattern when creating report generation for other modules (e.g., Densitometry, Analysis).
+Reference architecture for building multi-format (Word/Excel/PowerPoint) report modules in Phoresis. Based on the **Comparison Report** implementation. Follow this pattern when creating report generation for other modules (e.g., Densitometry, Analysis).
 
 ---
 
@@ -196,16 +196,16 @@ class ModuleExcelBuilder:
         return buf
 ```
 
-**GSK branding constants:**
+**Branding constants** (from `constants.py`):
 ```python
-_ORANGE_HEX = 'F47920'
-_HEADER_FILL = PatternFill(start_color=_ORANGE_HEX, ...)
-_HEADER_FONT = Font(name='GSKPrecision', bold=True, color='FFFFFF', size=11)
-_BODY_FONT = Font(name='GSKPrecision Thin', size=10)
+_ACCENT_HEX = TABLE_HEADER_BG  # '2563EB', the app's accent-600
+_HEADER_FILL = PatternFill(start_color=_ACCENT_HEX, ...)
+_HEADER_FONT = Font(name='Inter', bold=True, color='FFFFFF', size=11)
+_BODY_FONT = Font(name='Inter', size=10)
 ```
 
 **Utility methods:**
-- `_write_header_row(ws, headers)` - orange header row
+- `_write_header_row(ws, headers)` - accent header row
 - `_auto_width(ws, headers)` - auto-size columns
 - Charts embedded as images via matplotlib render -> `XlImage(chart_buf)`
 
@@ -213,26 +213,24 @@ _BODY_FONT = Font(name='GSKPrecision Thin', size=10)
 
 ### 5. PowerPoint Builder (`{module}_pptx_builder.py`)
 
-Uses `python-pptx`. 16:9 widescreen slides with GSK orange branding.
+Uses `python-pptx`. Subclass `pptx_base.BasePptxReportBuilder`: it builds on python-pptx's default template made a
+16:9 deck in code (no template file), and maps the decks' slide kinds to its layouts (`pptx_base.LAYOUTS`).
 
 ```python
-class ModulePowerPointBuilder:
+class ModulePowerPointBuilder(BasePptxReportBuilder):
     def __init__(self, data, sections=None, **options):
+        super().__init__()  # self.prs: the neutral 16:9 deck
         self.data = data
         self.sections = sections
-        self.prs = Presentation()
-        self.prs.slide_width = Inches(13.33)   # 16:9
-        self.prs.slide_height = Inches(7.5)
-        self.blank_layout = self.prs.slide_layouts[6]
         self.slide_number = 0
 ```
 
 **Shared slide helpers:**
-- `_new_slide()` - adds blank slide, increments counter
-- `_add_header_bar(slide, title, height=1.0)` - orange rectangle + dark accent line + white title text
-- `_add_slide_number(slide)` - bottom-right page number
+- `_new_slide()` - adds a title slide without its empty body, increments counter
+- `_add_header_bar(slide, title, height=1.0)` - sets the layout's title
+- `_add_slide_number(slide)` - no-op: `build()` numbers every slide but the cover, bottom right
 - `_add_kv_table(slide, data, top)` - two-column key-value table
-- `_add_data_table(slide, headers, rows, top, max_rows)` - orange-header data table with alternating row fills
+- `_add_data_table(slide, headers, rows, top, max_rows)` - compact data table: plain header over an accent rule, faint zebra
 - `_add_image_to_slide(slide, image_buf, top, max_width, max_height)` - centered image with aspect ratio preservation
 
 **Side-by-side layout pattern** (e.g., gel image + table):
@@ -462,15 +460,15 @@ const reportModal = {
 
 ---
 
-## GSK Branding Reference
+## Branding Reference
 
 | Element | Value |
 |---------|-------|
-| Primary Orange | `#F47920` / `RGBColor(0xF4, 0x79, 0x20)` |
-| Dark Orange (accent) | `#D06210` |
-| Font (headers) | `GSKPrecision`, bold |
-| Font (body) | `GSKPrecision Thin` |
-| Logo path | `gel_analyzer/static/gel_analyzer/images/gsk_logo.png` |
+| Accent | `#2563EB` (`PHORESIS_ACCENT`, the app's accent-600) |
+| Dark accent | `#1D4ED8` (`PHORESIS_ACCENT_DARK`) |
+| Font (headers) | `Inter`, bold (`HEADING_FONT`) |
+| Font (body) | `Inter` (`BODY_FONT`) |
+| Logo | none (`PHORESIS_LOGO_PATH` is empty) |
 | Header font sizes | Word: 14pt section, 11pt body / Excel: 11pt / PPTX: 28pt slide title, 10pt table |
 | Compact table font | PPTX: 7pt for side-by-side layouts |
 | Accent palette (8 colors) | Blue, Purple, Green, Orange, Pink, Teal, Amber, Indigo |

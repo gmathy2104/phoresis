@@ -8,15 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from gel_analyzer.models import (
-    LadderCalibration,
-    Lane,
-    SavedComparison,
-    SavedComparisonLane,
-)
+from gel_analyzer.models import LadderCalibration, Lane, SavedComparison, SavedComparisonLane
+from gel_analyzer.services.analysis_detail import band_number
+from gel_analyzer.services.lane_geometry.shape import has_outline
 from phoresis_core.logging_config import get_logger
 
 from .data_collector import BandReportData, LaneReportData, _user_display
+from .page_rows import apply_comparison_rows, gel_mw_ticks, lane_strips
 
 logger = get_logger(__name__)
 
@@ -48,6 +46,10 @@ class ComparisonLaneData(LaneReportData):
 
     # Gel image reference for server-side image loading
     gel_image_id: int | None = None
+
+    # The kind the comparison page compares the lane in (comparison_items.kind_key: its assay), set with the page's
+    # row by page_rows.apply_comparison_rows.
+    kind_key: str = ""
 
 
 @dataclass
@@ -81,6 +83,23 @@ class ComparisonReportData:
     report_generated_by: str = ""
     software_version: str = "GelAnalyzer v1.0"
 
+    # Protein quantification — per-analysis summaries (no shared curve, no re-fit).
+    # Keyed by str(analysis_id) → {method, unit, equation, r_squared, r_squared_quality}.
+    has_quantification: bool = False
+    analysis_quant_summaries: dict = field(default_factory=dict)
+
+    # The comparison's kinds as its page groups the lanes (page_rows.ComparisonKind): one assay each, its readout and
+    # columns, its lanes, a purity kind's mean purity. Every lane value of the report is the page's cell.
+    kinds: list = field(default_factory=list)
+    # Each compared gel's kDa ticks in image pixels, by analysis id (page_rows.gel_mw_ticks), for its pictures.
+    mw_ticks: dict = field(default_factory=dict)
+    # Each compared lane's sample identity card entry, by lane id (page_rows.lane_strips), for its lane slide.
+    strips: dict = field(default_factory=dict)
+
+    def kind_of(self, lane):
+        """The lane's kind (``ComparisonKind``), or None."""
+        return next((kind for kind in self.kinds if kind.key == lane.kind_key), None)
+
 
 class ComparisonDataCollector:
     """
@@ -90,6 +109,19 @@ class ComparisonDataCollector:
     def __init__(self):
         """Initialize the comparison data collector."""
         pass
+
+    @staticmethod
+    def _r_squared_quality(r_squared) -> str:
+        """Mirror gel_analyzer.views.analyses r² quality bucketing."""
+        if r_squared is None:
+            return "unknown"
+        if r_squared >= 0.99:
+            return "excellent"
+        if r_squared >= 0.95:
+            return "good"
+        if r_squared >= 0.90:
+            return "acceptable"
+        return "poor"
 
     def collect(self, comparison: SavedComparison, user) -> ComparisonReportData:
         """
@@ -115,7 +147,12 @@ class ComparisonDataCollector:
         )
 
         # Collect calibration data for each unique analysis
+        from gel_analyzer.models import ProteinQuantCalibration
+
+        from .constants import unit_display
+
         analysis_calibrations = {}
+        analysis_quant_summaries = {}
         unique_analysis_ids = set()
 
         for comp_lane in comparison_lanes:
@@ -137,6 +174,20 @@ class ComparisonDataCollector:
                             }
                     except Exception as e:
                         logger.warning(f"Failed to get calibration for analysis {analysis_id}: {e}")
+
+                    # Protein-quant calibration summary (read-only, no re-fit, no N+1).
+                    try:
+                        quant = ProteinQuantCalibration.objects.filter(analysis=lane.analysis, is_active=True).first()
+                        if quant:
+                            analysis_quant_summaries[str(analysis_id)] = {
+                                "method": quant.get_method_display(),
+                                "unit": unit_display(quant.unit),
+                                "equation": quant.equation,
+                                "r_squared": quant.r_squared,
+                                "r_squared_quality": self._r_squared_quality(quant.r_squared),
+                            }
+                    except Exception as e:
+                        logger.warning(f"Failed to get quant calibration for analysis {analysis_id}: {e}")
 
         # Build lane data list
         lane_data_list = []
@@ -183,6 +234,7 @@ class ComparisonDataCollector:
                 lane_id=base_lane_data.lane_id,
                 lane_number=base_lane_data.lane_number,
                 lane_type=base_lane_data.lane_type,
+                lane_type_code=base_lane_data.lane_type_code,
                 sample_name=base_lane_data.sample_name,
                 condition=base_lane_data.condition,
                 protein_load_ug=base_lane_data.protein_load_ug,
@@ -192,8 +244,6 @@ class ComparisonDataCollector:
                 y=base_lane_data.y,
                 width=base_lane_data.width,
                 height=base_lane_data.height,
-                lane_type_code=base_lane_data.lane_type_code,
-                lane_shape=base_lane_data.lane_shape,
                 polygon=base_lane_data.polygon,
                 bands=base_lane_data.bands,
                 total_integrated_area=base_lane_data.total_integrated_area,
@@ -215,6 +265,9 @@ class ComparisonDataCollector:
             )
 
             lane_data_list.append(comparison_lane_data)
+
+        # Each lane's values and kind, as the comparison page shows them.
+        kinds = apply_comparison_rows(lane_data_list)
 
         # Build report data
         gel_types_list = sorted(gel_types_set)
@@ -240,12 +293,23 @@ class ComparisonDataCollector:
             # Settings
             mw_tolerance_pct=mw_tolerance,
             # Audit
-            created_by_name=comparison.created_by.get_full_name() if comparison.created_by else "Unknown",
+            # The page's name of a user: the full name, else the username (an account without a name read blank).
+            created_by_name=(
+                (comparison.created_by.get_full_name() or comparison.created_by.username)
+                if comparison.created_by
+                else "Unknown"
+            ),
             created_at=comparison.created_at.strftime("%Y-%m-%d %H:%M") if comparison.created_at else "",
             # Report metadata
             report_generated_at=timezone.now().strftime("%B %d, %Y at %H:%M"),
             report_generated_by=_user_display(user),
             software_version="GelAnalyzer v1.0",
+            # Protein quantification
+            has_quantification=bool(analysis_quant_summaries),
+            analysis_quant_summaries=analysis_quant_summaries,
+            kinds=kinds,
+            mw_ticks={str(analysis_id): gel_mw_ticks(analysis_id) for analysis_id in unique_analysis_ids},
+            strips=lane_strips([lane.lane_id for lane in lane_data_list]),
         )
 
         logger.info(
@@ -272,10 +336,10 @@ class ComparisonDataCollector:
         # Phoresis has no ProcessSample registry.
         sample_name = lane.sample_name or lane.get_lane_type_display()
 
-        # Build bands
+        # Build bands, from the top of the lane (Band.Meta.ordering, the page's): a band's rank names it
         bands = []
-        for band in lane.bands.order_by("position_y"):
-            band_data = self._build_band_data(band)
+        for rank, band in enumerate(lane.bands.all(), 1):
+            band_data = self._build_band_data(band, rank)
             bands.append(band_data)
 
         # Get densitometry summary
@@ -321,6 +385,7 @@ class ComparisonDataCollector:
             lane_id=lane.id,
             lane_number=lane.lane_number,
             lane_type=lane.get_lane_type_display(),
+            lane_type_code=lane.lane_type or "SAMPLE",
             sample_name=sample_name,
             condition=lane.condition_display,
             protein_load_ug=lane.protein_load_ug,
@@ -330,9 +395,8 @@ class ComparisonDataCollector:
             y=lane.y,
             width=lane.width,
             height=lane.height,
-            lane_type_code=lane.lane_type or "SAMPLE",
-            lane_shape=getattr(lane, "lane_shape", "RECTANGLE") or "RECTANGLE",
-            polygon=getattr(lane, "polygon", None) or None,
+            # Rule 2 (spec 2026-10-10 §4), as in data_collector: a RECTANGLE lane is read by its box.
+            polygon=lane.polygon if has_outline(lane.lane_shape, lane.polygon) else None,
             bands=bands,
             total_integrated_area=total_area,
             poi_integrated_area=poi_area,
@@ -342,13 +406,14 @@ class ComparisonDataCollector:
             profile_data=profile_data,
         )
 
-    def _build_band_data(self, band) -> BandReportData:
+    def _build_band_data(self, band, rank: int) -> BandReportData:
         """
         Build BandReportData from Band model instance.
         Reuses logic from ReportDataCollector.
 
         Args:
             band: Band instance
+            rank: its rank from the top of its lane (analysis_detail.band_number)
 
         Returns:
             BandReportData with densitometry results
@@ -365,6 +430,10 @@ class ComparisonDataCollector:
         relative_pct_lane = None
         relative_pct_gel = None
         fit_quality = None
+        estimated_amount = None
+        estimated_amount_unit = ""
+        saturated = None
+        saturated_pixel_fraction = None
 
         try:
             densitometry = band.densitometry
@@ -377,6 +446,10 @@ class ComparisonDataCollector:
             relative_pct_lane = densitometry.relative_percent_lane
             relative_pct_gel = densitometry.relative_percent_gel
             fit_quality = densitometry.fit_quality
+            estimated_amount = densitometry.estimated_amount
+            estimated_amount_unit = densitometry.estimated_amount_unit
+            saturated = densitometry.saturated
+            saturated_pixel_fraction = densitometry.saturated_pixel_fraction
         except DensitometryResult.DoesNotExist:
             pass
 
@@ -392,7 +465,7 @@ class ComparisonDataCollector:
             bbox_y=band.bbox_y,
             bbox_width=band.bbox_width,
             bbox_height=band.bbox_height,
-            polygon=getattr(band, "polygon", None) or None,
+            polygon=band.polygon or None,
             corrected_area=corrected_area,
             peak_amplitude=peak_amplitude,
             peak_sigma=peak_sigma,
@@ -402,4 +475,9 @@ class ComparisonDataCollector:
             relative_percent_lane=relative_pct_lane,
             relative_percent_gel=relative_pct_gel,
             fit_quality=fit_quality,
+            estimated_amount=estimated_amount,
+            estimated_amount_unit=estimated_amount_unit,
+            name=f"B{band_number(band, rank)}",
+            saturated=saturated,
+            saturated_pixel_fraction=saturated_pixel_fraction,
         )

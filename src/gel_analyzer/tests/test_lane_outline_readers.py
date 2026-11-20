@@ -59,10 +59,6 @@ def test_comparison_payloads_give_the_outline_not_a_rectangles_stale_polygon(cli
         assert added["outline"] == expected  # the "Add lane" endpoint, through the same lane_item
 
 
-@pytest.mark.xfail(
-    reason="The report collectors are resynced with ds-hub in the reports step: they still read a lane by its box.",
-    strict=True,
-)
 @pytest.mark.django_db
 def test_report_crop_of_a_legacy_tilted_lane_is_its_masked_outline_and_a_rectangles_stale_polygon_is_ignored(
     gel_analysis, test_user

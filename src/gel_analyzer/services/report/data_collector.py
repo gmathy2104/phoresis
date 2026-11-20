@@ -17,6 +17,8 @@ from gel_analyzer.models import (
     LaneDensitometrySummary,
     MultiLadderCalibrationConfig,
 )
+from gel_analyzer.services.analysis_detail import band_number
+from gel_analyzer.services.lane_geometry.shape import has_outline
 from phoresis_core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +46,8 @@ class BandReportData:
 
     # Identity
     band_id: str
-    band_type: str  # Display string, e.g. "Protein of Interest"
+    band_type: str  # display label (e.g. "Protein of Interest")
+    band_type_code: str  # enum code (e.g. "POI") — used by gel_overlay palette
     band_number: int | None
     position_y: int
     estimated_mw_kda: float | None
@@ -57,11 +60,7 @@ class BandReportData:
     bbox_y: int | None = None
     bbox_width: int | None = None
     bbox_height: int | None = None
-    polygon: list | None = None
-
-    # Enum code (e.g. "POI", "MW_REFERENCE", "OTHER") for palette lookups —
-    # default at the end so existing positional callers stay compatible.
-    band_type_code: str = "OTHER"
+    polygon: list | None = None  # User-drawn outline (when present), used by gel_overlay
 
     # Densitometry results
     corrected_area: float | None = None
@@ -74,6 +73,22 @@ class BandReportData:
     relative_percent_gel: float | None = None
     fit_quality: str | None = None
 
+    # Protein quantification (read from DensitometryResult; back-filled by an
+    # active ProteinQuantCalibration). estimated_amount is None until a
+    # calibration projects this band's corrected_area.
+    estimated_amount: float | None = None
+    estimated_amount_unit: str = ""
+    estimated_amount_range: str | None = None  # DensitometryResult.CalibrationRange, stored with the amount
+
+    # The band's name on the pages ("B3": analysis_detail.band_number) and its saturation (``DensitometryResult.saturated``:
+    # None when never measured; the stored share of clipped pixels beside it, a warning that corrects nothing).
+    name: str = ""
+    saturated: bool | None = None
+    saturated_pixel_fraction: float | None = None
+    # Its part in its lane's western readout (aggregate / main / clipping, hcp / left_out:
+    # analysis_detail.band_role_map, set by page_rows), None on a purity gel or a lane the readout does not read.
+    role: str | None = None
+
 
 @dataclass
 class LaneReportData:
@@ -82,25 +97,21 @@ class LaneReportData:
     # Identity
     lane_id: int
     lane_number: int
-    lane_type: str  # Display string ("Sample", "MW Ladder"…)
+    lane_type: str  # display label (e.g. "MW Ladder")
+    lane_type_code: str  # enum code (e.g. "LADDER") — used by gel_overlay palette
     sample_name: str
     condition: str
     protein_load_ug: float | None
     protein_load_type: str
     notes: str
 
-    # Geometry — rectangle bbox is always populated; ``polygon`` carries
-    # the actual outline when ``lane_shape != RECTANGLE``.
+    # Geometry — the rectangle bbox is always populated; ``polygon`` carries the lane's outline when the
+    # lane is drawn by one (lane_geometry.shape.has_outline), None for a rectangle lane.
     x: int
     y: int
     width: int
     height: int
-
-    # Optional fields with defaults — added in the brand refresh; placed
-    # AFTER the required fields so subclass dataclasses keep working.
-    lane_type_code: str = "SAMPLE"  # enum code for palette lookups
-    lane_shape: str = "RECTANGLE"
-    polygon: list | None = None
+    polygon: list | None = None  # User-drawn lane outline, used by gel_overlay
 
     # Bands
     bands: list[BandReportData] = field(default_factory=list)
@@ -114,6 +125,20 @@ class LaneReportData:
 
     # Profile data for electropherogram rendering
     profile_data: dict | None = None
+
+    # What the analysis page shows for the lane (analysis_detail.lane_rows), set by page_rows.apply_page_rows:
+    # its sample ("" when none: ``sample_name`` above falls back to the lane type for the image labels), the
+    # cells of the readout's columns by key ({text, reason, tone}), the numbers behind them, whether the readout
+    # reads the lane at all, and whether it is the HCP reference.
+    sample: str = ""
+    readout_cells: dict = field(default_factory=dict)
+    readout_numbers: dict = field(default_factory=dict)
+    readout_reason: str | None = None
+    is_read: bool = False
+    is_reference: bool = False
+    # The lane's saturated bands as the page's saturation check lists them (analysis_detail.saturated_bands, a ladder
+    # left out): "B3 (POI)".
+    saturated_bands: list = field(default_factory=list)
 
 
 @dataclass
@@ -129,6 +154,63 @@ class CalibrationReportData:
     r_squared_quality: str
     matched_band_count: int
     band_matches: list = field(default_factory=list)
+
+
+@dataclass
+class QuantCalibrationReportData:
+    """Active protein-quantification calibration metadata for the report."""
+
+    method: str  # display label, e.g. "Linear"
+    unit: str  # display label, e.g. "µg" / "µg/mL"
+    equation: str
+    r_squared: float
+    r_squared_quality: str  # excellent / good / acceptable / poor / unknown
+    n_points: int  # non-excluded calibration points used in the fit
+    n_excluded: int  # excluded calibration points
+    created_by_name: str
+    created_at: str
+    last_recomputed_at: str | None  # set if a background refit drifted the fit
+    notes: str
+
+
+@dataclass
+class QuantPointReportData:
+    """One calibration point (Table A)."""
+
+    lane_number: int
+    load_amount: float | None
+    load_unit: str  # display label
+    corrected_area: float | None
+    residual_pct: float | None
+    is_excluded: bool
+
+
+@dataclass
+class QuantControlReportData:
+    """One control/QC point (Table B).
+
+    Ph3 RECOVERY SOURCE CONTRACT: Recovery %/out-of-spec is exposed ONLY via the
+    top-level ``quant_controls`` list (keyed by ``lane_number``), derived by the
+    read-only fit()+project() pass. It is NOT attached to BandReportData.
+    """
+
+    lane_number: int
+    known_amount: float | None
+    predicted_amount: float | None
+    recovery_pct: float | None
+    out_of_spec: bool
+    calibration_range: str | None = None  # DensitometryResult.CalibrationRange of its area
+
+
+@dataclass
+class QuantSampleReportData:
+    """One sample estimated amount (Table C)."""
+
+    lane_number: int
+    sample_name: str
+    estimated_amount: float | None
+    unit: str  # display label
+    calibration_range: str | None = None  # DensitometryResult.CalibrationRange of its area
 
 
 @dataclass
@@ -148,7 +230,7 @@ class ReportData:
     image_title: str
     image_width: int | None
     image_height: int | None
-    gel_image_id: str | None = None  # used by server-side overlay rendering
+    gel_image_id: str | None = None  # UUID, used by gel_overlay renderer
 
     # Lanes
     lanes: list[LaneReportData] = field(default_factory=list)
@@ -170,6 +252,14 @@ class ReportData:
     report_generated_at: str = ""
     report_generated_by: str = ""
     software_version: str = "GelAnalyzer v1.0"
+
+    # Protein quantification (populated by the densitometry collector; the base
+    # ReportDataCollector leaves these at their defaults).
+    has_quantification: bool = False
+    quant_calibration: QuantCalibrationReportData | None = None
+    quant_points: list[QuantPointReportData] = field(default_factory=list)
+    quant_controls: list[QuantControlReportData] = field(default_factory=list)
+    quant_samples: list[QuantSampleReportData] = field(default_factory=list)
 
 
 class ReportDataCollector:
@@ -238,7 +328,12 @@ class ReportDataCollector:
             analysis_status=analysis.get_status_display(),
             gel_type=analysis.gel_image.get_gel_type_display() if hasattr(analysis.gel_image, "gel_type") else "N/A",
             notes=analysis.notes,
-            created_by_name=analysis.created_by.get_full_name() if analysis.created_by else "Unknown",
+            # The page's name of a user: the full name, else the username (an account without a name read blank).
+            created_by_name=(
+                (analysis.created_by.get_full_name() or analysis.created_by.username)
+                if analysis.created_by
+                else "Unknown"
+            ),
             created_at=analysis.created_at.strftime("%Y-%m-%d %H:%M") if analysis.created_at else "",
             # Image info
             image_title=analysis.gel_image.original_filename,
@@ -281,10 +376,10 @@ class ReportDataCollector:
         # Phoresis has no ProcessSample registry — lanes always carry sample_name directly.
         sample_name = lane.sample_name or lane.get_lane_type_display()
 
-        # Build bands
+        # Build bands, from the top of the lane (Band.Meta.ordering, the page's): a band's rank names it
         bands = []
-        for band in lane.bands.order_by("position_y"):
-            band_data = self._build_band_data(band)
+        for rank, band in enumerate(lane.bands.all(), 1):
+            band_data = self._build_band_data(band, rank)
             bands.append(band_data)
 
         # Get densitometry summary
@@ -331,7 +426,6 @@ class ReportDataCollector:
             lane_number=lane.lane_number,
             lane_type=lane.get_lane_type_display(),
             lane_type_code=lane.lane_type or "SAMPLE",
-            lane_shape=getattr(lane, "lane_shape", "RECTANGLE") or "RECTANGLE",
             sample_name=sample_name,
             condition=lane.condition_display,
             protein_load_ug=lane.protein_load_ug,
@@ -341,7 +435,9 @@ class ReportDataCollector:
             y=lane.y,
             width=lane.width,
             height=lane.height,
-            polygon=getattr(lane, "polygon", None) or None,
+            # Rule 2 (spec 2026-10-10 §4) applied once here: the report readers draw and crop by `polygon` when
+            # it is set, and a RECTANGLE lane may still store one.
+            polygon=lane.polygon if has_outline(lane.lane_shape, lane.polygon) else None,
             bands=bands,
             total_integrated_area=total_area,
             poi_integrated_area=poi_area,
@@ -351,12 +447,13 @@ class ReportDataCollector:
             profile_data=profile_data,
         )
 
-    def _build_band_data(self, band: Band) -> BandReportData:
+    def _build_band_data(self, band: Band, rank: int) -> BandReportData:
         """
         Build BandReportData from Band model instance.
 
         Args:
             band: Band instance
+            rank: its rank from the top of its lane (analysis_detail.band_number)
 
         Returns:
             BandReportData with densitometry results
@@ -371,6 +468,11 @@ class ReportDataCollector:
         relative_pct_lane = None
         relative_pct_gel = None
         fit_quality = None
+        estimated_amount = None
+        estimated_amount_unit = ""
+        estimated_amount_range = None
+        saturated = None
+        saturated_pixel_fraction = None
 
         try:
             densitometry = band.densitometry
@@ -383,6 +485,11 @@ class ReportDataCollector:
             relative_pct_lane = densitometry.relative_percent_lane
             relative_pct_gel = densitometry.relative_percent_gel
             fit_quality = densitometry.fit_quality
+            estimated_amount = densitometry.estimated_amount
+            estimated_amount_unit = densitometry.estimated_amount_unit
+            estimated_amount_range = densitometry.estimated_amount_range
+            saturated = densitometry.saturated
+            saturated_pixel_fraction = densitometry.saturated_pixel_fraction
         except DensitometryResult.DoesNotExist:
             pass
 
@@ -398,7 +505,7 @@ class ReportDataCollector:
             bbox_y=band.bbox_y,
             bbox_width=band.bbox_width,
             bbox_height=band.bbox_height,
-            polygon=getattr(band, "polygon", None) or None,
+            polygon=band.polygon or None,
             corrected_area=corrected_area,
             peak_amplitude=peak_amplitude,
             peak_sigma=peak_sigma,
@@ -408,6 +515,12 @@ class ReportDataCollector:
             relative_percent_lane=relative_pct_lane,
             relative_percent_gel=relative_pct_gel,
             fit_quality=fit_quality,
+            estimated_amount=estimated_amount,
+            estimated_amount_unit=estimated_amount_unit,
+            estimated_amount_range=estimated_amount_range,
+            name=f"B{band_number(band, rank)}",
+            saturated=saturated,
+            saturated_pixel_fraction=saturated_pixel_fraction,
         )
 
     def _build_calibration_data(self, calibration: LadderCalibration) -> CalibrationReportData:
