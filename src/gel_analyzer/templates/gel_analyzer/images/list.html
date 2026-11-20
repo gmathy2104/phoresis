@@ -8,7 +8,7 @@
     <header class="flex items-end justify-between">
         <div>
             <h1 class="text-2xl font-semibold">Gel images</h1>
-            <p class="mt-1 text-sm text-text-muted">{{ kpis.total }} gels uploaded · {{ kpis.non_analyzed }} pending analysis</p>
+            <p class="mt-1 text-sm text-text-muted">{{ kpis.total }} gel{{ kpis.total|pluralize }} uploaded · {{ kpis.non_analyzed }} pending analysis{% if chips %} · {{ page_obj.paginator.count }} shown{% endif %}</p>
         </div>
         {% url 'gel_analyzer:image_upload' as image_upload_url %}
         {% btn "Upload gel" href=image_upload_url icon="upload" %}
@@ -17,12 +17,7 @@
     <form method="get" class="flex flex-wrap gap-2">
         <input type="search" name="q" value="{{ search_query }}" placeholder="Search by filename or description…"
                class="flex-1 min-w-[240px] rounded-md border border-border bg-surface px-3 py-2 text-sm">
-        <select name="gel_type" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
-            <option value="">All gel types</option>
-            {% for value, label in gel_type_choices %}
-                <option value="{{ value }}" {% if value == gel_type_filter %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
+        {% include 'gel_analyzer/includes/_list_filters.html' %}
         <select name="analyzed" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
             <option value="">All</option>
             <option value="yes" {% if analyzed_filter == 'yes' %}selected{% endif %}>Analyzed</option>
@@ -30,6 +25,17 @@
         </select>
         {% btn "Filter" type_="submit" variant="secondary" %}
     </form>
+
+    {% if chips %}
+    <div class="flex flex-wrap items-center gap-2 text-xs">
+        {% for chip in chips %}
+        <a href="{{ chip.url }}" class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 hover:bg-surface-elevated" title="Remove this filter">
+            {{ chip.label }} <span aria-hidden="true">×</span>
+        </a>
+        {% endfor %}
+        <a href="?" class="text-text-muted hover:underline">Clear all</a>
+    </div>
+    {% endif %}
 
     {% if images %}
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -44,18 +50,18 @@
                     </div>
                     <p class="truncate text-sm font-medium">{{ gel.original_filename }}</p>
                     <div class="mt-1 flex items-center gap-2 text-xs text-text-muted">
-                        {% badge gel.get_gel_type_display variant="primary" %}
+                        {% if gel.assay %}{% badge gel.assay.name variant="primary" %}{% else %}{% badge gel.get_gel_type_display variant="muted" %}{% endif %}
                         <span>·</span>
-                        <span>{{ gel.analyses_count }} analyses</span>
+                        <span>{{ gel.analyses_count }} analys{{ gel.analyses_count|pluralize:"is,es" }}</span>
                     </div>
                 </a>
             {% endfor %}
         </div>
         {% if page_obj.has_other_pages %}
             <nav class="flex justify-center gap-2 pt-2 text-sm">
-                {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="rounded-md border border-border px-3 py-1.5">Previous</a>{% endif %}
+                {% if page_obj.has_previous %}<a href="{% querystring page=page_obj.previous_page_number %}" class="rounded-md border border-border px-3 py-1.5">Previous</a>{% endif %}
                 <span class="px-3 py-1.5 text-text-muted">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-                {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="rounded-md border border-border px-3 py-1.5">Next</a>{% endif %}
+                {% if page_obj.has_next %}<a href="{% querystring page=page_obj.next_page_number %}" class="rounded-md border border-border px-3 py-1.5">Next</a>{% endif %}
             </nav>
         {% endif %}
     {% else %}

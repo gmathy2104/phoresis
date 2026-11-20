@@ -1,0 +1,33 @@
+{% comment %}
+  The filters of a gel list page (images, analyses), inside the page's GET <form>:
+  one drop-down of checkboxes per facet (services/list_filters.py::facet), the sort order,
+  and under the form's row one removable chip per active filter.
+
+  Several values of one filter widen the list, two filters narrow it; every ticked value is a
+  form input, so submitting keeps them all. No script: a <details> is the drop-down.
+
+  Context: facets, sort_by, sort_choices (the view's), and chips for the caller's chip row.
+{% endcomment %}
+{% for facet in facets %}
+<details class="relative">
+    <summary class="cursor-pointer list-none rounded-md border border-border bg-surface px-3 py-2 text-sm">
+        {{ facet.label }}{% if facet.selected_count %}: <span class="font-medium">{{ facet.summary }}</span>{% if facet.extra %} +{{ facet.extra }}{% endif %}{% endif %}
+    </summary>
+    <div class="absolute left-0 z-10 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-surface p-2 shadow">
+        {% for option in facet.options %}
+        <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-elevated">
+            <input type="checkbox" name="{{ facet.param }}" value="{{ option.value }}"{% if option.checked %} checked{% endif %}>
+            <span class="flex-1 truncate">{{ option.label }}</span>
+            <span class="text-xs text-text-muted">{{ option.count }}</span>
+        </label>
+        {% empty %}
+        <p class="px-2 py-1 text-sm text-text-muted">Nothing to filter on yet.</p>
+        {% endfor %}
+    </div>
+</details>
+{% endfor %}
+<select name="sort" aria-label="Sort by" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
+    {% for value, label in sort_choices %}
+    <option value="{{ value }}"{% if value == sort_by %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+</select>

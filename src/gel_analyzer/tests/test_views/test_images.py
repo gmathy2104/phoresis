@@ -94,3 +94,33 @@ def test_edit_page_changes_the_assay_and_refuses_one_of_another_gel_type(client,
     gel_image.refresh_from_db()
     assert gel_image.assay_id == purity.pk
     assert "This assay is for Western Blot gels." in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_image_list_filters_by_assay_and_keeps_the_filter_in_its_chips(client, gel_image) -> None:
+    from gel_analyzer.models import GelAssay, GelImage
+
+    client.force_login(UserFactory(username="filter_user"))
+    western = GelAssay.objects.get(name="Western blot — anti-HCP")
+    blot = GelImage.objects.create(
+        original_file="b.png", original_filename="blot.png", gel_type=GelImage.GelType.WESTERN_BLOT, assay=western
+    )
+
+    response = client.get(reverse("gel_analyzer:image_list"), {"assay": western.pk})
+
+    assert [image.pk for image in response.context["images"]] == [blot.pk]
+    page = response.content.decode()
+    # The ticked value is a form input (submitting another filter keeps it), and a chip removes it.
+    assert f'name="assay" value="{western.pk}" checked' in page
+    assert "Assay: Western blot — anti-HCP" in page
+
+    # An image without an assay is reached by the "No assay" option.
+    response = client.get(reverse("gel_analyzer:image_list"), {"assay": "none"})
+    assert [image.pk for image in response.context["images"]] == [gel_image.pk]
+
+
+@pytest.mark.django_db
+def test_image_page_shows_the_assay_and_the_lane_count(client, gel_image) -> None:
+    client.force_login(UserFactory(username="detail_user"))
+    page = client.get(reverse("gel_analyzer:image_detail", kwargs={"pk": gel_image.pk})).content.decode()
+    assert "None — read from its gel type" in page and "Lanes" in page

@@ -190,3 +190,18 @@ class TestAnalysisAnnotateView:
         response = client.get(url)
         assert response.status_code == 302
         assert "analyses" in response.url and "annotate" not in response.url
+
+
+@pytest.mark.django_db
+def test_analysis_list_filters_by_status_and_shows_the_assay(client, gel_analysis) -> None:
+    client.force_login(UserFactory(username="analysis_filter_user"))
+    url = reverse("gel_analyzer:analysis_list")
+
+    response = client.get(url, {"status": gel_analysis.status})
+    assert [a.pk for a in response.context["analyses"]] == [gel_analysis.pk]
+    page = response.content.decode()
+    assert f'name="status" value="{gel_analysis.status}" checked' in page
+    assert "no assay" in page  # the fixture's image has none: its gel type is named instead
+
+    other = "APPROVED" if gel_analysis.status != "APPROVED" else "DRAFT"
+    assert list(client.get(url, {"status": other}).context["analyses"]) == []

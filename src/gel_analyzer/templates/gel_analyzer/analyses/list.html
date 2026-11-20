@@ -8,21 +8,27 @@
     <header class="flex items-end justify-between">
         <div>
             <h1 class="text-2xl font-semibold">Analyses</h1>
-            <p class="mt-1 text-sm text-text-muted">All gel analyses you can access.</p>
+            <p class="mt-1 text-sm text-text-muted">{{ total_count }} analys{{ total_count|pluralize:"is,es" }}{% if chips %} · {{ page_obj.paginator.count }} shown{% endif %}.</p>
         </div>
     </header>
 
     <form method="get" class="flex flex-wrap gap-2">
         <input type="search" name="q" value="{{ search_query }}" placeholder="Search by name or gel filename…"
                class="flex-1 min-w-[240px] rounded-md border border-border bg-surface px-3 py-2 text-sm">
-        <select name="status" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
-            <option value="">All statuses</option>
-            {% for value, label in status_choices %}
-                <option value="{{ value }}" {% if value == status_filter %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
+        {% include 'gel_analyzer/includes/_list_filters.html' %}
         {% btn "Filter" type_="submit" variant="secondary" %}
     </form>
+
+    {% if chips %}
+    <div class="flex flex-wrap items-center gap-2 text-xs">
+        {% for chip in chips %}
+        <a href="{{ chip.url }}" class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 hover:bg-surface-elevated" title="Remove this filter">
+            {{ chip.label }} <span aria-hidden="true">×</span>
+        </a>
+        {% endfor %}
+        <a href="?" class="text-text-muted hover:underline">Clear all</a>
+    </div>
+    {% endif %}
 
     {% if analyses %}
         <div class="overflow-hidden rounded-lg border border-border bg-surface">
@@ -31,6 +37,7 @@
                     <tr>
                         <th class="px-4 py-3">Name</th>
                         <th class="px-4 py-3">Gel</th>
+                        <th class="px-4 py-3">Assay</th>
                         <th class="px-4 py-3">Status</th>
                         <th class="px-4 py-3">Lanes</th>
                         <th class="px-4 py-3">Bands</th>
@@ -42,6 +49,7 @@
                         <tr class="hover:bg-surface-elevated">
                             <td class="px-4 py-3"><a href="{% url 'gel_analyzer:analysis_detail' pk=a.id %}" class="font-medium hover:underline">{{ a.name|default:"(unnamed)" }}</a></td>
                             <td class="px-4 py-3 text-text-muted">{{ a.gel_image.original_filename|truncatechars:32 }}</td>
+                            <td class="px-4 py-3 text-text-muted">{% if a.gel_image.assay %}{{ a.gel_image.assay.name }}{% else %}{{ a.gel_image.get_gel_type_display }} · no assay{% endif %}</td>
                             <td class="px-4 py-3">{% badge a.get_status_display variant="muted" %}</td>
                             <td class="px-4 py-3">{{ a.total_lanes }}</td>
                             <td class="px-4 py-3">{{ a.total_bands }}</td>
@@ -51,6 +59,13 @@
                 </tbody>
             </table>
         </div>
+        {% if page_obj.has_other_pages %}
+            <nav class="flex justify-center gap-2 pt-2 text-sm">
+                {% if page_obj.has_previous %}<a href="{% querystring page=page_obj.previous_page_number %}" class="rounded-md border border-border px-3 py-1.5">Previous</a>{% endif %}
+                <span class="px-3 py-1.5 text-text-muted">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                {% if page_obj.has_next %}<a href="{% querystring page=page_obj.next_page_number %}" class="rounded-md border border-border px-3 py-1.5">Next</a>{% endif %}
+            </nav>
+        {% endif %}
     {% else %}
         {% url 'gel_analyzer:image_list' as image_list_url %}
         {% empty_state "No analyses yet" message="Open a gel image to create your first analysis." icon="layers" cta_label="Browse gels" cta_href=image_list_url %}
