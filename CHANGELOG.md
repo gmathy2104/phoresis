@@ -9,6 +9,13 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.3.0](https://github.com/gmathy2104/phoresis/compare/v1.2.0...v1.3.0) (2026-11-21)
+
+
+### Features
+
+* guided tours of every page, with Driver.js ([407d168](https://github.com/gmathy2104/phoresis/commit/407d16866b3ce43591c1bb8246323afa692eb1a2))
+
 ## [1.2.0](https://github.com/gmathy2104/phoresis/compare/v1.1.1...v1.2.0) (2026-11-20)
 
 
