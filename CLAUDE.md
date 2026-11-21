@@ -17,12 +17,13 @@ Apps and dependency direction (strict, one-way):
 ```
 phoresis_ui  (leaf design system)  ← imports nothing from feature apps
 phoresis_core (loguru, Celery, ErrorLog, robust_task, nav registry)
+guided_tours → phoresis_core            (page tours; the page chromes call its {% gt_launcher %} tag)
 accounts     → phoresis_core
 gel_analyzer → phoresis_core, phoresis_ui, accounts   (the only feature app)
 dashboard    → phoresis_core, phoresis_ui, gel_analyzer
 ```
 
-Nothing imports from `dashboard`. `gel_analyzer` is theoretically extractable.
+Nothing imports from `dashboard`. `guided_tours` (ported from ds-hub-django, see its README) is reached only through its template tag, from `phoresis_ui`'s top bar and `gel_analyzer`'s workbench headers; a page gets a tour from `<app>/tours/<tour_id>.json` plus `data-tour` attributes. `gel_analyzer` is theoretically extractable.
 
 Source layout uses a **`src/` layout** with packages flat under it (`src/phoresis/`, `src/gel_analyzer/`, …). `pythonpath = ["src"]` is set in `pyproject.toml` so tests resolve them; the Django project module is `phoresis` (settings at `phoresis.settings.{base,dev,prod,test}`).
 

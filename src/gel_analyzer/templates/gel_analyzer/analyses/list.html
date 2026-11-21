@@ -12,7 +12,7 @@
         </div>
     </header>
 
-    <form method="get" class="flex flex-wrap gap-2">
+    <form method="get" class="flex flex-wrap gap-2" data-tour="al-filters">
         <input type="search" name="q" value="{{ search_query }}" placeholder="Search by name or gel filename…"
                class="flex-1 min-w-[240px] rounded-md border border-border bg-surface px-3 py-2 text-sm">
         {% include 'gel_analyzer/includes/_list_filters.html' %}
@@ -46,11 +46,11 @@
                 </thead>
                 <tbody class="divide-y divide-border">
                     {% for a in analyses %}
-                        <tr class="hover:bg-surface-elevated">
+                        <tr class="hover:bg-surface-elevated"{% if forloop.first %} data-tour="al-row"{% endif %}>
                             <td class="px-4 py-3"><a href="{% url 'gel_analyzer:analysis_detail' pk=a.id %}" class="font-medium hover:underline">{{ a.name|default:"(unnamed)" }}</a></td>
                             <td class="px-4 py-3 text-text-muted">{{ a.gel_image.original_filename|truncatechars:32 }}</td>
                             <td class="px-4 py-3 text-text-muted">{% if a.gel_image.assay %}{{ a.gel_image.assay.name }}{% else %}{{ a.gel_image.get_gel_type_display }} · no assay{% endif %}</td>
-                            <td class="px-4 py-3">{% badge a.get_status_display variant="muted" %}</td>
+                            <td class="px-4 py-3"><span{% if forloop.first %} data-tour="al-status"{% endif %}>{% badge a.get_status_display variant="muted" %}</span></td>
                             <td class="px-4 py-3">{{ a.total_lanes }}</td>
                             <td class="px-4 py-3">{{ a.total_bands }}</td>
                             <td class="px-4 py-3 text-text-muted">{{ a.created_at|date:"M j, Y" }}</td>

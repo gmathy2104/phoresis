@@ -155,7 +155,7 @@
     <header class="flex items-end justify-between gap-4">
         <div class="min-w-0">
             <h1 class="text-2xl font-semibold">{{ analysis.name|default:"(unnamed)" }}</h1>
-            <p class="mt-1 text-sm text-text-muted">
+            <p class="mt-1 text-sm text-text-muted" data-tour="ad-status">
                 Gel
                 <a class="hover:underline" href="{% url 'gel_analyzer:image_detail' pk=analysis.gel_image.pk %}">{{ analysis.gel_image.original_filename }}</a>
                 ·
@@ -164,7 +164,7 @@
                 by {{ analysis.created_by|default:"—" }}
             </p>
         </div>
-        <div class="flex flex-shrink-0 gap-2">
+        <div class="flex flex-shrink-0 gap-2" data-tour="ad-views">
             {% if analysis.is_editable %}
                 {% url 'gel_analyzer:analysis_annotate' pk=analysis.id as annotate_url %}
                 {% btn "Annotate" href=annotate_url icon="edit" %}
@@ -188,7 +188,7 @@
 
         {# Left column: stats + data quality #}
         <div class="space-y-4 min-w-0">
-            <div class="rounded-lg border border-border bg-surface">
+            <div class="rounded-lg border border-border bg-surface" data-tour="ad-metrics">
                 <div class="border-b border-border px-4 py-2">
                     <h2 class="text-xs font-medium uppercase tracking-wide text-text-muted">Overview</h2>
                 </div>
@@ -226,7 +226,7 @@
 
             {# Data quality warnings #}
             {% if warnings %}
-                <details class="rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-700" open>
+                <details class="rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-700" open data-tour="ad-checks">
                     <summary class="flex cursor-pointer items-center justify-between gap-2 px-4 py-2.5 font-medium">
                         <span class="flex items-center gap-2">
                             {% icon "alert-triangle" size=14 %}
@@ -245,7 +245,7 @@
 
         {# Right column: annotated gel #}
         {% if analysis.gel_image %}
-            <div class="rounded-lg border border-border bg-surface min-w-0">
+            <div class="rounded-lg border border-border bg-surface min-w-0" data-tour="ad-gel">
                 <div class="flex items-center justify-between border-b border-border px-4 py-2">
                     <h2 class="text-xs font-medium uppercase tracking-wide text-text-muted">Annotated gel</h2>
                     {% if analysis.is_editable %}
@@ -262,7 +262,7 @@
     </section>
 
     {# Lanes spreadsheet #}
-    <section class="rounded-lg border border-border bg-surface">
+    <section class="rounded-lg border border-border bg-surface" data-tour="ad-lanes">
         <div class="flex items-center justify-between border-b border-border px-4 py-3">
             <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">
                 Lanes

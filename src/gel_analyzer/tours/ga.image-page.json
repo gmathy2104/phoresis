@@ -1,0 +1,42 @@
+{
+  "tour_id": "ga.image-page",
+  "version": 1,
+  "templates": [
+    "gel_analyzer/images/detail.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "A tour of the image page",
+    "text": "One gel image and what was done with it. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "ip-new",
+      "side": "bottom",
+      "align": "end",
+      "title": "Read this gel",
+      "text": "<b>New analysis</b> starts a reading of the image: you draw or detect its lanes and bands, then measure them. An image may have several analyses. <b>Edit</b> changes its assay, gel type or description."
+    },
+    {
+      "key": "ip-image",
+      "side": "right",
+      "align": "start",
+      "title": "The image itself",
+      "text": "The gel as it was uploaded, converted for display. The annotation editor of an analysis is where it can be zoomed and adjusted."
+    },
+    {
+      "key": "ip-details",
+      "side": "left",
+      "align": "start",
+      "title": "Assay and details",
+      "text": "What the gel is read for, its gel type, the lanes drawn on it across its analyses, and the file's size. The description, when it has one, is under them."
+    },
+    {
+      "key": "ip-analyses",
+      "side": "left",
+      "align": "start",
+      "title": "Its analyses",
+      "text": "Each with its status. Click one to open its results."
+    }
+  ]
+}

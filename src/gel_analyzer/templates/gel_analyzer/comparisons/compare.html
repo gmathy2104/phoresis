@@ -1,5 +1,5 @@
 {% extends 'gel_analyzer/_ga_base_minimal.html' %}
-{% load static %}
+{% load static gt_tags %}
 
 {% block title %}Sample Comparison{% endblock %}
 
@@ -37,19 +37,20 @@
             <h1 class="ga-wb-title" title="{{ saved_comparison_name|default:'Comparison' }}">{{ saved_comparison_name|default:"Comparison" }}</h1>
             <span class="ga-wb-badge" id="sample-count">{{ items_data|length }} item(s)</span>
             {# One assay at a time (owner, 2026-10-12): filled by comparison-kinds.js, hidden with one assay. #}
-            <div class="ga-wb-kinds" id="ga-cmp-kinds" role="group" aria-label="Assay compared" hidden></div>
+            <div class="ga-wb-kinds" id="ga-cmp-kinds" role="group" aria-label="Assay compared" data-tour="cmp-assays" hidden></div>
             <div class="ga-wb-right">
+                {% gt_launcher "workbench" %}
                 {% include 'gel_analyzer/workbench/_theme_toggle.html' %}
             </div>
         </div>
         <div class="ga-wb-row ga-wb-row--cmd">
-            <div class="ga-wb-field">
+            <div class="ga-wb-field" data-tour="cmp-mw-tolerance">
                 <label for="mw-tolerance" class="ga-wb-label">MW tolerance</label>
                 <input type="number" id="mw-tolerance" class="ga-wb-select ga-wb-num dm-input-sm"
                        value="5" min="1" max="20" step="1" aria-describedby="mw-tolerance-unit">
                 <span class="ga-wb-unit" id="mw-tolerance-unit">%</span>
             </div>
-            <div class="ga-wb-field">
+            <div class="ga-wb-field" data-tour="cmp-normalize">
                 <label for="normalization-mode" class="ga-wb-label">Normalize</label>
                 <select id="normalization-mode" class="ga-wb-select dm-select">
                     <option value="raw">Raw (no normalization)</option>
@@ -58,14 +59,14 @@
                 </select>
             </div>
             <div class="ga-wb-right">
-                <button id="add-sample-btn" class="ga-wb-btn ga-wb-btn--primary" {% if not can_add_more %}disabled{% endif %}>
+                <button id="add-sample-btn" class="ga-wb-btn ga-wb-btn--primary" data-tour="cmp-add-lanes" {% if not can_add_more %}disabled{% endif %}>
                     <i class="bi bi-plus-circle" aria-hidden="true"></i><span>Add lanes</span>
                 </button>
-                <button id="save-comparison-btn" class="ga-wb-btn">
+                <button id="save-comparison-btn" class="ga-wb-btn" data-tour="cmp-save">
                     <i class="bi bi-floppy" aria-hidden="true"></i>
                     <span id="save-btn-text">{% if saved_comparison_id %}Saved{% else %}Save{% endif %}</span>
                 </button>
-                <div class="ga-wb-more" id="ga-cmp-more">
+                <div class="ga-wb-more" id="ga-cmp-more" data-tour="cmp-more">
                     <button type="button" class="ga-wb-iconbtn" id="ga-cmp-more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More actions" title="More actions">
                         <i class="bi bi-three-dots" aria-hidden="true"></i>
                     </button>
@@ -90,7 +91,7 @@
          The graphical-view toggles (Electropherogram/POI-Purity view switch +
          MW/Pos axis-mode toggle + POI-only checkbox) now live inside the
          generated chromatogram panel header for 100% parity with the baseline. -->
-    <div id="sample-comparison-app" class="dm-viz-host"></div>
+    <div id="sample-comparison-app" class="dm-viz-host" data-tour="cmp-panels"></div>
 </div>
 
 <!-- Panel Magnify Overlay -->

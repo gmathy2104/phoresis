@@ -1,0 +1,39 @@
+{% extends 'components/app_base.html' %}
+{% load static %}
+{% comment %}
+/tours/: every guided tour (guided_tours/discover.py::tour_listing), by app, with its status and a Start link when
+the tour has an entry. A tour of one record's page (an image, an analysis) starts from the compass of that page.
+{% endcomment %}
+
+{% block title %}Guided tours — Phoresis{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'guided_tours/css/gt-index.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="gti-page">
+  <header class="gti-head">
+    <h1 class="text-2xl font-semibold">Guided tours</h1>
+    <p class="gti-lead">A tour points at the parts of a page in a minute. You took <b>{{ taken }}</b> of the {{ total }} tours.
+      <span class="gti-bar" aria-hidden="true"><span style="width: {% widthratio taken total|default:1 100 %}%"></span></span></p>
+  </header>
+  {% for group in groups %}
+  <section class="gti-group" aria-labelledby="gti-{{ forloop.counter }}">
+    <h2 id="gti-{{ forloop.counter }}">{{ group.name }}</h2>
+    <ul>
+      {% for tour in group.tours %}
+      <li class="gti-tour">
+        <i class="bi bi-compass gti-tour__icon" aria-hidden="true"></i>
+        <span class="gti-tour__name">{{ tour.title }}<small>{{ tour.steps }} stop{{ tour.steps|pluralize }}</small></span>
+        <span class="gti-status gti-status--{{ tour.status }}">{% if tour.status == 'taken' %}Taken{% elif tour.status == 'new' %}New version{% else %}Not yet{% endif %}</span>
+        {% if tour.url %}<a class="gti-btn" href="{{ tour.url }}">{% if tour.status == 'taken' %}Again{% else %}Start{% endif %}</a>{% else %}<span class="gti-tour__where">Use the compass on the page itself</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% empty %}
+  <p class="gti-lead">No tour yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

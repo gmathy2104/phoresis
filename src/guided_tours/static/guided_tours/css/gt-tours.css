@@ -1,0 +1,156 @@
+/* Guided tours -- Driver.js's popover dressed in the HOST page's colours (guided_tours/README.md).
+   One set of --gt-* tokens on :root. Each falls back from the gel workbench's --ga-wb-* (night by default, day under
+   [data-theme="light"]: css/ga-workbench.css) to the application pages' --color-* (phoresis_ui/css/tokens.css: day by
+   default, night under [data-theme="dark"]), then to a light value. Both families switch on the same <html>
+   attribute, so the tour follows the page's Night | Day switch with no script. The popover is a child of <body>,
+   outside every `.<prefix>-viz-root { all: initial }`.
+   Ported from ds-hub-django, whose tokens are --pp-*; everything below the tokens is the hub's. */
+:root {
+  --gt-surface: var(--ga-wb-surface, var(--color-surface, #ffffff));
+  --gt-surface-2: var(--ga-wb-surface-2, var(--color-bg, #f5f7fa));
+  --gt-border: var(--ga-wb-border-2, var(--color-border, #d5dbe3));
+  --gt-text: var(--ga-wb-text, var(--color-text, #1f2937));
+  --gt-text-muted: var(--ga-wb-muted, var(--color-text-muted, #5b6574));
+  --gt-accent: var(--ga-wb-accent, var(--color-accent-600, #2563eb));
+  --gt-accent-text: var(--ga-wb-accent-text, var(--color-accent-600, #2563eb));
+  --gt-on-accent: var(--ga-wb-on-accent, #ffffff);
+  /* a page with no data-theme is a workbench page at night; the application pages always carry light or dark */
+  --gt-overlay: rgba(2, 6, 23, 0.72);
+  --gt-shadow-color: rgba(0, 0, 0, 0.45);
+  --driver-popover-font-family: inherit;
+  --driver-animation-duration: 0.25s;
+}
+:root[data-theme="light"] {
+  --gt-overlay: rgba(15, 23, 42, 0.52);
+  --gt-shadow-color: rgba(15, 23, 42, 0.22);
+}
+
+.driver-popover.gt-popover {
+  font-family: inherit;
+  color: var(--gt-text);
+  background: var(--gt-surface);
+  border: 1px solid var(--gt-border);
+  border-radius: 10px;
+  box-shadow: 0 16px 44px var(--gt-shadow-color);
+  padding: 16px 16px 14px;
+  min-width: 280px;
+  max-width: 360px;
+}
+.gt-popover .driver-popover-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  padding-right: 26px;
+  color: var(--gt-text);
+}
+.gt-popover .driver-popover-description {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--gt-text);
+  opacity: 0.92;
+}
+.gt-popover .driver-popover-description b { font-weight: 600; }
+.gt-popover kbd {
+  font: inherit;
+  font-size: 10.5px;
+  padding: 0 4px;
+  border: 1px solid var(--gt-border);
+  border-radius: 3px;
+  background: var(--gt-surface-2);
+}
+.gt-popover .gt-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--gt-accent-text);
+  text-decoration: none;
+}
+.gt-popover .gt-more:hover { text-decoration: underline; }
+.gt-popover .driver-popover-close-btn {
+  color: var(--gt-text-muted);
+  top: 8px;
+  right: 6px;
+  border-radius: 6px;
+}
+.gt-popover .driver-popover-close-btn:hover,
+.gt-popover .driver-popover-close-btn:focus-visible { color: var(--gt-text); background: var(--gt-surface-2); }
+.gt-popover .driver-popover-footer { margin-top: 14px; gap: 10px; }
+.gt-popover .driver-popover-progress-text {
+  font-size: 11.5px;
+  color: var(--gt-text-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.gt-popover .gt-keys {
+  font-size: 11px;
+  color: var(--gt-text-muted);
+  margin-right: auto;
+  white-space: nowrap;
+}
+/* Driver's buttons drawn as the pages' .pp-btn: Back ghost, Next / Done primary */
+.gt-popover .driver-popover-footer-btn {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--gt-text);
+  background: transparent;
+  border: 1px solid var(--gt-border);
+  text-shadow: none;
+}
+.gt-popover .driver-popover-footer-btn:hover { background: var(--gt-surface-2); }
+.gt-popover .driver-popover-next-btn,
+.gt-popover .driver-popover-done-btn {
+  color: var(--gt-on-accent);
+  background: var(--gt-accent);
+  border-color: var(--gt-accent);
+}
+.gt-popover .driver-popover-next-btn:hover,
+.gt-popover .driver-popover-done-btn:hover { background: var(--gt-accent); filter: brightness(1.08); }
+.gt-popover .driver-popover-footer-btn:focus-visible {
+  outline: 2px solid var(--gt-accent);
+  outline-offset: 2px;
+}
+.gt-popover .gt-later { margin-right: 6px; }
+/* the arrow takes the popover's surface, on whichever side Driver draws it */
+.gt-popover .driver-popover-arrow { border-color: var(--gt-surface); }
+.gt-popover .driver-popover-arrow-side-left { border-color: transparent transparent transparent var(--gt-surface); }
+.gt-popover .driver-popover-arrow-side-right { border-color: transparent var(--gt-surface) transparent transparent; }
+.gt-popover .driver-popover-arrow-side-top { border-color: var(--gt-surface) transparent transparent transparent; }
+.gt-popover .driver-popover-arrow-side-bottom { border-color: transparent transparent var(--gt-surface) transparent; }
+/* the element being explained: a ring in the page's accent, around Driver's cut-out */
+.driver-active .driver-active-element {
+  outline: 2px solid var(--gt-accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+/* the compass: in the top bar of the application pages, or (--workbench) in the gel workbench header */
+.gt-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--gt-text-muted);
+  background: var(--gt-surface);
+  border: 1px solid var(--gt-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.gt-launch:hover { color: var(--gt-text); background: var(--gt-surface-2); }
+.gt-launch:focus-visible { outline: 2px solid var(--gt-accent); outline-offset: 2px; }
+.gt-launch .bi { font-size: 1rem; }
+.gt-launch--workbench { height: 28px; padding: 0 8px; font-size: 12px; margin-right: 6px; white-space: nowrap; }
+@media (max-width: 640px) {
+  .gt-launch__label { display: none; }
+}

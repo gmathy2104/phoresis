@@ -1,0 +1,36 @@
+{
+  "tour_id": "ga.analysis-list",
+  "version": 1,
+  "entry": "gel_analyzer:analysis_list",
+  "templates": [
+    "gel_analyzer/analyses/list.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "A tour of the analyses",
+    "text": "An analysis is one reading of a gel image: its lanes, bands and results. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "al-filters",
+      "side": "bottom",
+      "align": "start",
+      "title": "Find an analysis",
+      "text": "Search a name or a gel file, then narrow by status, assay or creator, and choose the sort order."
+    },
+    {
+      "key": "al-row",
+      "side": "bottom",
+      "align": "start",
+      "title": "One analysis",
+      "text": "Its name, its gel and assay, how many lanes and bands were drawn and when it was created. Click the name to open its page."
+    },
+    {
+      "key": "al-status",
+      "side": "bottom",
+      "align": "center",
+      "title": "Where it stands",
+      "text": "<b>Draft</b>: nothing drawn yet. <b>In progress</b>: being annotated. <b>Completed</b>: finished. <b>Approved</b>: final, its values are locked. A <b>Rejected</b> analysis counts nowhere."
+    }
+  ]
+}

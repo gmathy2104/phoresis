@@ -1,0 +1,63 @@
+{
+  "tour_id": "ga.densitometry",
+  "version": 1,
+  "templates": [
+    "gel_analyzer/analyses/densitometry.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "The densitometry page",
+    "text": "Where the bands are measured: each band's area on its lane's profile, its share of the lane, and what the gel's assay reads from it, a purity or a western readout. A short tour; leave it at any time with <kbd>Esc</kbd>."
+  },
+  "steps": [
+    {
+      "key": "dm-summary",
+      "side": "bottom",
+      "align": "start",
+      "title": "The readout at a glance",
+      "text": "Sample lanes, bands, lanes analysed, the gel's readout and its calibrations. Then <b>To check</b>: what the readout still lacks, a POI band or a reference lane for instance. Click one for what to do."
+    },
+    {
+      "key": "dm-normalization",
+      "side": "bottom",
+      "align": "start",
+      "title": "How a band's % is computed",
+      "text": "<b>Lane Total</b>: each band as a share of its lane. <b>Loading Control</b>: relative to the lane's MW Reference band, which every lane with bands must carry, or the run is refused. Neither changes the purity. It applies at the next run; the <b>?</b> beside it explains both."
+    },
+    {
+      "key": "dm-run",
+      "side": "bottom",
+      "align": "end",
+      "title": "Run the densitometry",
+      "text": "Measures every band: its area on the lane's profile, background removed, then its % and the gel's readout. Greyed once the analysis is approved: an approved analysis is final."
+    },
+    {
+      "key": "dm-gel",
+      "side": "right",
+      "align": "start",
+      "title": "The gel and its bands",
+      "text": "The gel with the bands you annotated. Click a lane to select it, a band to follow it: the four panels share the selection. The buttons enhance or invert the display, hide the bands, or open the panel full screen."
+    },
+    {
+      "key": "dm-graph",
+      "side": "left",
+      "align": "start",
+      "title": "The profile, and the readout's charts",
+      "text": "<b>Electropherogram</b>: the selected lane's profile, background removed, each band's area filled in its type's colour. Beside it: POI purity or the western readout, as the gel's assay reads, then the quantification curve and a 3D view."
+    },
+    {
+      "key": "dm-measurements",
+      "side": "top",
+      "align": "end",
+      "title": "Measurements",
+      "text": "<b>Lanes</b>: one row per lane with the gel's readout, the values the analysis page shows; a missing value says why. <b>Bands</b>: one row per band, its MW, area and % of the lane; a clipped band carries <b>Saturated</b>, a warning that changes no area."
+    },
+    {
+      "key": "dm-more",
+      "side": "bottom",
+      "align": "end",
+      "title": "Export, report and more",
+      "text": "<b>Export CSV</b> of the measurements and a <b>Report</b> in Word, Excel or PowerPoint, both once the gel has results. Also the image adjustments, which change the display only, and <b>How densitometry works</b>."
+    }
+  ]
+}

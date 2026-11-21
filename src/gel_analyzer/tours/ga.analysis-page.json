@@ -1,0 +1,56 @@
+{
+  "tour_id": "ga.analysis-page",
+  "version": 1,
+  "templates": [
+    "gel_analyzer/analyses/detail.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "A tour of the analysis page",
+    "text": "This page sums up one reading of a gel: its lanes, its bands and what the densitometry measured. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "ad-status",
+      "side": "bottom",
+      "align": "start",
+      "title": "Where this analysis stands",
+      "text": "The gel image it reads, its status, when it was created and by whom."
+    },
+    {
+      "key": "ad-views",
+      "side": "bottom",
+      "align": "end",
+      "title": "Annotate, then measure",
+      "text": "<b>Annotate</b> opens the editor to draw or detect lanes and bands, while the analysis can still be edited. <b>Densitometry</b> measures them: it appears once the gel has a band."
+    },
+    {
+      "key": "ad-metrics",
+      "side": "right",
+      "align": "start",
+      "title": "The gel in numbers",
+      "text": "Lanes, bands, how many ladder lanes are calibrated in molecular weight, and the mean POI purity of the sample lanes once the densitometry has run."
+    },
+    {
+      "key": "ad-checks",
+      "side": "right",
+      "align": "start",
+      "title": "What still needs a look",
+      "text": "Data-quality remarks about this gel, a lane without a band or a missing calibration for instance. They never block the work."
+    },
+    {
+      "key": "ad-gel",
+      "side": "left",
+      "align": "start",
+      "title": "The gel and what was drawn on it",
+      "text": "Lanes outlined by type (sample, ladder, control), bands by type (POI in purple). Click the gel to see it large; in the large view, click a lane to find its row in the table below."
+    },
+    {
+      "key": "ad-lanes",
+      "side": "top",
+      "align": "start",
+      "title": "The lanes and their samples",
+      "text": "One row per lane: its type, sample name, load and results. While the analysis is editable, click a cell to edit it; <kbd>Tab</kbd> and the arrows move between cells."
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "tour_id": "home",
+  "version": 1,
+  "entry": "dashboard:home",
+  "templates": [
+    "dashboard/home.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "Welcome to Phoresis",
+    "text": "Here your gel and blot images become numbers: lanes and bands, molecular weights, purity or a western readout. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "home-upload",
+      "side": "bottom",
+      "align": "end",
+      "title": "Start with an image",
+      "text": "<b>Upload gel</b> takes a scanner file (.gel, .scn, TIFF, PNG, JPEG) and asks for its assay: what the gel is read for, purity on an SDS-PAGE or host-cell proteins on a western blot, for instance."
+    },
+    {
+      "key": "home-metrics",
+      "side": "bottom",
+      "align": "start",
+      "title": "Your activity in four numbers",
+      "text": "The gels uploaded, their analyses, the analyses still <b>pending</b> and the gels added in the last seven days."
+    },
+    {
+      "key": "home-recent",
+      "side": "top",
+      "align": "start",
+      "title": "The latest gels",
+      "text": "The most recent images with their gel type and number of analyses. Click one to open it and start an analysis; <b>View all</b> opens the whole list."
+    },
+    {
+      "key": "all-pages",
+      "side": "right",
+      "align": "start",
+      "title": "Every page, from anywhere",
+      "text": "The dashboard, the gel images, the analyses, the comparisons, the <b>Gel dashboard</b> and the list of these tours. The menu opens when the pointer is over it; the arrow at its bottom pins it open."
+    },
+    {
+      "key": "all-search",
+      "side": "bottom",
+      "align": "start",
+      "title": "Find a gel by its name",
+      "text": "<kbd>Ctrl</kbd> <kbd>K</kbd> searches the pages and the gel images, by file name or description, from any page."
+    }
+  ]
+}

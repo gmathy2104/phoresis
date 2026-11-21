@@ -1,0 +1,11 @@
+{% load static %}{% comment %} The page's tour (guided_tours/templatetags/gt_tags.py::gt_launcher): the compass in the
+page's chrome (the top bar, or the workbench header with variant="workbench"), Driver.js 1.10.2 vendored (no CDN:
+AGENTS.md §1), the runner and its theme, and the island the runner reads (script_json: never |safe). {% endcomment %}
+<link rel="stylesheet" href="{% static 'guided_tours/vendor/driverjs/1.10.2/driver.css' %}">
+<link rel="stylesheet" href="{% static 'guided_tours/css/gt-tours.css' %}">
+<button type="button" class="gt-launch{% if variant == 'workbench' %} gt-launch--workbench{% endif %}" data-gt-launch aria-label="Show me around this page" title="Show me around this page">
+  <i class="bi bi-compass" aria-hidden="true"></i><span class="gt-launch__label">Tour</span>
+</button>
+<script type="application/json" id="gt-tour-data">{{ island }}</script>
+<script src="{% static 'guided_tours/vendor/driverjs/1.10.2/driver.js.iife.js' %}" defer></script>
+<script src="{% static 'guided_tours/js/gt-tours.js' %}" defer></script>

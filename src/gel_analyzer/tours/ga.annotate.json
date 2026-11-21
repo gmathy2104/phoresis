@@ -1,0 +1,70 @@
+{
+  "tour_id": "ga.annotate",
+  "version": 1,
+  "templates": [
+    "gel_analyzer/analyses/annotate_standalone.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "The annotation editor",
+    "text": "Where a gel is read: its lanes, their bands and samples, the ladder's molecular weights, ready for densitometry. A short tour of the toolbar and the side panel; leave it at any time with <kbd>Esc</kbd>."
+  },
+  "steps": [
+    {
+      "key": "wb-views",
+      "side": "bottom",
+      "align": "end",
+      "title": "Three views of one analysis",
+      "text": "<b>Analysis</b>: the analysis page, its status, lanes and samples. <b>Annotate</b>: this editor. <b>Densitometry</b>: where the bands are measured, greyed until the gel has a band. The arrow on the left goes back to the analysis."
+    },
+    {
+      "key": "wb-navigate",
+      "side": "bottom",
+      "align": "start",
+      "title": "Select, pan, zoom",
+      "text": "<b>Select</b> (<kbd>V</kbd>) picks a lane or band to move, resize or edit; <b>Pan</b> (<kbd>H</kbd>) drags the gel. Next to them, zoom out and in (<kbd>-</kbd> <kbd>+</kbd>) and fit the gel to the window (<kbd>0</kbd>). The scroll wheel zooms at the cursor."
+    },
+    {
+      "key": "wb-detect-lanes",
+      "side": "bottom",
+      "align": "start",
+      "title": "Find the lanes with the wand",
+      "text": "The lane model finds the gel's lanes, then you review them on the gel: click a lane to keep or drop it, its tag to change its type, then accept them. It replaces the lanes already drawn, and their bands, so it asks first."
+    },
+    {
+      "key": "wb-band-model",
+      "side": "bottom",
+      "align": "start",
+      "title": "Find the bands with the band model",
+      "text": "Once the lanes are saved, the model finds the bands of every lane in one pass, in your browser (<kbd>Shift+Y</kbd>); nothing is saved until you click <b>Save all</b>. It knows a band, not your protein: type the <b>POI</b> bands yourself."
+    },
+    {
+      "key": "wb-draw",
+      "side": "bottom",
+      "align": "start",
+      "title": "Draw lanes and bands by hand",
+      "text": "<b>Lane</b>: a rectangle (<kbd>L</kbd>), four corners for a tilted lane (<kbd>Q</kbd>) or a polygon (<kbd>P</kbd>). <b>Band</b> (<kbd>B</kbd>): drag a box inside a lane. <b>Split</b> (<kbd>S</kbd>) cuts in two a band the detector merged."
+    },
+    {
+      "key": "wb-mw",
+      "side": "bottom",
+      "align": "start",
+      "title": "MW calibration",
+      "text": "Once the ladder's lane is typed <b>MW Ladder</b> and has its bands, <b>MW Calibration</b> (<kbd>C</kbd>) ties the weights of its template to the bands' positions: the gel's bands then read in kDa. <b>MW lines</b> (<kbd>M</kbd>) shows them on the gel."
+    },
+    {
+      "key": "wb-panels",
+      "side": "bottom",
+      "align": "end",
+      "title": "The editor's panels",
+      "text": "<b>Lane Editor</b> (<kbd>T</kbd>): every lane in a table, its type, load and sample. <b>Band Editor</b> (<kbd>E</kbd>): the selected lane's bands. <b>Adjust Image</b> (<kbd>A</kbd>): the display only. <b>Electropherogram</b> (<kbd>G</kbd>): the selected lane's profile."
+    },
+    {
+      "key": "wb-properties",
+      "side": "left",
+      "align": "start",
+      "title": "How this gel is read",
+      "text": "At the top of this panel: what each band counts as for the gel's assay (the POI and its purity, HMWS and LMWS, HCP bands) and what to check while annotating; click a line for what to do. Under it, the properties of the lane or band you select."
+    }
+  ]
+}

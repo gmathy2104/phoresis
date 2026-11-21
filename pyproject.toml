@@ -138,7 +138,7 @@ ignore = [
 "src/phoresis/settings/*" = ["F401", "F403", "F405"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["phoresis", "phoresis_core", "accounts", "dashboard", "phoresis_ui", "gel_analyzer"]
+known-first-party = ["phoresis", "phoresis_core", "accounts", "dashboard", "phoresis_ui", "gel_analyzer", "guided_tours"]
 section-order = ["future", "standard-library", "third-party", "django", "first-party", "local-folder"]
 
 [tool.ruff.lint.isort.sections]

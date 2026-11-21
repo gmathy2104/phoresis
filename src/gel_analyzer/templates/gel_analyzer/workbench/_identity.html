@@ -1,4 +1,4 @@
-{% comment %}
+{% load gt_tags %}{% comment %}
 The identity row of the gel workbench header (css/ga-workbench.css): back, crumbs, the analysis name,
 its status, its assay, the three views of the analysis, Night | Day.
 
@@ -31,7 +31,7 @@ Ported from ds-hub-django without its hub bar, project crumb and help button.
     <span class="ga-wb-badge ga-wb-badge--assay ga-wb-phone-hide" title="No assay: read from its gel type ({{ readout_label|lower }})"><i class="bi bi-eyedropper" aria-hidden="true"></i>{{ gel_image.get_gel_type_display }} · no assay</span>
     {% endif %}
     <div class="ga-wb-right">
-        <nav class="ga-wb-views" aria-label="Views of this analysis">
+        <nav class="ga-wb-views" aria-label="Views of this analysis" data-tour="wb-views">
             <a href="{% url 'gel_analyzer:analysis_detail' pk=analysis.pk %}"><i class="bi bi-card-text" aria-hidden="true"></i>Analysis</a>
             {% if active == 'annotate' %}
             <span aria-current="page"><i class="bi bi-bounding-box" aria-hidden="true"></i>Annotate</span>
@@ -52,6 +52,7 @@ Ported from ds-hub-django without its hub bar, project crumb and help button.
             {% endif %}
         </nav>
         {% if more_menu %}{% include more_menu %}{% endif %}
+        {% gt_launcher "workbench" %}
         {% if theme is not False %}{% include 'gel_analyzer/workbench/_theme_toggle.html' %}{% endif %}
     </div>
 </div>

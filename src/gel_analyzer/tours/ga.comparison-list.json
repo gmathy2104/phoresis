@@ -1,0 +1,36 @@
+{
+  "tour_id": "ga.comparison-list",
+  "version": 1,
+  "entry": "gel_analyzer:comparison_list",
+  "templates": [
+    "gel_analyzer/comparisons/list.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "A tour of the comparisons",
+    "text": "A comparison puts lanes of several gels side by side, read for their assay. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "cl-new",
+      "side": "bottom",
+      "align": "end",
+      "title": "Start a comparison",
+      "text": "<b>Start New Comparison</b> opens an empty one: add the lanes of any analysis that has a densitometry."
+    },
+    {
+      "key": "cl-saved",
+      "side": "top",
+      "align": "start",
+      "title": "Yours, or everyone's public ones",
+      "text": "<b>My Comparisons</b> lists the ones you saved; <b>All Comparisons</b> adds those others made public. Search by name. A card opens its comparison; deleting one leaves its gels and analyses untouched."
+    },
+    {
+      "key": "cl-recent",
+      "side": "top",
+      "align": "start",
+      "title": "Compare one gel's lanes",
+      "text": "The latest analyses with a densitometry: <b>Compare lanes</b> opens all the lanes of one of them, side by side."
+    }
+  ]
+}

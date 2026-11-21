@@ -11,14 +11,14 @@
             <p class="mt-1 text-sm text-text-muted">{{ kpis.total }} gel{{ kpis.total|pluralize }} uploaded · {{ kpis.non_analyzed }} pending analysis{% if chips %} · {{ page_obj.paginator.count }} shown{% endif %}</p>
         </div>
         {% url 'gel_analyzer:image_upload' as image_upload_url %}
-        {% btn "Upload gel" href=image_upload_url icon="upload" %}
+        <span data-tour="il-upload">{% btn "Upload gel" href=image_upload_url icon="upload" %}</span>
     </header>
 
-    <form method="get" class="flex flex-wrap gap-2">
+    <form method="get" class="flex flex-wrap gap-2" data-tour="il-filters">
         <input type="search" name="q" value="{{ search_query }}" placeholder="Search by filename or description…"
                class="flex-1 min-w-[240px] rounded-md border border-border bg-surface px-3 py-2 text-sm">
         {% include 'gel_analyzer/includes/_list_filters.html' %}
-        <select name="analyzed" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
+        <select name="analyzed" data-tour="il-analyzed" class="rounded-md border border-border bg-surface px-3 py-2 text-sm">
             <option value="">All</option>
             <option value="yes" {% if analyzed_filter == 'yes' %}selected{% endif %}>Analyzed</option>
             <option value="no"  {% if analyzed_filter == 'no'  %}selected{% endif %}>Not analyzed</option>
@@ -40,7 +40,7 @@
     {% if images %}
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {% for gel in images %}
-                <a href="{% url 'gel_analyzer:image_detail' pk=gel.id %}" class="group block rounded-lg border border-border bg-surface p-4 transition-transform hover:-translate-y-[2px] hover:shadow">
+                <a href="{% url 'gel_analyzer:image_detail' pk=gel.id %}" class="group block rounded-lg border border-border bg-surface p-4 transition-transform hover:-translate-y-[2px] hover:shadow"{% if forloop.first %} data-tour="il-card"{% endif %}>
                     <div class="mb-3 aspect-video overflow-hidden rounded-md bg-surface-elevated">
                         {% if gel.thumbnail %}
                             <img src="{{ gel.thumbnail.url }}" alt="" class="h-full w-full object-cover">

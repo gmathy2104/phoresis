@@ -34,6 +34,7 @@ cache-busting.
   - `phoresis_ui/js/vendor/htmx-2.0.3.min.js`
   - `phoresis_ui/js/vendor/alpine-3.14.3.min.js`
   - `phoresis_ui/js/vendor/countup-2.8.0.min.js`
+  - `guided_tours/vendor/driverjs/1.10.2/` (Driver.js 1.10.2: `driver.js.iife.js`, `driver.css`, `LICENSE`)
   - `gel_analyzer/js/vendor/svg.min.js`
   - `gel_analyzer/js/vendor/d3.v7.min.js` (d3 7.9.0)
   - `gel_analyzer/js/vendor/plotly.min.js` (plotly.js 3.0.1)

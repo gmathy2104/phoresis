@@ -1,6 +1,6 @@
-{% load ui_icons ui_components %}
+{% load ui_icons ui_components gt_tags %}
 <header class="sticky top-0 z-10 flex h-15 items-center gap-4 border-b border-border bg-surface px-6">
-    <button x-data
+    <button x-data data-tour="all-search"
             @click="$store.palette.show()"
             class="flex items-center gap-2 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-sm text-text-muted hover:text-text">
         {% icon "search" size=16 %}
@@ -9,6 +9,8 @@
     </button>
 
     <div class="ml-auto flex items-center gap-2">
+        {# The page's guided tour, when it has one (guided_tours): the compass. #}
+        {% gt_launcher %}
         <!-- Theme toggle -->
         <div class="flex rounded-md border border-border bg-surface-elevated p-0.5"
              x-data

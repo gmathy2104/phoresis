@@ -42,7 +42,7 @@
         {# visible names are the mockup's). It wraps on a narrow window rather than scroll: a scrolling row would clip #}
         {# the tooltips and the lane-shape menu that open below it. Save and its unsaved count close the row. #}
         <div class="gv-toolbar" role="toolbar" aria-label="Annotation tools">
-            <div class="gv-toolbar-group" role="group" aria-label="Navigate">
+            <div class="gv-toolbar-group" role="group" aria-label="Navigate" data-tour="wb-navigate">
                 <button class="gv-toolbar-btn active" data-tool="select" data-tooltip="Select (V)" aria-label="Select (V)">
                     <i class="bi bi-cursor"></i>
                 </button>
@@ -77,7 +77,7 @@
 
             <div class="gv-toolbar-group gv-toolbar-group-highlight" role="group" aria-label="Detect">
                 <span class="gv-toolbar-label gv-toolbar-label--detect" aria-hidden="true">Detect</span>
-                <button class="gv-toolbar-btn gv-toolbar-btn-magic" id="btn-auto-detect" data-tooltip="Auto-Detect Lanes" aria-label="Auto-Detect Lanes" data-requires="editable" {% if not analysis.is_editable %}disabled{% endif %}>
+                <button class="gv-toolbar-btn gv-toolbar-btn-magic" id="btn-auto-detect" data-tooltip="Auto-Detect Lanes" aria-label="Auto-Detect Lanes" data-requires="editable" data-tour="wb-detect-lanes" {% if not analysis.is_editable %}disabled{% endif %}>
                     <i class="bi bi-magic"></i>
                 </button>
                 {% comment %}
@@ -105,6 +105,7 @@
                 {% endcomment %}
                 <button class="gv-toolbar-btn gv-toolbar-btn-detection"
                         id="toggle-band-model"
+                        data-tour="wb-band-model"
                         data-tooltip="Band Detection — model (Shift+Y)"
                         aria-label="Band Detection — model (Shift+Y)"
                         data-requires="lanes"
@@ -117,7 +118,7 @@
                 </button>
             </div>
 
-            <div class="gv-toolbar-group" role="group" aria-label="Draw">
+            <div class="gv-toolbar-group" role="group" aria-label="Draw" data-tour="wb-draw">
                 <span class="gv-toolbar-label" aria-hidden="true">Draw</span>
                 <!-- Lane Tool Dropdown -->
                 <div class="gv-tool-dropdown" {% if not analysis.is_editable %}data-disabled="true"{% endif %}>
@@ -155,7 +156,7 @@
                 </button>
             </div>
 
-            <div class="gv-toolbar-group gv-toolbar-group-calibration" role="group" aria-label="MW">
+            <div class="gv-toolbar-group gv-toolbar-group-calibration" role="group" aria-label="MW" data-tour="wb-mw">
                 <span class="gv-toolbar-label gv-toolbar-label--mw" aria-hidden="true">MW</span>
                 <button class="gv-toolbar-btn gv-toolbar-btn-calibration" id="toggle-calibration" data-tooltip="MW Calibration (C)" aria-label="MW Calibration (C)" data-requires="ladder-with-bands" data-disabled-tooltip="Add ladder lanes with bands" {% if not analysis.is_editable %}disabled{% endif %}>
                     <i class="bi bi-rulers"></i>
@@ -165,7 +166,7 @@
                 </button>
             </div>
 
-            <div class="gv-toolbar-group" role="group" aria-label="Panels">
+            <div class="gv-toolbar-group" role="group" aria-label="Panels" data-tour="wb-panels">
                 <span class="gv-toolbar-label" aria-hidden="true">Panels</span>
                 <button class="gv-toolbar-btn" id="toggle-table" data-tooltip="Lane Editor (T)" aria-label="Lane Editor (T)">
                     <i class="bi bi-table"></i>
@@ -368,7 +369,7 @@
         </div>
 
         <!-- Sidebar -->
-        <div class="gv-sidebar">
+        <div class="gv-sidebar" data-tour="wb-properties">
             <div class="gv-sidebar-header">
                 <h5 class="gv-sidebar-title">
                     <i class="bi bi-sliders"></i>

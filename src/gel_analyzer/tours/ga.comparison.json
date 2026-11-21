@@ -1,0 +1,61 @@
+{
+  "tour_id": "ga.comparison",
+  "version": 1,
+  "templates": [
+    "gel_analyzer/comparisons/compare.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "Comparing lanes",
+    "text": "Lanes of one gel or several, side by side: their profiles, their purity, their bands matched by molecular weight. A short tour of the header and the panels; leave it at any time with <kbd>Esc</kbd>."
+  },
+  "steps": [
+    {
+      "key": "cmp-add-lanes",
+      "side": "bottom",
+      "align": "end",
+      "title": "Add lanes",
+      "text": "Pick a gel, tick its lanes, then <b>Add Selected</b>. Repeat for the lanes of other gels: they all go into this comparison."
+    },
+    {
+      "key": "cmp-assays",
+      "side": "bottom",
+      "align": "start",
+      "title": "One assay at a time",
+      "text": "Lanes of different assays (an SDS-PAGE, an anti-HCP western) are never drawn on one axis: this switch shows one assay's lanes, the line under the header lists the others. <b>Save</b> keeps them all."
+    },
+    {
+      "key": "cmp-mw-tolerance",
+      "side": "bottom",
+      "align": "start",
+      "title": "MW tolerance",
+      "text": "How close, in %, two bands' molecular weights must be to share a row of the <b>Band Comparison</b> table and of the CSV export. 5 % by default, from 1 to 20."
+    },
+    {
+      "key": "cmp-normalize",
+      "side": "bottom",
+      "align": "start",
+      "title": "Scale the profiles",
+      "text": "How the overlaid profiles are scaled: <b>Raw</b> as measured, for equal loads; <b>Total Lane</b>, each lane summing to 100 %, when loads differ; <b>Max Peak</b>, each lane's tallest peak at 100 %, to compare shapes."
+    },
+    {
+      "key": "cmp-panels",
+      "title": "The lanes, panel by panel",
+      "text": "On top, one card per lane: drag a card to reorder. Then the lanes side by side or cropped from their gels, the overlaid profiles or the readout's chart, a band's detail, and the <b>Band Comparison</b> table, with <b>Avg purity</b> on a purity assay."
+    },
+    {
+      "key": "cmp-save",
+      "side": "bottom",
+      "align": "end",
+      "title": "Save the comparison",
+      "text": "A name, an optional description, and whether every user may open it. It keeps the lanes in their order and the view: normalization, MW tolerance, axis, POI only. A saved comparison can be saved again as a new copy."
+    },
+    {
+      "key": "cmp-more",
+      "side": "bottom",
+      "align": "end",
+      "title": "Export and report",
+      "text": "<b>Export CSV</b>: every band of the lanes of the assay shown. <b>Report</b>: Word, Excel or PowerPoint, with the lanes' gels, the purity chart and the band comparison; save the comparison first."
+    }
+  ]
+}

@@ -11,6 +11,7 @@ from phoresis_core.search import api_global_search
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include(("accounts.urls", "accounts"), namespace="accounts")),
+    path("tours/", include(("guided_tours.urls", "guided_tours"), namespace="guided_tours")),
     path("", include(("gel_analyzer.urls", "gel_analyzer"), namespace="gel_analyzer")),
     path("api/search/", api_global_search, name="api_global_search"),
     path("healthz/", healthz.readiness, name="healthz"),

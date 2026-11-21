@@ -1,0 +1,43 @@
+{
+  "tour_id": "ga.image-list",
+  "version": 1,
+  "entry": "gel_analyzer:image_list",
+  "templates": [
+    "gel_analyzer/images/list.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "A tour of the gel images",
+    "text": "Every gel and blot image uploaded to Phoresis, with what was done with it. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "il-filters",
+      "side": "bottom",
+      "align": "start",
+      "title": "Find an image",
+      "text": "Search a file name or a description, then narrow by assay, gel type or who uploaded it: tick the values, choose the sort order, then <b>Filter</b>. The filters stay in the address, so a filtered list can be bookmarked."
+    },
+    {
+      "key": "il-analyzed",
+      "side": "bottom",
+      "align": "center",
+      "title": "Analyzed or not yet",
+      "text": "<b>Not analyzed</b> keeps the images no one has analysed: the work still to do."
+    },
+    {
+      "key": "il-card",
+      "side": "right",
+      "align": "start",
+      "title": "One image",
+      "text": "Its thumbnail, its assay (or its gel type while it has none) and how many analyses it carries. Click it to open the image and its analyses."
+    },
+    {
+      "key": "il-upload",
+      "side": "bottom",
+      "align": "end",
+      "title": "Add an image",
+      "text": "<b>Upload gel</b> adds a new image and asks what it is read for."
+    }
+  ]
+}

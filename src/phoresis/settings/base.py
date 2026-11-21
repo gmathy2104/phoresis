@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "simple_history",
     # Phoresis apps
     "phoresis_core",
+    "guided_tours",
     "accounts",
     "gel_analyzer",
     "dashboard",

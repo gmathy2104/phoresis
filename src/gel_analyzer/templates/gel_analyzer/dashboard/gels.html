@@ -1,5 +1,5 @@
 {% extends 'gel_analyzer/_ga_base_minimal.html' %}
-{% load static %}
+{% load static gt_tags %}
 
 {% block title %}Gel dashboard — Phoresis{% endblock %}
 
@@ -34,7 +34,7 @@
             <div class="ga-wb-kinds" id="gd-kinds" role="group" aria-label="Assay shown" hidden></div>
             <span class="gd-other" id="gd-other" hidden></span>
             <div class="ga-wb-right">
-                <a class="ga-wb-btn is-disabled" id="gd-open-comparison" aria-disabled="true"
+                <a class="ga-wb-btn is-disabled" id="gd-open-comparison" aria-disabled="true" data-tour="gd-open"
                    data-href="{% url 'gel_analyzer:sample_comparison' %}"
                    title="Open these lanes in the comparison page, to save or report them">
                     <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open as comparison
@@ -42,15 +42,16 @@
                 <button type="button" class="ga-wb-btn" id="gd-clear" disabled>
                     <i class="bi bi-x-lg" aria-hidden="true"></i> Clear
                 </button>
+                {% gt_launcher "workbench" %}
                 {% include 'gel_analyzer/workbench/_theme_toggle.html' %}
             </div>
         </div>
     </header>
 
     <div class="gd-body">
-        <aside class="gd-picker" aria-label="Gels and lanes">
+        <aside class="gd-picker" aria-label="Gels and lanes" data-tour="gd-picker">
             <div class="gd-picker-head">
-                <label class="gd-search">
+                <label class="gd-search" data-tour="gd-search">
                     <i class="bi bi-search" aria-hidden="true"></i>
                     <input type="search" id="gd-search" placeholder="Filter by gel, analysis or sample…" autocomplete="off"
                            aria-label="Filter the gels">
@@ -63,7 +64,7 @@
         </aside>
 
         <main class="gd-main">
-            <section class="gd-tile gd-tile-gel" aria-labelledby="gd-gel-title">
+            <section class="gd-tile gd-tile-gel" aria-labelledby="gd-gel-title" data-tour="gd-gel">
                 <header class="gd-tile-head">
                     <h2 class="gd-tile-title" id="gd-gel-title"><i class="bi bi-image" aria-hidden="true"></i> Gel</h2>
                     <span class="gd-tile-sub" id="gd-gel-sub"></span>
@@ -79,7 +80,7 @@
                 </div>
             </section>
 
-            <section class="gd-tile gd-tile-cmp" aria-label="Lanes, profiles and readouts">
+            <section class="gd-tile gd-tile-cmp" aria-label="Lanes, profiles and readouts" data-tour="gd-compare">
                 <div class="gd-empty" id="gd-cmp-empty">The ticked lanes are compared here: side by side on a common kDa axis, their intensity profiles, their purity, their bands.</div>
                 <div class="gd-cmp-host" id="gd-comparison" hidden></div>
             </section>

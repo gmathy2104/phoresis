@@ -1,0 +1,50 @@
+{
+  "tour_id": "ga.gel-dashboard",
+  "version": 1,
+  "entry": "gel_analyzer:gel_dashboard",
+  "templates": [
+    "gel_analyzer/dashboard/gels.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "The gel dashboard",
+    "text": "Pick lanes from any analysed gel and look at them together: the gel itself, the intensity profiles, the purity, the bands. Nothing is saved or changed here. A one-minute tour; leave it at any time with <kbd>Esc</kbd>."
+  },
+  "steps": [
+    {
+      "key": "gd-picker",
+      "side": "right",
+      "align": "start",
+      "title": "Every analysed gel and its lanes",
+      "text": "A gel is listed once one of its lanes has a densitometry, newest first. Open a gel and tick its lanes, from one gel or several, up to 20. A lane without a densitometry cannot be ticked."
+    },
+    {
+      "key": "gd-search",
+      "side": "right",
+      "align": "start",
+      "title": "Find a gel",
+      "text": "Filter the list by gel file, analysis name or sample name."
+    },
+    {
+      "key": "gd-gel",
+      "side": "left",
+      "align": "start",
+      "title": "The whole gel of one lane",
+      "text": "The gel of the lane in focus, with that lane's bands and its intensity profile. <b>Bands</b> hides the outlines, <b>Dim the other lanes</b> makes the lane stand out, <b>Analysis</b> opens its analysis page."
+    },
+    {
+      "key": "gd-compare",
+      "side": "left",
+      "align": "start",
+      "title": "The ticked lanes, compared",
+      "text": "One card per lane, then the lanes side by side on a common kDa axis, their overlaid intensity profiles, their purity or western readout, a band's detail and the band table. Lanes of different assays are shown one assay at a time."
+    },
+    {
+      "key": "gd-open",
+      "side": "bottom",
+      "align": "end",
+      "title": "Keep this selection",
+      "text": "<b>Open as comparison</b> takes the ticked lanes to the comparison page, where they can be saved and reported. The page's address also keeps the selection: bookmark it to come back."
+    }
+  ]
+}

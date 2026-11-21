@@ -6,7 +6,7 @@
 {% for error in form.non_field_errors %}
 <p class="rounded-md border border-border bg-surface px-3 py-2 text-sm text-red-700">{{ error }}</p>
 {% endfor %}
-<div>
+<div data-tour="up-assay">
     <label for="id_assay" class="mb-1.5 block text-sm font-medium">{{ form.assay.label }}</label>
     <select name="assay" id="id_assay"{% if form.assay.field.required %} required{% endif %}
             class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">
@@ -17,7 +17,7 @@
     <p class="mt-1 text-xs text-text-muted">{{ form.assay.help_text }}</p>
     {% for error in form.assay.errors %}<p class="mt-1 text-xs text-red-700">{{ error }}</p>{% endfor %}
 </div>
-<div>
+<div data-tour="up-gel-type">
     <label for="id_gel_type" class="mb-1.5 block text-sm font-medium">{{ form.gel_type.label }}</label>
     <select name="gel_type" id="id_gel_type"
             class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm">

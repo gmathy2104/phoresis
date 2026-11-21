@@ -1,0 +1,43 @@
+{
+  "tour_id": "ga.upload",
+  "version": 1,
+  "entry": "gel_analyzer:image_upload",
+  "templates": [
+    "gel_analyzer/images/upload.html"
+  ],
+  "auto_start": true,
+  "welcome": {
+    "title": "A tour of the upload",
+    "text": "Two things to give: the file and what the gel is read for. A one-minute tour; <kbd>Esc</kbd> leaves it, the <b>Tour</b> compass at the top brings it back."
+  },
+  "steps": [
+    {
+      "key": "up-drop",
+      "side": "right",
+      "align": "start",
+      "title": "The file",
+      "text": "Drop it here, or click to browse: a scanner file (.gel, .scn), a TIFF, PNG or JPEG, up to 100 MB."
+    },
+    {
+      "key": "up-assay",
+      "side": "left",
+      "align": "start",
+      "title": "What the gel is read for",
+      "text": "The assay decides what the analysis page and the densitometry report: a purity on an SDS-PAGE, the variants of the molecule or the host-cell proteins on a western blot."
+    },
+    {
+      "key": "up-gel-type",
+      "side": "left",
+      "align": "start",
+      "title": "The gel type",
+      "text": "SDS-PAGE, dot blot or western blot. With an assay chosen it follows the assay; without one, the gel is read from this type."
+    },
+    {
+      "key": "up-submit",
+      "side": "top",
+      "align": "end",
+      "title": "Upload",
+      "text": "You land on the image's page, where <b>New analysis</b> starts reading it."
+    }
+  ]
+}

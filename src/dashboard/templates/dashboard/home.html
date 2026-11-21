@@ -11,17 +11,17 @@
             <p class="mt-1 text-sm text-text-muted">Here's a snapshot of your gel analysis activity.</p>
         </div>
         {% url 'gel_analyzer:image_upload' as image_upload_url %}
-        {% btn "Upload gel" href=image_upload_url icon="upload" %}
+        <span data-tour="home-upload">{% btn "Upload gel" href=image_upload_url icon="upload" %}</span>
     </header>
 
-    <section class="grid grid-cols-2 gap-4 md:grid-cols-4">
+    <section class="grid grid-cols-2 gap-4 md:grid-cols-4" data-tour="home-metrics">
         {% kpi "Total gels"      kpis.total_gels        icon="image"            accent="accent" %}
         {% kpi "Total analyses"  kpis.total_analyses    icon="layers"           accent="accent" %}
         {% kpi "Pending"         kpis.pending_analyses  icon="loader"           accent="warning" %}
         {% kpi "New (7 days)"    kpis.recent_uploads_7d icon="trending-up"      accent="success" %}
     </section>
 
-    <section>
+    <section data-tour="home-recent">
         <header class="mb-4 flex items-center justify-between">
             <h2 class="text-lg font-semibold">Recent gels</h2>
             {% url 'gel_analyzer:image_list' as image_list_url %}

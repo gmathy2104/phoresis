@@ -32,7 +32,7 @@
               - `fileName` reactive field shows visual confirmation of the
                 attached file.
             {% endcomment %}
-            <div class="ui-dropzone cursor-pointer rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center"
+            <div class="ui-dropzone cursor-pointer rounded-lg border-2 border-dashed border-border bg-surface p-8 text-center" data-tour="up-drop"
                  x-data="{
                     active: false,
                     inactiveTimer: null,
@@ -80,7 +80,7 @@
         </div>
         {% for error in form.original_file.errors %}<p class="text-xs text-red-700">{{ error }}</p>{% endfor %}
         {% include 'gel_analyzer/images/_metadata_fields.html' %}
-        <div class="flex justify-end gap-2 pt-2">
+        <div class="flex justify-end gap-2 pt-2" data-tour="up-submit">
             {% url 'gel_analyzer:image_list' as image_list_url %}
             {% btn "Cancel" href=image_list_url variant="ghost" %}
             {% btn "Upload" type_="submit" variant="primary" icon="upload" %}

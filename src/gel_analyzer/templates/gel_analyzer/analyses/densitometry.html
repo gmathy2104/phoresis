@@ -17,7 +17,7 @@
     <header class="ga-wb-bar dm-wb-bar">
         {% include 'gel_analyzer/workbench/_identity.html' with active='densitometry' %}
         <div class="ga-wb-row ga-wb-row--cmd">
-            <div class="ga-wb-field dm-param-group">
+            <div class="ga-wb-field dm-param-group" data-tour="dm-normalization">
                 <label for="normalization-method" class="ga-wb-label">Normalization</label>
                 <select id="normalization-method" class="ga-wb-select dm-select">
                     <option value="lane_total">Lane Total</option>
@@ -76,12 +76,12 @@
             <div class="ga-wb-right">
                 {% if run_locked_reason %}
                 <span class="dm-btn-disabled-wrapper" title="{{ run_locked_reason }}">
-                    <button id="run-analysis-btn" class="ga-wb-btn ga-wb-btn--primary" disabled>
+                    <button id="run-analysis-btn" class="ga-wb-btn ga-wb-btn--primary" data-tour="dm-run" disabled>
                         <i class="bi bi-play-fill" aria-hidden="true"></i><span class="dm-btn-label">Run Analysis</span>
                     </button>
                 </span>
                 {% else %}
-                <button id="run-analysis-btn" class="ga-wb-btn ga-wb-btn--primary" title="Run densitometry analysis on all bands">
+                <button id="run-analysis-btn" class="ga-wb-btn ga-wb-btn--primary" data-tour="dm-run" title="Run densitometry analysis on all bands">
                     <i class="bi bi-play-fill" aria-hidden="true"></i><span class="dm-btn-label">Run Analysis</span>
                 </button>
                 {% endif %}
@@ -91,7 +91,7 @@
                 <a href="{% url 'gel_analyzer:sample_comparison' %}?lanes={{ lane_ids_csv }}" class="ga-wb-btn ga-wb-phone-hide" title="Compare lanes from this analysis">
                     <i class="bi bi-layout-split" aria-hidden="true"></i><span class="dm-btn-label">Compare Lanes</span>
                 </a>
-                <div class="ga-wb-more" id="dm-more">
+                <div class="ga-wb-more" id="dm-more" data-tour="dm-more">
                     <button type="button" class="ga-wb-iconbtn" id="dm-more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More actions" title="More actions">
                         <i class="bi bi-three-dots" aria-hidden="true"></i>
                     </button>
@@ -118,7 +118,7 @@
     {% endif %}
 
     {# The summary strip: the analysis page's cards, checks and status hint (services/analysis_detail.py::summary_payload). #}
-    <section class="ga-wb-summary" id="ga-wb-summary" aria-label="Summary of the readout"></section>
+    <section class="ga-wb-summary" id="ga-wb-summary" aria-label="Summary of the readout" data-tour="dm-summary"></section>
     {# Phone only: the lanes as chips, driving the selection (lanes-view.js fills it). #}
     <nav class="dm-lane-picker" id="dm-lane-picker" aria-label="Lane"></nav>
 
@@ -556,7 +556,7 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
         <!-- Top Row -->
         <div class="dm-panel-row dm-row-top">
             <!-- Gel Overview (Top-Left) -->
-            <div class="dm-panel dm-panel-gel-overview" id="gel-overview-panel">
+            <div class="dm-panel dm-panel-gel-overview" id="gel-overview-panel" data-tour="dm-gel">
                 <div class="dm-panel-header">
                     <span class="dm-panel-title">Gel Overview</span>
                     <div class="dm-panel-actions">
@@ -586,7 +586,7 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
             <div class="dm-splitter dm-splitter-v" data-splitter="top-row" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize · double-click to reset"></div>
 
             <!-- Chromatogram (Top-Right) -->
-            <div class="dm-panel dm-panel-chromatogram" id="chromatogram-panel">
+            <div class="dm-panel dm-panel-chromatogram" id="chromatogram-panel" data-tour="dm-graph">
                 <div class="dm-panel-header">
                     <span class="dm-panel-title"><i class="bi bi-graph-up me-1"></i>Graphical View</span>
                     <div class="dm-panel-actions">
@@ -683,7 +683,7 @@ Note: MW Reference bands are excluded from purity calculations.</pre>
             <div class="dm-splitter dm-splitter-v" data-splitter="bottom-row" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize · double-click to reset"></div>
 
             <!-- Results Table (Bottom-Right) -->
-            <div class="dm-panel dm-panel-results" id="results-table-panel">
+            <div class="dm-panel dm-panel-results" id="results-table-panel" data-tour="dm-measurements">
                 <div class="dm-panel-header">
                     <span class="dm-panel-title">Measurements</span>
                     <div class="dm-panel-actions">

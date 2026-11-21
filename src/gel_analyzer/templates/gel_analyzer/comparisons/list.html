@@ -12,7 +12,7 @@
         </div>
         <div class="flex flex-shrink-0 gap-2">
             {% url 'gel_analyzer:sample_comparison' as sample_comparison_url %}
-            {% btn "Start New Comparison" href=sample_comparison_url icon="plus-circle" %}
+            <span data-tour="cl-new">{% btn "Start New Comparison" href=sample_comparison_url icon="plus-circle" %}</span>
         </div>
     </header>
 
@@ -54,7 +54,7 @@
     </section>
 
     {# Saved comparisons #}
-    <section class="rounded-lg border border-border bg-surface">
+    <section class="rounded-lg border border-border bg-surface" data-tour="cl-saved">
         <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
             <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">Saved Comparisons</h2>
             <input type="search" id="comparison-search" placeholder="Search…"
@@ -82,7 +82,7 @@
     </section>
 
     {# Recent analyses with densitometry #}
-    <section class="rounded-lg border border-border bg-surface">
+    <section class="rounded-lg border border-border bg-surface" data-tour="cl-recent">
         <div class="border-b border-border px-4 py-3">
             <h2 class="text-sm font-medium uppercase tracking-wide text-text-muted">Recent Analyses with Densitometry</h2>
         </div>
