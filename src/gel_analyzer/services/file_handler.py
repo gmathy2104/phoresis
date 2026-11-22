@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 
 from phoresis_core.logging_config import get_logger
+from phoresis_core.media_tiers import ArchiveOfflineError
 from phoresis_core.stored_files import delete_replaced_file
 
 if TYPE_CHECKING:
@@ -447,6 +448,9 @@ class GelFileHandler:
             try:
                 with file_field.open("rb") as f:
                     file_content = f.read()
+            except ArchiveOfflineError:
+                # On the archive disk, which is unplugged: the message says so, keep it.
+                raise
             except FileNotFoundError:
                 storage_backend = type(file_field.storage).__name__
                 log.error(
@@ -728,6 +732,8 @@ class GelFileHandler:
         try:
             with file_field.open("rb") as f:
                 file_content = f.read()
+        except ArchiveOfflineError:
+            raise
         except FileNotFoundError:
             storage_backend = type(file_field.storage).__name__
             raise OSError(

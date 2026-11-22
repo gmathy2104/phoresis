@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 [`AGENTS.md`](AGENTS.md) holds the **non-negotiable project policies** — no CDNs, Django comment syntax, Git LFS for ML models, Caddy/proxy headers, container init order, PowerShell 5.1 compatibility, media-volume safety, etc. Re-read it before any non-trivial change. The rules in there are scarred-by-incidents lessons; do not relitigate them.
 
+A second, independent deployment exists for Apple Silicon Macs: native processes under launchd, no Docker (`scripts/mac/phoresis.sh`, [`docs/INSTALL-MAC.md`](docs/INSTALL-MAC.md), AGENTS.md §12), with media on two disks (`phoresis_core/media_tiers.py`).
+
 Per-app deep-dives live under `src/<app>/docs/README.md` and architectural detail under `docs/ARCHITECTURE.md`.
 
 ## Project shape
@@ -83,4 +85,5 @@ Direct pushes to `main` were authorised for the v1.0.x bug-hunt cycle. From v1.1
 - Wrap every `localStorage` / `sessionStorage` access in `try/catch` — Edge Tracking Prevention / Safari Lockdown / Firefox Strict throw `SecurityError` and an unguarded throw inside `alpine:init` kills every `$store.*` on the page (AGENTS.md §3). Reference helpers: `safeLocalGet` / `safeLocalSet` in `src/phoresis_ui/static/phoresis_ui/js/alpine-init.js`.
 - Media lives in the **external named volume** `phoresis_phoresis_media`, not a host bind-mount. `docker compose down -v` cannot wipe it; the only supported wipe path is `scripts/wipe-media.ps1` (auto-backs up + 3 confirmations). Don't change the `external: true` declaration (AGENTS.md §9).
 - Git LFS holds the ML model binaries (`src/gel_analyzer/static/gel_analyzer/ml/...`). A clone without git-lfs leaves 134-byte pointer files; the worker fails opaquely inside onnxruntime. `install.ps1` has a guard for this — leave it (AGENTS.md §4).
+- Media is read and written through the storage (`field.open()`, `storage.size()`), never through a `MEDIA_ROOT` path: on the Mac install an archived original lives on an external disk (AGENTS.md §12).
 - PowerShell scripts must run on **Windows PowerShell 5.1** (no em-dashes/smart quotes in source, no `-SkipCertificateCheck`, use `curl.exe -k` and `-o NUL`). See AGENTS.md §10.

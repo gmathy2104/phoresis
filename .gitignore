@@ -40,6 +40,7 @@ staticfiles/
 .env
 .env.*
 !.env.example
+!.env.mac.example
 
 # --- Node / Tailwind ---
 node_modules/

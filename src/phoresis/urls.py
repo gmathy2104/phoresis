@@ -20,6 +20,16 @@ urlpatterns = [
     path("", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
 ]
 
+# Media on two disks (the Mac install): what the web server does not find on the fast disk is asked
+# here, and read from the archive disk. Declared before the dev-only route below, which only knows
+# MEDIA_ROOT; the storage finds a file wherever it is.
+if getattr(settings, "PHORESIS_MEDIA_ARCHIVE_ROOT", ""):
+    from django.urls import re_path
+
+    from phoresis_core.media_tiers import serve_media
+
+    urlpatterns.append(re_path(r"^media/(?P<name>.+)$", serve_media, name="archived_media"))
+
 # Dev-only: serve user-uploaded media via runserver. In production Caddy
 # intercepts /media/* and serves the files directly from the named volume
 # (see docker/Caddyfile §"handle_path /media/*"), so this branch is dead code

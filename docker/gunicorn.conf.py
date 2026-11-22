@@ -6,7 +6,9 @@ import os
 from gunicorn.glogging import Logger
 
 # Bind to the internal port; Caddy proxies in.
-bind = f"0.0.0.0:{os.environ.get('GUNICORN_PORT', '8000')}"
+# GUNICORN_BIND overrides the whole address: the macOS install (scripts/mac/phoresis.sh) binds
+# 127.0.0.1 only, since its Caddy runs on the same host and not in a sibling container.
+bind = os.environ.get("GUNICORN_BIND") or f"0.0.0.0:{os.environ.get('GUNICORN_PORT', '8000')}"
 
 # 4 sync workers per spec §5.1; can be tuned via env.
 workers = int(os.environ.get("GUNICORN_WORKERS", "4"))

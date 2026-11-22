@@ -41,3 +41,17 @@ def get_recent_gels(limit: int = 6):
         .annotate(analyses_count=Count("analyses"))
         .order_by("-uploaded_at")[:limit]
     )
+
+
+def get_media_storage(user) -> dict | None:
+    """The media-storage card, for staff, where an archive disk is configured (the Mac install).
+
+    None hides the card: every other deployment keeps all its media on one disk and has nothing to show.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, "PHORESIS_MEDIA_ARCHIVE_ROOT", "") or not user.is_staff:
+        return None
+    from phoresis_core.media_tiers import storage_status
+
+    return storage_status()

@@ -62,6 +62,14 @@ def readiness(request: HttpRequest) -> JsonResponse:
         "celery": "ok" if celery_ok else "no workers",
     }
 
+    # Informational, never changes the verdict: the app works without its archive disk, it only cannot
+    # re-read archived originals. Present only where an archive is configured (the Mac install).
+    from phoresis_core.media_tiers import DISABLED, archive_state
+
+    archive = archive_state()
+    if archive.state != DISABLED:
+        subsystems["media_archive"] = archive.state
+
     if not (db_ok and redis_ok):
         overall, status = "error", 503
     elif not celery_ok:

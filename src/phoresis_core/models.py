@@ -97,3 +97,25 @@ class ErrorLog(models.Model):
         if self.error_id:
             return f"[{self.error_id}] {self.level} – {self.message[:60]}"
         return f"[{self.level}] {self.timestamp} – {self.message[:80]}"
+
+
+class ArchivedMediaFile(models.Model):
+    """A media file moved from MEDIA_ROOT to the archive disk (``phoresis_core.media_tiers``).
+
+    The row is what still knows the file exists while the archive disk is unplugged: its name stays
+    taken, and opening it says "reconnect the disk" instead of "file not found".
+    """
+
+    name = models.CharField(max_length=500, unique=True, help_text="Storage name, relative to MEDIA_ROOT")
+    size_bytes = models.BigIntegerField()
+    sha256 = models.CharField(max_length=64)
+    archived_at = models.DateTimeField(default=now)
+    delete_pending = models.BooleanField(
+        default=False, help_text="Deleted while the archive disk was unplugged: removed at the next pass"
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name

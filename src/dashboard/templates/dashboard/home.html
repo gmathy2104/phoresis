@@ -21,6 +21,10 @@
         {% kpi "New (7 days)"    kpis.recent_uploads_7d icon="trending-up"      accent="success" %}
     </section>
 
+    {% if media_storage %}
+        {% include "dashboard/_media_storage.html" with storage=media_storage %}
+    {% endif %}
+
     <section data-tour="home-recent">
         <header class="mb-4 flex items-center justify-between">
             <h2 class="text-lg font-semibold">Recent gels</h2>

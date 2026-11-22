@@ -9,6 +9,7 @@ own task. This keeps every intermediate commit able to boot via
 
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 # settings/base.py lives at src/phoresis/settings/base.py.
 # parents[0]=settings/, parents[1]=phoresis/, parents[2]=src/, parents[3]=repo root.
@@ -139,7 +140,12 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 REDIS_DB_CELERY = os.environ.get("REDIS_DB_CELERY", "0")
 REDIS_DB_CACHE = os.environ.get("REDIS_DB_CACHE", "1")
-_REDIS_BASE = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+# REDIS_PASSWORD is optional: the Docker stack's Redis is internal to its network and has none,
+# the macOS install (scripts/mac/phoresis.sh) runs its own password-protected Redis on 127.0.0.1.
+# Quoted, so any character is safe in the URL.
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
+_REDIS_AUTH = f":{quote(REDIS_PASSWORD, safe='')}@" if REDIS_PASSWORD else ""
+_REDIS_BASE = f"redis://{_REDIS_AUTH}{REDIS_HOST}:{REDIS_PORT}"
 
 CELERY_BROKER_URL = f"{_REDIS_BASE}/{REDIS_DB_CELERY}"
 CELERY_RESULT_BACKEND = f"{_REDIS_BASE}/{REDIS_DB_CELERY}"
@@ -183,10 +189,51 @@ CACHES = {
     }
 }
 
+# ── Media on two disks (opt-in; docs/INSTALL-MAC.md, phoresis_core/media_tiers.py) ──
+# MEDIA_ROOT stays the fast disk every upload is written to. When PHORESIS_MEDIA_ARCHIVE_ROOT names a
+# folder on a second disk (an external drive on the Mac), a nightly task moves the oldest files of the
+# prefixes below there once MEDIA_ROOT outgrows its quota, and the storage reads them back from either
+# place under the same name: no row changes. Unset (Windows / Docker), it is a plain FileSystemStorage.
+PHORESIS_MEDIA_ARCHIVE_ROOT = os.environ.get("PHORESIS_MEDIA_ARCHIVE_ROOT", "").strip()
+
+
+def _env_gb(key: str, default: str) -> int:
+    """A size given in GB (decimals allowed), in bytes."""
+    return int(float(os.environ.get(key) or default) * 1024**3)
+
+
+# Size MEDIA_ROOT may reach before the oldest archivable files leave for the archive disk.
+PHORESIS_MEDIA_HOT_QUOTA_BYTES = _env_gb("PHORESIS_MEDIA_HOT_QUOTA_GB", "50")
+# Free space to keep on MEDIA_ROOT's disk, whatever fills it (the quota only counts media).
+PHORESIS_MEDIA_MIN_FREE_BYTES = _env_gb("PHORESIS_MEDIA_MIN_FREE_GB", "20")
+# Free space to keep on the archive disk: archiving stops there rather than filling it.
+PHORESIS_MEDIA_ARCHIVE_MIN_FREE_BYTES = _env_gb("PHORESIS_MEDIA_ARCHIVE_MIN_FREE_GB", "5")
+# A file younger than this stays on the fast disk: gels being worked on are never the ones moved.
+PHORESIS_MEDIA_ARCHIVE_MIN_AGE_DAYS = int(os.environ.get("PHORESIS_MEDIA_ARCHIVE_MIN_AGE_DAYS") or "30")
+# What may be archived, in order. Originals are the bulk (16-bit scanner files) and are only read to
+# re-process a gel; display PNGs and thumbnails stay, so an old gel still shows with the disk unplugged.
+PHORESIS_MEDIA_ARCHIVE_PREFIXES = [
+    p.strip()
+    for p in os.environ.get("PHORESIS_MEDIA_ARCHIVE_PREFIXES", "gel_images/originals/").split(",")
+    if p.strip()
+]
+
 STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "default": {
+        "BACKEND": "phoresis_core.media_tiers.TieredMediaStorage"
+        if PHORESIS_MEDIA_ARCHIVE_ROOT
+        else "django.core.files.storage.FileSystemStorage"
+    },
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
+
+if PHORESIS_MEDIA_ARCHIVE_ROOT:
+    # 04:15: after the Mac's nightly backup (02:30) and the orphan purge (03:30).
+    CELERY_BEAT_SCHEDULE["archive-media-nightly"] = {
+        "task": "phoresis_core.tasks.archive_media",
+        "schedule": crontab(hour=4, minute=15),
+        "options": {"queue": "default"},
+    }
 
 # Phase 1 — STALE_TASK_REGISTRY is empty until gel_analyzer lands in Phase 2.
 STALE_TASK_TIMEOUT_HOURS = 2

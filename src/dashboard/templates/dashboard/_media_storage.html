@@ -1,0 +1,46 @@
+{% load ui_components ui_icons %}
+{% comment %}
+Media storage card: staff only, and only where an archive disk is configured (dashboard.services.get_media_storage).
+Fast disk = MEDIA_ROOT; archive = PHORESIS_MEDIA_ARCHIVE_ROOT (phoresis_core.media_tiers).
+{% endcomment %}
+<section class="rounded-lg border border-border bg-surface p-4" data-testid="media-storage">
+    <header class="mb-3 flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Media storage</h2>
+        {% if storage.archive_state == "ready" %}
+            {% badge "Archive disk connected" variant="success" %}
+        {% elif storage.archive_state == "offline" %}
+            {% badge "Archive disk not connected" variant="warning" %}
+        {% else %}
+            {% badge "Archive disk not prepared" variant="warning" %}
+        {% endif %}
+    </header>
+    <div class="grid gap-4 md:grid-cols-2">
+        <div>
+            <p class="text-sm font-medium">This computer</p>
+            <progress class="mt-2 h-2 w-full" max="100" value="{{ storage.hot_quota_percent }}"></progress>
+            <p class="mt-1 text-xs text-text-muted">
+                {{ storage.hot_bytes|filesizeformat }} of {{ storage.hot_quota_bytes|filesizeformat }} used by gels
+                · {{ storage.hot_free_bytes|filesizeformat }} free on the disk
+            </p>
+        </div>
+        <div>
+            <p class="text-sm font-medium">Archive disk</p>
+            <p class="mt-2 text-xs text-text-muted">
+                {{ storage.archived_files }} original file{{ storage.archived_files|pluralize }} archived
+                ({{ storage.archived_bytes|filesizeformat }})
+                {% if storage.archive_free_bytes is not None %}· {{ storage.archive_free_bytes|filesizeformat }} free{% endif %}
+            </p>
+            <p class="mt-1 truncate text-xs text-text-muted" title="{{ storage.archive_root }}">{{ storage.archive_root }}</p>
+        </div>
+    </div>
+    {% if storage.needs_attention %}
+        <p class="mt-3 flex items-start gap-2 text-sm text-warning">
+            {% icon "alert-triangle" size=16 %}
+            <span>
+                {% if storage.archived_files %}Older gels cannot be re-processed until the archive disk is back. {% endif %}
+                {% if storage.over_quota or storage.low_free_space %}This computer is running out of room for gels and nothing can be archived. {% endif %}
+                {{ storage.archive_detail }}
+            </span>
+        </p>
+    {% endif %}
+</section>

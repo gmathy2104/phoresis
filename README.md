@@ -20,6 +20,8 @@ Phoresis is a Django-based lab application for SDS-PAGE, Dot Blot, and Western B
 - **Dark / light auto** — full parity, smooth transitions, designed for long lab sessions.
 - **Local install + auto-update** — no cloud, no telemetry. Watchtower pulls new images at 03:00 daily.
 
+> **On a Mac (Apple Silicon)?** Phoresis also runs natively, without Docker, next to other self-hosted apps: see [docs/INSTALL-MAC.md](docs/INSTALL-MAC.md).
+
 ## Installation (Windows 11)
 
 Step-by-step. First run takes 10–25 minutes depending on whether you have a GPU.

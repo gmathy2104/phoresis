@@ -205,3 +205,34 @@ Server / older Windows boxes), not just PS7+. That means:
 The user authorized direct pushes to `main` for the v1.0.x bug-hunt cycle
 ("fix directement dans le main hein"). For v1.1.x onward, prefer PRs unless
 explicitly told otherwise.
+
+## 12. macOS install (native, no Docker)
+
+`scripts/mac/phoresis.sh` runs Phoresis on an Apple Silicon Mac as native processes under launchd
+(`local.phoresis.{redis,web,worker,beat,caddy,mdns,nightly}`), next to other apps on the same Mac
+(CamHub). Operator guide: `docs/INSTALL-MAC.md`. It does not replace or change the Windows / Docker
+path. Rules learned while building it:
+
+- **Never bind or reuse another app's resources.** Ports are picked free at install and stored in
+  `.env`; Redis is Phoresis' own instance (6390, password), never the Homebrew service on 6379;
+  the database is a separate role + database in the shared PostgreSQL.
+- **The script must run on the stock `/bin/bash` 3.2** (no associative arrays, no `mapfile`, no
+  `${var,,}`), and every path may contain spaces (`~/Library/Application Support`, `/Volumes/My Disk`).
+- **An automatic restart never migrates.** Only `install`, `restart` and `update` run
+  migrate / collectstatic / seeds (same order as section 7).
+- **Never create a folder on a disk that is not there.** A path under `/Volumes/<disk>` lands on the
+  system disk when the disk is unplugged. The media archive requires its marker file and a mounted
+  volume (`phoresis_core/media_tiers.py`); the backup checks the mount before `mkdir`.
+- **External disks need Full Disk Access, for one program only**: the venv's real Python (a
+  uv-managed interpreter, not Homebrew's). Keep it that way: Caddy never opens the archive disk
+  (Django serves archived media), and the nightly job is started THROUGH that Python so bash, rsync
+  and pg_dump run as its children. A launchd agent whose program is `/bin/bash` gets
+  "Operation not permitted" on `/Volumes/<disk>`.
+- **Use the `pg_dump` of the server's major version** (`pg_tool`): several PostgreSQL versions are
+  installed side by side on the Mac, and the one on PATH may be older than the server.
+- **Do not install the real services from a git worktree**, and do not load them on the user's
+  behalf to try something: use `PHORESIS_LABEL_PREFIX`, `PHORESIS_ENV_FILE` (own ports, database and
+  data folder) and `PHORESIS_ALLOW_WORKTREE=1` for a trial, then `uninstall`.
+- **Media storage is `STORAGES["default"]`, always.** Code reads and writes media through the storage
+  (`field.open()`, `storage.size()`), never through `MEDIA_ROOT` paths: with an archive disk a file
+  may live outside `MEDIA_ROOT`.
