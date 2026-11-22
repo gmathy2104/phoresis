@@ -179,9 +179,11 @@ moves to the latest release tag after the backup.
   regression test of the classical detector
   (`test_default_hybrid_keeps_the_bands_validated_on_real_gels`) returns a slightly different box for
   its faintest synthetic band (found directly at y=320 instead of recovered by the gap-fill at y=321).
-  The CPU architecture differs (arm64 vs x86-64), and so do the numeric code paths under OpenCV. It
-  concerns a band built to sit on the detection threshold; the detector has not been re-validated on
-  real gels on a Mac.
+  An investigation traced this to a floating-point tie in the d1/d2 gap-fill step, which arm64 and
+  x86-64 break differently; it is not caused by CLAHE. Separately, OpenCV's CLAHE output differs by
+  one grey level on arm64, which changed the result on about 1 % of simulated noisy lanes. The failing
+  test concerns a band built to sit on the detection threshold; the detector has not been
+  re-validated on real gels on a Mac.
 - **Full Disk Access is tied to the interpreter's path.** A new Python patch version installed by uv
   changes that path; `status` then reports that the running service cannot use the archive disk, and
   `disk-access` prints the new path.
