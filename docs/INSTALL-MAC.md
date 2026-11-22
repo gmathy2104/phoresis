@@ -191,15 +191,16 @@ moves to the latest release tag after the backup.
 
 ## Known limits
 
-- **Band detection is not bit-identical to the Windows install.** On Apple Silicon one frozen
-  regression test of the classical detector
-  (`test_default_hybrid_keeps_the_bands_validated_on_real_gels`) returns a different box for its
-  faintest synthetic band: the gap-fill places it at y=320, 31 rows high, instead of y=321, 16 rows
-  high. The cause is a floating-point tie in the d1/d2 gap-fill step, which arm64 and x86-64 break
-  differently; it is not caused by CLAHE. The test holds both values, one per architecture, with
-  x86-64 as the reference. Separately, OpenCV's CLAHE output differs by one grey level on arm64,
-  which changed the result on about 1 % of simulated noisy lanes (a box a few rows higher or lower,
-  a centre moved by 3 px at most). The detector has not been re-validated on real gels on a Mac.
+- **Band detection is not bit-identical from one machine to another.** One frozen regression test
+  of the classical detector (`test_default_hybrid_keeps_the_bands_validated_on_real_gels`) builds a
+  band that sits exactly on a floating-point tie in the d1/d2 gap-fill step. Depending on the
+  machine, the gap-fill places that band at y=321, 16 rows high, or at y=320, 31 rows high. An
+  Apple Silicon Mac returns the second form, but so did one x86-64 CI run out of four on the same
+  code, so this is not specific to the Mac; what decides it on x86-64 is not established. The test
+  accepts both forms. It is not caused by CLAHE. Separately, OpenCV's CLAHE output differs by one
+  grey level on arm64, which changed the result on about 1 % of simulated noisy lanes (a box a few
+  rows higher or lower, a centre moved by 3 px at most). The detector has not been re-validated on
+  real gels on a Mac.
 - **Full Disk Access is tied to the interpreter's path.** A new Python patch version installed by uv
   changes that path; `status` then reports that the running service cannot use the archive disk, and
   `disk-access` prints the new path.
