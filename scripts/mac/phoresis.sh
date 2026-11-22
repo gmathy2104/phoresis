@@ -500,6 +500,8 @@ cmd_install() {
   env_default PHORESIS_MEDIA_HOT_QUOTA_GB 50
   env_default PHORESIS_MEDIA_MIN_FREE_GB 20
   env_default PHORESIS_BACKUP_KEEP 14
+  # Staff and superusers set up an authenticator app at their first sign-in (accounts/docs/README.md).
+  env_default PHORESIS_REQUIRE_2FA staff
   setup_database
   # Derived from host name and port, rewritten at each install so they follow a change of either.
   local hostname port origin

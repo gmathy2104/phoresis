@@ -84,6 +84,22 @@ anyone at the keyboard: enable automatic login (System Settings > Users & Groups
 automatically after a power failure" (System Settings > Energy). While Phoresis runs, the Mac does
 not go to sleep (`caffeinate`, effective on mains power).
 
+## Sign-in security
+
+- **Two-factor is required for the admin account** (`PHORESIS_REQUIRE_2FA=staff` in `.env`). At the
+  first sign-in the admin scans a QR code with an authenticator app, then keeps the 10 backup codes
+  shown once. Other accounts can turn it on from their profile; `all` in `.env` requires it for
+  everyone, `off` for no one (then `restart`).
+- **Five wrong passwords** pause that account from that device for 15 minutes.
+- **Phone and backup codes lost:** `scripts/mac/phoresis.sh manage reset_two_factor <email>`.
+  **Locked out:** `scripts/mac/phoresis.sh manage axes_reset_username <username>`.
+- **Reaching the Mac from outside the house:** open no port on the router. Use a VPN (Tailscale or
+  WireGuard) so that Phoresis stays reachable only from your own devices. `phoresis.local` does not
+  resolve through a VPN: the Mac's VPN name has to be added to `DJANGO_ALLOWED_HOSTS`,
+  `DJANGO_CSRF_TRUSTED_ORIGINS` and the Caddy site, which the install script does not do yet.
+- Gel images under `/media/` are served without a session to whoever can reach the server and knows
+  the file's URL: one more reason to keep the server off the open internet.
+
 ## Daily commands
 
 ```

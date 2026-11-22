@@ -47,6 +47,10 @@ dependencies = [
     "openpyxl>=3.1",
     "python-pptx>=1.0",
     "matplotlib>=3.9",          # used by report charts (terrain, poi_purity)
+    # Sign-in hardening: lockout after failed logins, TOTP two-factor, the QR code of its setup page
+    "django-axes>=8.0",
+    "django-otp>=1.6",
+    "qrcode>=8.0",
 ]
 
 # torch (+ torchvision + ultralytics) live in two mutually-exclusive extras so

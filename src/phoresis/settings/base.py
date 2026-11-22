@@ -8,6 +8,7 @@ own task. This keeps every intermediate commit able to boot via
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -31,6 +32,11 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "django_filters",
     "simple_history",
+    # Sign-in hardening (accounts/docs/README.md): TOTP two-factor + backup codes, lockout after failures
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
+    "axes",
     # Phoresis apps
     "phoresis_core",
     "guided_tours",
@@ -47,10 +53,15 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # After authentication: gives request.user.is_verified(), then holds back a session that has
+    # passed the password but not the second factor (accounts/middleware.py).
+    "django_otp.middleware.OTPMiddleware",
+    "accounts.middleware.TwoFactorMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
     "phoresis_core.error_handling.middleware.ExceptionContextMiddleware",
+    "axes.middleware.AxesMiddleware",  # must stay last: turns a locked-out login into the lockout page
 ]
 
 ROOT_URLCONF = "phoresis.urls"
@@ -93,7 +104,44 @@ AUTH_USER_MODEL = "accounts.User"
 # default ModelBackend (username-only) refuses. Our backend tries email
 # first (case-insensitive), then username.
 AUTHENTICATION_BACKENDS = [
+    # First: refuses a locked-out login before any password is checked. It authenticates nobody.
+    "axes.backends.AxesStandaloneBackend",
     "accounts.backends.EmailOrUsernameModelBackend",
+]
+
+# ── Sign-in hardening (accounts/docs/README.md) ──
+# Lockout: 5 failed passwords for one account from one address close that pair for 15 minutes.
+# Counted per (account, address) and never per address alone: behind Docker Desktop every browser
+# reaches Caddy from the same gateway address, and one person's typos must not lock the whole lab.
+AXES_FAILURE_LIMIT = int(os.environ.get("PHORESIS_LOGIN_FAILURE_LIMIT") or "5")
+AXES_COOLOFF_TIME = timedelta(minutes=int(os.environ.get("PHORESIS_LOGIN_COOLOFF_MINUTES") or "15"))
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
+# One counter per account whatever was typed (email or username, any case), see accounts/security.py.
+AXES_USERNAME_CALLABLE = "accounts.security.axes_username"
+# The browser's address as the reverse proxy saw it, not the proxy's own.
+AXES_CLIENT_IP_CALLABLE = "accounts.security.client_ip"
+# A good password does not erase the failures before it: someone with an account of their own could
+# otherwise reset the counter between two guesses on another account from the same address.
+AXES_RESET_ON_SUCCESS = False
+AXES_LOCKOUT_TEMPLATE = "accounts/locked.html"
+AXES_VERBOSE = False
+
+# Two-factor (TOTP app + one-time backup codes). Anyone may turn it on from their profile; this says
+# who MUST: off | staff (staff and superusers) | all. The Mac installer sets "staff".
+PHORESIS_REQUIRE_2FA = (os.environ.get("PHORESIS_REQUIRE_2FA") or "off").strip().lower()
+if PHORESIS_REQUIRE_2FA not in ("off", "staff", "all"):
+    raise ValueError(f"PHORESIS_REQUIRE_2FA must be off, staff or all (got {PHORESIS_REQUIRE_2FA!r})")
+OTP_TOTP_ISSUER = "Phoresis"
+# The Django admin shows neither the TOTP key nor its QR code: an admin cannot clone a second factor.
+OTP_ADMIN_HIDE_SENSITIVE_DATA = True
+
+# Applied wherever a password is chosen through a form (profile, admin, createsuperuser). The
+# passwords the installers write for the first users are not re-checked.
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 12}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
 # DRF / drf-spectacular base configuration. Without DEFAULT_SCHEMA_CLASS
@@ -101,6 +149,9 @@ AUTHENTICATION_BACKENDS = [
 # AssertionError when introspecting other DRF views (e.g. SpectacularSwaggerView).
 # Test settings layer in higher throttle rates on top of this dict.
 REST_FRAMEWORK = {
+    # The browser session only. DRF's default also accepts HTTP Basic, i.e. a password alone on every
+    # API call: that would walk around the two-factor check, which lives in the session.
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

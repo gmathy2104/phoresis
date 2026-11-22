@@ -86,4 +86,5 @@ Direct pushes to `main` were authorised for the v1.0.x bug-hunt cycle. From v1.1
 - Media lives in the **external named volume** `phoresis_phoresis_media`, not a host bind-mount. `docker compose down -v` cannot wipe it; the only supported wipe path is `scripts/wipe-media.ps1` (auto-backs up + 3 confirmations). Don't change the `external: true` declaration (AGENTS.md §9).
 - Git LFS holds the ML model binaries (`src/gel_analyzer/static/gel_analyzer/ml/...`). A clone without git-lfs leaves 134-byte pointer files; the worker fails opaquely inside onnxruntime. `install.ps1` has a guard for this — leave it (AGENTS.md §4).
 - Media is read and written through the storage (`field.open()`, `storage.size()`), never through a `MEDIA_ROOT` path: on the Mac install an archived original lives on an external disk (AGENTS.md §12).
+- The API authenticates by the browser session only, and `TwoFactorMiddleware` + django-axes guard sign-in: no Basic/token auth, no per-address lockout (AGENTS.md §13).
 - PowerShell scripts must run on **Windows PowerShell 5.1** (no em-dashes/smart quotes in source, no `-SkipCertificateCheck`, use `curl.exe -k` and `-o NUL`). See AGENTS.md §10.

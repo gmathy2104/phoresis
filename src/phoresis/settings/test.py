@@ -11,6 +11,10 @@ CELERY_TASK_EAGER_PROPAGATES = True
 
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
+# No lockout while testing (client.login() passes no request, and a suite full of deliberate bad
+# passwords would lock itself out); the lockout tests turn it back on.
+AXES_ENABLED = False
+
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 STORAGES = {
     **STORAGES,
@@ -21,6 +25,7 @@ STORAGES = {
 # block, so define the bare minimum (pagination, schema class, throttle rates)
 # here. Throttle rates are very high so throttling never trips during tests.
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

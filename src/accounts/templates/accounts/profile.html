@@ -35,6 +35,63 @@
     </div>
     {% card_close %}
 
+    {% card_open hover=False %}
+    <div class="mb-4 flex items-center gap-3">
+        <h2 class="text-lg font-semibold">Sign-in security</h2>
+        {% if two_factor_on %}{% badge "Two-factor on" variant="success" %}{% else %}{% badge "Two-factor off" variant="muted" %}{% endif %}
+    </div>
+
+    {% if password_changed %}
+        <p class="mb-4 rounded-md bg-success/10 p-3 text-sm text-success">Password changed. Your other devices were signed out.</p>
+    {% endif %}
+    {% if two_factor_notice == "off" %}
+        <p class="mb-4 rounded-md bg-warning/10 p-3 text-sm text-warning">Two-factor is off. Sign-in asks for your password only.</p>
+    {% elif two_factor_notice == "wrong-password" %}
+        <p class="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">Wrong password: two-factor stays on.</p>
+    {% endif %}
+
+    <div class="space-y-4 text-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="text-text-muted">Password</p>
+            {% url 'accounts:password_change' as password_url %}
+            {% btn "Change password" href=password_url variant="secondary" size="sm" %}
+        </div>
+
+        {% if two_factor_on %}
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                <p class="text-text-muted">
+                    Sign-in asks for a code from your authenticator app.
+                    {% if backup_codes_left == 0 %}<span class="text-warning">No backup code left.</span>
+                    {% else %}{{ backup_codes_left }} backup code{{ backup_codes_left|pluralize }} left.{% endif %}
+                </p>
+                <form method="post" action="{% url 'accounts:two_factor_backup_codes' %}">
+                    {% csrf_token %}
+                    {% btn "New backup codes" type_="submit" variant="secondary" size="sm" %}
+                </form>
+            </div>
+            {% if two_factor_required %}
+                <p class="border-t border-border pt-4 text-text-muted">Two-factor is required for your account and cannot be turned off.</p>
+            {% else %}
+                <form method="post" action="{% url 'accounts:two_factor_disable' %}" class="flex flex-wrap items-end gap-3 border-t border-border pt-4">
+                    {% csrf_token %}
+                    <div class="flex-1">
+                        <label for="id_disable_password" class="mb-1.5 block text-sm font-medium">Current password, to turn two-factor off</label>
+                        <input id="id_disable_password" name="password" type="password" required autocomplete="current-password"
+                               class="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20">
+                    </div>
+                    {% btn "Turn off" type_="submit" variant="danger" size="sm" %}
+                </form>
+            {% endif %}
+        {% else %}
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                <p class="text-text-muted">Add a second step at sign-in: a code from an app on your phone.</p>
+                {% url 'accounts:two_factor_setup' as setup_url %}
+                {% btn "Set up two-factor" href=setup_url size="sm" %}
+            </div>
+        {% endif %}
+    </div>
+    {% card_close %}
+
     {% card_open %}
     <h2 class="mb-4 text-lg font-semibold">Account details</h2>
     <dl class="grid grid-cols-2 gap-4 text-sm">

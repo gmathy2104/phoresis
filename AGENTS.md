@@ -236,3 +236,20 @@ path. Rules learned while building it:
 - **Media storage is `STORAGES["default"]`, always.** Code reads and writes media through the storage
   (`field.open()`, `storage.size()`), never through `MEDIA_ROOT` paths: with an archive disk a file
   may live outside `MEDIA_ROOT`.
+
+## 13. Sign-in security
+
+Lockout after failed logins (django-axes), two-factor (django-otp) and password rules; the details
+are in `src/accounts/docs/README.md`. Rules to keep:
+
+- **No way in that skips the session.** The second factor lives in the session and is enforced by
+  `accounts.middleware.TwoFactorMiddleware`. DRF therefore accepts `SessionAuthentication` only:
+  adding Basic or token authentication opens a password-only (or code-less) door to the whole API.
+- **`axes.backends.AxesStandaloneBackend` stays first** in `AUTHENTICATION_BACKENDS` and
+  `axes.middleware.AxesMiddleware` last in `MIDDLEWARE`.
+- **Never lock out per address alone.** Behind Docker Desktop all browsers share the gateway's
+  address; `AXES_LOCKOUT_PARAMETERS` is the (account, address) pair.
+- **The setup page is closed to an enrolled, unverified session**: otherwise a stolen password could
+  add its own authenticator.
+- `PHORESIS_REQUIRE_2FA` defaults to `off` so that an update never surprises an existing Windows
+  install; the Mac installer writes `staff`.
