@@ -1,5 +1,7 @@
 """Tests for CV2BandDetector."""
 
+import platform
+
 import numpy as np
 
 from django.test import TestCase
@@ -132,6 +134,16 @@ class CV2BandDetectorAdaptivePathTest(TestCase):
         zone threshold interpolated rather than stepped: a stepped one moves these
         values. Not the true centres: a deliberate change to the default hybrid
         recomputes the list.
+
+        The gap-fill band is frozen per processor architecture. The 4/190 band is
+        exactly symmetric about row 320 on a noise-free lane, so the d1 of the
+        d1/d2 gap-fill is 0 there in exact arithmetic and its sign is round-off:
+        +1.4e-16 on x86-64, -1.6e-16 on arm64 (scipy's Savitzky-Golay coefficients
+        differ in the last bit between the two builds). The apex rule, d1[i-1] > 0
+        and d1[i] <= 0, then lands on 321 with the onset at 320 on x86-64 - the
+        reference, prod and CI - and on 320 with the onset at 305 on arm64 (macOS
+        and Linux alike, measured 2026-11-22). The three bands of the adaptive
+        call are bit-identical on both.
         """
         y = np.arange(400)[:, None]
         img = np.full((400, 80), 230.0)
@@ -139,8 +151,9 @@ class CV2BandDetectorAdaptivePathTest(TestCase):
             img[:, 8:72] -= contrast * np.exp(-0.5 * ((y - centre) / 5.0) ** 2)
         lane_crop = np.rint(img).astype(np.uint8)
         bands = HybridDetector(HybridDetectionParams()).detect(lane_crop, lane_bbox=(0, 0, 80, 400))
+        gap_fill_band = (320, 31) if platform.machine().lower() in ("arm64", "aarch64") else (321, 16)
         self.assertEqual(
-            [(band.position_y, band.bbox_height) for band in bands], [(80, 17), (160, 17), (240, 17), (321, 16)]
+            [(band.position_y, band.bbox_height) for band in bands], [(80, 17), (160, 17), (240, 17), gap_fill_band]
         )
 
 
