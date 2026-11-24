@@ -93,12 +93,20 @@ not go to sleep (`caffeinate`, effective on mains power).
 - **Five wrong passwords** pause that account from that device for 15 minutes.
 - **Phone and backup codes lost:** `scripts/mac/phoresis.sh manage reset_two_factor <email>`.
   **Locked out:** `scripts/mac/phoresis.sh manage axes_reset_username <username>`.
+- **Gel images need a session too.** Files under `/media/` are only served to a signed-in browser
+  (and, with two-factor on, one that has entered its code).
 - **Reaching the Mac from outside the house:** open no port on the router. Use a VPN (Tailscale or
   WireGuard) so that Phoresis stays reachable only from your own devices. `phoresis.local` does not
-  resolve through a VPN: the Mac's VPN name has to be added to `DJANGO_ALLOWED_HOSTS`,
-  `DJANGO_CSRF_TRUSTED_ORIGINS` and the Caddy site, which the install script does not do yet.
-- Gel images under `/media/` are served without a session to whoever can reach the server and knows
-  the file's URL: one more reason to keep the server off the open internet.
+  resolve through a VPN, so give Phoresis the Mac's VPN name (or VPN address) as one more name:
+
+  ```bash
+  ~/phoresis/scripts/mac/phoresis.sh extra-host add <mac-name>.<tailnet>.ts.net
+  ```
+
+  Phoresis then answers on `https://<that name>:8443` as well, with a certificate from the same
+  local authority (`trust` explains how a phone or laptop trusts it). `extra-host list` and
+  `extra-host remove NAME` do what they say. This has been tried with a made-up name on one Mac,
+  not yet through a real VPN.
 
 ## Daily commands
 
@@ -111,6 +119,7 @@ scripts/mac/phoresis.sh logs [web|worker|beat|caddy|redis|mdns|nightly]
 scripts/mac/phoresis.sh backup         now
 scripts/mac/phoresis.sh restore DIR    a dated folder from the backups
 scripts/mac/phoresis.sh storage status | archive | restore | verify
+scripts/mac/phoresis.sh extra-host add|remove NAME | list    one more name to answer on (VPN)
 scripts/mac/phoresis.sh manage ...     any manage.py command
 scripts/mac/phoresis.sh uninstall      removes the services; data, database and .env stay
 ```

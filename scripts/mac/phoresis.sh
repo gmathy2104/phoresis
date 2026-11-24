@@ -11,6 +11,7 @@
 #   scripts/mac/phoresis.sh backup         database dump + media mirror, now
 #   scripts/mac/phoresis.sh restore DIR    restore a backup snapshot (asks for confirmation)
 #   scripts/mac/phoresis.sh archive-disk PATH   use PATH (a folder on an external disk) as the media archive
+#   scripts/mac/phoresis.sh extra-host add|remove NAME   one more name to answer on (a VPN name); extra-host list
 #   scripts/mac/phoresis.sh storage ...    manage.py media_storage (status, archive, restore, verify)
 #   scripts/mac/phoresis.sh manage ...     any manage.py command, with the service's environment
 #   scripts/mac/phoresis.sh trust          how to make this Mac (and others) trust the HTTPS certificate
@@ -103,6 +104,26 @@ load_env() { # export every key of .env, then the values derived from it
     export "$key=$value"
   done <"$ENV_FILE"
   derive
+}
+
+extra_hostnames() { # PHORESIS_EXTRA_HOSTNAMES (comma separated) as words, lower-cased
+  printf '%s' "${PHORESIS_EXTRA_HOSTNAMES:-}" | tr 'A-Z,' 'a-z ' | tr -s '[:space:]' ' '
+}
+
+all_hostnames() { printf '%s %s' "$HOSTNAME_PUBLIC" "$(extra_hostnames)"; }
+
+origin_of() { # https://NAME, with the port when it is not 443
+  if [ "$HTTPS_PORT" = 443 ]; then printf 'https://%s' "$1"; else printf 'https://%s:%s' "$1" "$HTTPS_PORT"; fi
+}
+
+write_host_settings() { # DJANGO_ALLOWED_HOSTS and DJANGO_CSRF_TRUSTED_ORIGINS, from the names and the port
+  local name hosts="" origins=""
+  for name in $(all_hostnames); do
+    hosts="$hosts${hosts:+,}$name"
+    origins="$origins${origins:+,}$(origin_of "$name")"
+  done
+  env_set DJANGO_ALLOWED_HOSTS "$hosts,127.0.0.1"
+  env_set DJANGO_CSRF_TRUSTED_ORIGINS "$origins"
 }
 
 derive() { # paths and ports every command needs; .env wins when it sets them
@@ -503,13 +524,9 @@ cmd_install() {
   # Staff and superusers set up an authenticator app at their first sign-in (accounts/docs/README.md).
   env_default PHORESIS_REQUIRE_2FA staff
   setup_database
-  # Derived from host name and port, rewritten at each install so they follow a change of either.
-  local hostname port origin
-  hostname="$(env_get PHORESIS_HOSTNAME)"
-  port="$(env_get PHORESIS_HTTPS_PORT)"
-  if [ "$port" = 443 ]; then origin="https://$hostname"; else origin="https://$hostname:$port"; fi
-  env_set DJANGO_ALLOWED_HOSTS "$hostname,127.0.0.1"
-  env_set DJANGO_CSRF_TRUSTED_ORIGINS "$origin"
+  # Derived from the host names and the port, rewritten at each install so they follow a change.
+  load_env
+  write_host_settings
   load_env
   mkdir -p "$DATA_DIR" "$RUN_DIR" "$LOG_DIR" "$MEDIA_ROOT" "$AGENTS_DIR"
   ok "Data folder: $DATA_DIR"
@@ -690,6 +707,51 @@ cmd_restore() {
   wait_ready
 }
 
+cmd_extra_host() { # add or remove a name Phoresis answers to, besides PHORESIS_HOSTNAME
+  local action="${1:-}" name kept="" found=0 item
+  name="$(printf '%s' "${2:-}" | tr 'A-Z' 'a-z')"
+  load_env
+  case "$action" in
+    list)
+      info "Main name:   $HOSTNAME_PUBLIC"
+      kept="$(extra_hostnames)"
+      info "Extra names: ${kept:-(none)}"
+      return
+      ;;
+    add | remove) ;;
+    *) fail "Usage: scripts/mac/phoresis.sh extra-host add|remove NAME   |   extra-host list" ;;
+  esac
+  case "$name" in
+    '' | *[!a-z0-9.-]* | .* | -*) fail "Give a host name or an IP address (letters, digits, dots, dashes), without https:// or a port" ;;
+  esac
+  [ "$name" != "$HOSTNAME_PUBLIC" ] || fail "$name is already the main name"
+  for item in $(extra_hostnames); do
+    if [ "$item" = "$name" ]; then found=1; else kept="$kept${kept:+,}$item"; fi
+  done
+  if [ "$action" = add ]; then
+    [ "$found" = 0 ] || { ok "$name is already an extra name"; return; }
+    kept="$kept${kept:+,}$name"
+  else
+    [ "$found" = 1 ] || fail "$name is not an extra name"
+  fi
+  env_set PHORESIS_EXTRA_HOSTNAMES "$kept"
+  load_env
+  write_host_settings
+  load_env
+  if loaded web; then
+    # Django reads the allowed hosts at start, Caddy its site names and certificates.
+    for item in caddy web; do boot_out "$item"; done
+    start_services
+    wait_ready
+  fi
+  if [ "$action" = add ]; then
+    ok "Phoresis now also answers on $(origin_of "$name")"
+    info "The certificate for that name is signed by the same local authority: scripts/mac/phoresis.sh trust"
+  else
+    ok "$name removed"
+  fi
+}
+
 cmd_archive_disk() {
   local path="${1:-}"
   load_env
@@ -820,8 +882,11 @@ cmd_status() {
 perf_cores() { sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.physicalcpu; }
 
 write_caddyfile() {
-  local site media_fallback=""
-  if [ "$HTTPS_PORT" = 443 ]; then site="https://$HOSTNAME_PUBLIC"; else site="https://$HOSTNAME_PUBLIC:$HTTPS_PORT"; fi
+  local site="" name media_fallback=""
+  # One site, every name it answers to: the .local one and the extra ones (a VPN name).
+  for name in $(all_hostnames); do
+    site="$site${site:+, }$(origin_of "$name")"
+  done
   if [ -n "$ARCHIVE_ROOT" ]; then
     # Not on this Mac: Django reads it from the archive disk (phoresis_core.media_tiers.serve_media).
     # Caddy never opens the external disk itself, so only Python needs macOS' permission for it.
@@ -863,8 +928,12 @@ $site {
 		}
 	}
 
-	# Media: this Mac first, then the archive disk (phoresis_core/media_tiers.py).
+	# Media, to signed-in users only (Django is asked first: accounts.views.media_auth_view):
+	# this Mac first, then the archive disk (phoresis_core/media_tiers.py).
 	handle_path /media/* {
+		forward_auth 127.0.0.1:$WEB_PORT {
+			uri /api/auth/media/
+		}
 		@here file {
 			root "$MEDIA_ROOT"
 		}
@@ -993,6 +1062,7 @@ case "$COMMAND" in
   backup) cmd_backup ;;
   restore) cmd_restore "$@" ;;
   archive-disk) cmd_archive_disk "$@" ;;
+  extra-host) cmd_extra_host "$@" ;;
   storage) cmd_manage media_storage "$@" ;;
   manage) cmd_manage "$@" ;;
   trust) cmd_trust ;;

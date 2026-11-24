@@ -325,3 +325,25 @@ def test_password_change_applies_the_rules(client) -> None:
     user.refresh_from_db()
     assert user.check_password(strong)
     assert b"Password changed" in client.get(response.url).content
+
+
+@pytest.mark.django_db
+class TestMediaAuth:
+    """What Caddy asks before serving a file under /media/."""
+
+    URL = "/api/auth/media/"
+
+    def test_no_session_is_refused(self, client):
+        assert client.get(self.URL).status_code == 401
+
+    def test_signed_in_session_is_let_through(self, client):
+        client.force_login(UserFactory())
+        response = client.get(self.URL)
+        assert response.status_code == 204
+        assert response.content == b""
+
+    def test_session_owing_its_second_factor_is_refused(self, client):
+        user = UserFactory()
+        TOTPDevice.objects.create(user=user, name="Authenticator app", confirmed=True)
+        client.force_login(user)
+        assert client.get(self.URL).status_code == 403

@@ -245,6 +245,9 @@ are in `src/accounts/docs/README.md`. Rules to keep:
 - **No way in that skips the session.** The second factor lives in the session and is enforced by
   `accounts.middleware.TwoFactorMiddleware`. DRF therefore accepts `SessionAuthentication` only:
   adding Basic or token authentication opens a password-only (or code-less) door to the whole API.
+- **`/media/` stays behind `forward_auth`** in both Caddy configurations (`docker/Caddyfile`,
+  `write_caddyfile` in `scripts/mac/phoresis.sh`), pointing at `/api/auth/media/`. Caddy serves the
+  files itself: without that line a gel image is readable by whoever has its URL, signed in or not.
 - **`axes.backends.AxesStandaloneBackend` stays first** in `AUTHENTICATION_BACKENDS` and
   `axes.middleware.AxesMiddleware` last in `MIDDLEWARE`.
 - **Never lock out per address alone.** Behind Docker Desktop all browsers share the gateway's

@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from accounts.views import media_auth_view
 from phoresis_core import healthz
 from phoresis_core.search import api_global_search
 
@@ -14,6 +15,8 @@ urlpatterns = [
     path("tours/", include(("guided_tours.urls", "guided_tours"), namespace="guided_tours")),
     path("", include(("gel_analyzer.urls", "gel_analyzer"), namespace="gel_analyzer")),
     path("api/search/", api_global_search, name="api_global_search"),
+    # Asked by Caddy before it serves /media/ (docker/Caddyfile, scripts/mac/phoresis.sh).
+    path("api/auth/media/", media_auth_view, name="media_auth"),
     path("healthz/", healthz.readiness, name="healthz"),
     path("healthz/celery/", healthz.celery_only, name="healthz_celery"),
     path("healthz/live/", healthz.liveness, name="healthz_live"),

@@ -49,6 +49,16 @@ class PhoresisPasswordChangeView(PasswordChangeView):
         return f"{super().get_success_url()}?password=changed"
 
 
+def media_auth_view(request: HttpRequest) -> HttpResponse:
+    """Asked by the web server before it serves a file under /media/ (Caddy `forward_auth`).
+
+    204 lets the file through, 401 stops it. A session that owes its second factor never gets here:
+    `TwoFactorMiddleware` answers 403 on /api/ first. Gel images are the lab's data: without this
+    check, anyone who could reach the server and knew a file's URL could read it.
+    """
+    return HttpResponse(status=204 if request.user.is_authenticated else 401)
+
+
 @require_POST
 @login_required
 def theme_set_view(request: HttpRequest) -> HttpResponse:

@@ -31,8 +31,13 @@ phoresis {
 		}
 	}
 
-	# User-uploaded media (gel images, thumbnails) — also served directly.
+	# User-uploaded media (gel images, thumbnails): served directly, to signed-in users only.
+	# Caddy first asks Django whether the browser's session may read it (accounts.views.media_auth_view,
+	# AGENTS.md §13); anything but a 2xx answer is returned as is, and the file is not served.
 	handle_path /media/* {
+		forward_auth web:8000 {
+			uri /api/auth/media/
+		}
 		root * /srv/media
 		file_server
 	}

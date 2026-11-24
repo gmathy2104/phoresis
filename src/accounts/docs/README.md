@@ -49,8 +49,12 @@ Three protections, on every install (Windows / Docker and Mac):
   to the name or email. Applied where a password is chosen in a form (`/accounts/password/`, admin).
   The first passwords written by the installers are not re-checked.
 
-Not covered here: `/media/` files are served by Caddy without a session (a gel image is readable by
-whoever has its URL and can reach the server).
+- **Media need a session.** Caddy serves `/media/` itself, but first asks Django
+  (`forward_auth` to `/api/auth/media/`, `views.media_auth_view`): 204 with a signed-in session, 401
+  without one, 403 while the second factor is owed. The check is in the Caddy configuration
+  (`docker/Caddyfile`, `write_caddyfile` in `scripts/mac/phoresis.sh`): an install whose Caddyfile
+  predates it still serves media to whoever has the URL. A Caddyfile that has the check in front of
+  an image that predates the view refuses every media file (the view answers 404).
 
 Tests never lock out (`AXES_ENABLED = False` in `settings.test`); `tests/test_security.py` turns it on.
 
