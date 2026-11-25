@@ -213,6 +213,10 @@ explicitly told otherwise.
 (CamHub). Operator guide: `docs/INSTALL-MAC.md`. It does not replace or change the Windows / Docker
 path. Rules learned while building it:
 
+- **One site block, two ways to serve it.** `site_block` writes the Phoresis site once; it goes
+  into Phoresis' own Caddyfile (`tls internal`) or, with `PHORESIS_SHARED_CADDY_DIR`, into a file
+  read by the Caddy of the app that holds port 443 (`import shared_tls`). Never write a rule in one
+  and not the other: the media check and the security headers live in that block.
 - **Never bind or reuse another app's resources.** Ports are picked free at install and stored in
   `.env`; Redis is Phoresis' own instance (6390, password), never the Homebrew service on 6379;
   the database is a separate role + database in the shared PostgreSQL.
@@ -246,7 +250,7 @@ are in `src/accounts/docs/README.md`. Rules to keep:
   `accounts.middleware.TwoFactorMiddleware`. DRF therefore accepts `SessionAuthentication` only:
   adding Basic or token authentication opens a password-only (or code-less) door to the whole API.
 - **`/media/` stays behind `forward_auth`** in both Caddy configurations (`docker/Caddyfile`,
-  `write_caddyfile` in `scripts/mac/phoresis.sh`), pointing at `/api/auth/media/`. Caddy serves the
+  `site_block` in `scripts/mac/phoresis.sh`), pointing at `/api/auth/media/`. Caddy serves the
   files itself: without that line a gel image is readable by whoever has its URL, signed in or not.
 - **`axes.backends.AxesStandaloneBackend` stays first** in `AUTHENTICATION_BACKENDS` and
   `axes.middleware.AxesMiddleware` last in `MIDDLEWARE`.

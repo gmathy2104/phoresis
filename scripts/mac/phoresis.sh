@@ -12,6 +12,7 @@
 #   scripts/mac/phoresis.sh restore DIR    restore a backup snapshot (asks for confirmation)
 #   scripts/mac/phoresis.sh archive-disk PATH   use PATH (a folder on an external disk) as the media archive
 #   scripts/mac/phoresis.sh extra-host add|remove NAME   one more name to answer on (a VPN name); extra-host list
+#   scripts/mac/phoresis.sh shared-caddy use DIR [PORT] | off | status   be served by another app's Caddy (no port in the URL)
 #   scripts/mac/phoresis.sh storage ...    manage.py media_storage (status, archive, restore, verify)
 #   scripts/mac/phoresis.sh manage ...     any manage.py command, with the service's environment
 #   scripts/mac/phoresis.sh trust          how to make this Mac (and others) trust the HTTPS certificate
@@ -21,7 +22,9 @@
 # Options of install: --yes (no questions: install missing Homebrew tools, keep defaults)
 #
 # Runs next to other apps on the same Mac (CamHub): its own ports, its own Redis, its own database
-# in the shared Homebrew PostgreSQL, its own launchd labels. Written for the stock /bin/bash 3.2.
+# in the shared Homebrew PostgreSQL, its own launchd labels. One program only can hold port 443:
+# with `shared-caddy`, the Caddy of the app that holds it serves Phoresis too, under its own name.
+# Written for the stock /bin/bash 3.2.
 set -euo pipefail
 umask 077
 
@@ -126,6 +129,9 @@ write_host_settings() { # DJANGO_ALLOWED_HOSTS and DJANGO_CSRF_TRUSTED_ORIGINS, 
   env_set DJANGO_CSRF_TRUSTED_ORIGINS "$origins"
 }
 
+shared_caddy() { [ -n "${SHARED_DIR:-}" ]; }
+shared_site_file() { printf '%s/%s.caddy' "$SHARED_DIR" "${LABEL_PREFIX#local.}"; }
+
 derive() { # paths and ports every command needs; .env wins when it sets them
   DATA_DIR="${PHORESIS_DATA_DIR:-$HOME/Library/Application Support/Phoresis}"
   RUN_DIR="$DATA_DIR/run"
@@ -136,6 +142,10 @@ derive() { # paths and ports every command needs; .env wins when it sets them
   HTTPS_PORT="${PHORESIS_HTTPS_PORT:-8443}"
   WEB_PORT="${PHORESIS_WEB_PORT:-8710}"
   ARCHIVE_ROOT="${PHORESIS_MEDIA_ARCHIVE_ROOT:-}"
+  # Set: no Caddy of our own, our site is a file in that folder, read by another app's Caddy.
+  SHARED_DIR="${PHORESIS_SHARED_CADDY_DIR:-}"
+  if shared_caddy; then SERVICES="redis web worker beat mdns"; else SERVICES="redis web worker beat caddy mdns"; fi
+  ALL_AGENTS="$SERVICES nightly"
   if [ "$HTTPS_PORT" = 443 ]; then BASE_URL="https://$HOSTNAME_PUBLIC"; else BASE_URL="https://$HOSTNAME_PUBLIC:$HTTPS_PORT"; fi
   export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-phoresis.settings.prod}"
   export PYTHONPATH="$ROOT/src"
@@ -295,9 +305,10 @@ start_services() { # start_services [NAMES] (default: everything installed)
 }
 
 wait_ready() {
-  local i
+  local i tries=90
+  shared_caddy && tries=30
   printf '    Waiting for the app '
-  for i in $(seq 1 90); do
+  for i in $(seq 1 "$tries"); do
     # Through Caddy, as a browser does: it only forwards once its own health check has passed.
     if curl -fsSk -o /dev/null --max-time 2 --resolve "$HOSTNAME_PUBLIC:$HTTPS_PORT:127.0.0.1" "$BASE_URL/healthz/live/" 2>/dev/null; then
       printf '\n'
@@ -308,7 +319,12 @@ wait_ready() {
     sleep 1
   done
   printf '\n'
-  warn "Not answering after 90 s: scripts/mac/phoresis.sh logs web"
+  if shared_caddy; then
+    warn "$BASE_URL is not served yet. Phoresis itself: scripts/mac/phoresis.sh status"
+    shared_caddy_todo
+  else
+    warn "Not answering after 90 s: scripts/mac/phoresis.sh logs web"
+  fi
 }
 
 # ───────────────────────── install pieces ─────────────────────────
@@ -453,6 +469,7 @@ prepare() { # same order as docker/entrypoint.sh (AGENTS.md §7)
   "$VENV/python" manage.py seed_groups
   "$VENV/python" manage.py seed_ladder_templates
   "$VENV/python" manage.py create_initial_users --from-env --skip-existing
+  if shared_caddy; then publish_site; fi
   ok "Application prepared"
 }
 
@@ -510,6 +527,8 @@ cmd_install() {
   env_default DJANGO_DEBUG false
   env_default PHORESIS_HOSTNAME phoresis.local
   # 443 belongs to whichever app took it first (CamHub on this Mac): Phoresis then answers on 8443.
+  # Behind another app's Caddy (PHORESIS_SHARED_CADDY_DIR, see shared-caddy): that Caddy's port.
+  if [ -n "$(env_get PHORESIS_SHARED_CADDY_DIR)" ]; then env_default PHORESIS_HTTPS_PORT 443; fi
   env_default PHORESIS_HTTPS_PORT "$(pick_port 443 8443 8444 8445)"
   env_default PHORESIS_WEB_PORT "$(pick_port 8710 8711 8712)"
   env_default REDIS_HOST 127.0.0.1
@@ -535,6 +554,7 @@ cmd_install() {
 
   title "Services"
   stop_services "$ALL_AGENTS"
+  if shared_caddy; then drop_own_caddy; fi
   prepare
   local name
   for name in $ALL_AGENTS; do write_plist "$name"; done
@@ -545,6 +565,10 @@ cmd_install() {
   title "Done"
   info "Open        $BASE_URL"
   info "Certificate scripts/mac/phoresis.sh trust   (once, so browsers accept it)"
+  if ! shared_caddy && [ "$HTTPS_PORT" != 443 ]; then
+    info "No port     another app holds 443. To be served by its Caddy, as https://$HOSTNAME_PUBLIC:"
+    info "            scripts/mac/phoresis.sh shared-caddy use <its sites folder>"
+  fi
   if [ -z "$ARCHIVE_ROOT" ]; then
     info "Storage     gels stay on this Mac. To move the oldest to an external disk:"
     info "            scripts/mac/phoresis.sh archive-disk \"/Volumes/<disk>/Phoresis/media\""
@@ -561,6 +585,10 @@ cmd_uninstall() {
   local name
   for name in $ALL_AGENTS; do rm -f "$(plist_path "$name")"; done
   ok "launchd agents removed"
+  if shared_caddy && [ -f "$(shared_site_file)" ]; then
+    rm -f "$(shared_site_file)"
+    info "Site file removed from $SHARED_DIR: restart the app that runs the shared Caddy"
+  fi
   info "Kept: $DATA_DIR (media, backups, logs), the database, $ENV_FILE"
   printf '\n'
 }
@@ -738,13 +766,17 @@ cmd_extra_host() { # add or remove a name Phoresis answers to, besides PHORESIS_
   load_env
   write_host_settings
   load_env
+  if shared_caddy; then publish_site; fi
   if loaded web; then
     # Django reads the allowed hosts at start, Caddy its site names and certificates.
-    for item in caddy web; do boot_out "$item"; done
+    for item in $(shared_caddy || printf caddy) web; do boot_out "$item"; done
     start_services
     wait_ready
   fi
-  if [ "$action" = add ]; then
+  if [ "$action" = add ] && shared_caddy; then
+    ok "$name added: the shared Caddy serves it once restarted, with a certificate that includes it"
+    shared_caddy_todo
+  elif [ "$action" = add ]; then
     ok "Phoresis now also answers on $(origin_of "$name")"
     info "The certificate for that name is signed by the same local authority: scripts/mac/phoresis.sh trust"
   else
@@ -786,6 +818,9 @@ cmd_manage() {
 cmd_logs() {
   load_env
   local name="${1:-web}"
+  if [ "$name" = caddy ] && shared_caddy; then
+    fail "Phoresis has no Caddy of its own here: read the log of the app that runs the shared one"
+  fi
   [ -f "$LOG_DIR/$name.log" ] || fail "No log named $name in $LOG_DIR"
   exec tail -n 100 -F "$LOG_DIR/$name.log"
 }
@@ -809,6 +844,13 @@ cmd_trust() {
   local cert
   cert="$(ca_cert)"
   title "HTTPS certificate"
+  if shared_caddy; then
+    info "Phoresis is served by another app's Caddy (site file in $SHARED_DIR):"
+    info "the certificate comes from that app's local authority, not from Phoresis."
+    info "A device that already trusts that app accepts $BASE_URL as it is;"
+    info "a new device trusts that app's authority, the way that app documents it."
+    return
+  fi
   [ -f "$cert" ] || fail "$cert not found yet: start Phoresis and open $BASE_URL once"
   info "Phoresis signs its certificate with its own local authority. To trust it on this Mac"
   info "(asks for your password; run it yourself, the script does not use sudo):"
@@ -836,6 +878,13 @@ cmd_status() {
       fi
     fi
   done
+  if shared_caddy; then
+    if [ -f "$(shared_site_file)" ]; then
+      ok "caddy    shared with another app ${DIM}($(shared_site_file))${RESET}"
+    else
+      warn "caddy    shared, but $(shared_site_file) is missing: scripts/mac/phoresis.sh restart"
+    fi
+  fi
   if loaded nightly; then ok "nightly  02:30 backup, log rotation"; else warn "nightly  not loaded"; fi
 
   title "Access"
@@ -848,6 +897,7 @@ cmd_status() {
     ok "$BASE_URL"
   else
     warn "$BASE_URL does not answer"
+    if shared_caddy; then shared_caddy_todo; fi
   fi
   if pmset -g assertions 2>/dev/null | grep -Eq "caffeinate asserting on behalf of Process ID $(service_field web pid)([^0-9]|\$)"; then
     ok "Sleep prevented while Phoresis runs (on mains power)"
@@ -881,7 +931,7 @@ cmd_status() {
 # ───────────────────────── launchd entry points ─────────────────────────
 perf_cores() { sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.physicalcpu; }
 
-write_caddyfile() {
+site_block() { # site_block TLS_DIRECTIVE : the Phoresis site, for our own Caddy or a shared one
   local site="" name media_fallback=""
   # One site, every name it answers to: the .local one and the extra ones (a VPN name).
   for name in $(all_hostnames); do
@@ -896,21 +946,9 @@ write_caddyfile() {
 			reverse_proxy 127.0.0.1:$WEB_PORT
 		}"
   fi
-  cat >"$RUN_DIR/Caddyfile" <<EOF
-# Generated at each start by scripts/mac/phoresis.sh (run caddy): edit the script, not this file.
-{
-	admin off
-	persist_config off
-	skip_install_trust
-	auto_https disable_redirects
-	log {
-		format console
-		level WARN
-	}
-}
-
+  cat <<EOF
 $site {
-	tls internal
+	$1
 	encode gzip zstd
 
 	header {
@@ -952,6 +990,108 @@ $site {
 	}
 }
 EOF
+}
+
+write_caddyfile() { # our own Caddy: its options, then the site with a certificate of its own authority
+  {
+    cat <<EOF
+# Generated at each start by scripts/mac/phoresis.sh (run caddy): edit the script, not this file.
+{
+	admin off
+	persist_config off
+	skip_install_trust
+	auto_https disable_redirects
+	log {
+		format console
+		level WARN
+	}
+}
+
+EOF
+    site_block "tls internal"
+  } >"$RUN_DIR/Caddyfile"
+}
+
+# ───────────────────────── shared Caddy ─────────────────────────
+# One program only can hold port 443. When another app's Caddy holds it (CamHub), Phoresis hands it
+# a site file instead of running its own: that Caddy imports every *.caddy of a folder and offers
+# the snippet `shared_tls` (its certificate). Phoresis is then https://phoresis.local, no port.
+publish_site() { # write our site into the shared folder; say so when it changed
+  local file new
+  file="$(shared_site_file)"
+  [ -d "$SHARED_DIR" ] || fail "$SHARED_DIR not found (PHORESIS_SHARED_CADDY_DIR): scripts/mac/phoresis.sh shared-caddy off, or put it back"
+  new="$(printf '# Written by %s (shared-caddy): edit the script, not this file.\n' "$ROOT/scripts/mac/phoresis.sh"
+    site_block "import shared_tls")"
+  if [ -f "$file" ] && [ "$(cat "$file")" = "$new" ]; then return 0; fi
+  (umask 077 && printf '%s\n' "$new" >"$file.tmp" && mv "$file.tmp" "$file")
+  info "Site file written: $file"
+}
+
+shared_caddy_todo() {
+  info "The shared Caddy reads site files when it starts, and its certificate must hold every name"
+  info "($(all_hostnames | tr -s ' ' | sed -e 's/ $//' -e 's/ /, /g')). With CamHub, in its folder:"
+  info "    PKI_EXTRA_HOSTNAMES=<those names> in .env, then: make hub-restart"
+}
+
+drop_own_caddy() {
+  if [ -f "$(plist_path caddy)" ] || loaded caddy; then
+    boot_out caddy
+    rm -f "$(plist_path caddy)"
+    info "Phoresis' own Caddy removed (the shared one serves it)"
+  fi
+}
+
+cmd_shared_caddy() {
+  local action="${1:-}" dir="${2:-}" port="${3:-443}"
+  load_env
+  case "$action" in
+    status)
+      if shared_caddy; then
+        info "Shared: site file $(shared_site_file), port $HTTPS_PORT, $BASE_URL"
+      else
+        info "Not shared: Phoresis runs its own Caddy on $BASE_URL"
+      fi
+      ;;
+    use)
+      [ -n "$dir" ] || fail "Usage: scripts/mac/phoresis.sh shared-caddy use DIR [PORT]   (CamHub: <its folder>/var/caddy-sites)"
+      [ -d "$dir" ] || fail "$dir is not a folder: give the one the shared Caddy reads its sites from"
+      case "$port" in '' | *[!0-9]*) fail "PORT is the HTTPS port of the shared Caddy (443)" ;; esac
+      dir="$(cd "$dir" && pwd -P)"
+      title "Phoresis behind the shared Caddy"
+      env_set PHORESIS_SHARED_CADDY_DIR "$dir"
+      env_set PHORESIS_HTTPS_PORT "$port"
+      load_env
+      write_host_settings
+      load_env
+      drop_own_caddy
+      publish_site
+      if loaded web; then
+        boot_out web # Django reads its allowed hosts and trusted origins at start
+        start_services
+      fi
+      ok "Phoresis is now $BASE_URL, served by the Caddy that reads $dir"
+      shared_caddy_todo
+      ;;
+    off)
+      shared_caddy || fail "Phoresis already runs its own Caddy"
+      title "Phoresis back on its own Caddy"
+      rm -f "$(shared_site_file)"
+      info "Site file removed: restart the app that runs the shared Caddy, so it stops serving this name"
+      env_set PHORESIS_SHARED_CADDY_DIR ""
+      env_set PHORESIS_HTTPS_PORT "$(pick_port 443 8443 8444 8445)"
+      load_env
+      write_host_settings
+      load_env
+      write_plist caddy
+      if loaded web; then
+        boot_out web
+        start_services
+        wait_ready
+      fi
+      ok "Phoresis is now $BASE_URL (scripts/mac/phoresis.sh trust)"
+      ;;
+    *) fail "Usage: scripts/mac/phoresis.sh shared-caddy use DIR [PORT]   |   shared-caddy off   |   shared-caddy status" ;;
+  esac
 }
 
 lan_ip() { # address of the default route's interface, 127.0.0.1 when offline
@@ -1063,6 +1203,7 @@ case "$COMMAND" in
   restore) cmd_restore "$@" ;;
   archive-disk) cmd_archive_disk "$@" ;;
   extra-host) cmd_extra_host "$@" ;;
+  shared-caddy) cmd_shared_caddy "$@" ;;
   storage) cmd_manage media_storage "$@" ;;
   manage) cmd_manage "$@" ;;
   trust) cmd_trust ;;

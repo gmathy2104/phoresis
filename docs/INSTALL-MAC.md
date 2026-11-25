@@ -12,7 +12,7 @@ are independent ways to run the same code.
 | Kept alive by | Docker `restart: unless-stopped` | launchd (`local.phoresis.*` LaunchAgents) |
 | PostgreSQL | native, on the host | native (Homebrew), database `phoresis` in the shared server |
 | Redis | a container | native, an instance of its own (`127.0.0.1:6390`, password) |
-| HTTPS | Caddy container, `https://phoresis` | Caddy, `https://phoresis.local` (port 8443 if 443 is taken) |
+| HTTPS | Caddy container, `https://phoresis` | Caddy, `https://phoresis.local` (its own, or the one of the app that holds port 443) |
 | Media | Docker volume `phoresis_phoresis_media` | a folder on the Mac, plus an optional archive on an external disk |
 | Updates | Watchtower, nightly | `phoresis.sh update` (nightly on request) |
 | Backups | `scripts/backup.ps1` | nightly, automatic |
@@ -29,14 +29,43 @@ Nothing is shared except the PostgreSQL server, where each app has its own datab
 | | CamHub | Phoresis |
 |---|---|---|
 | launchd label | `local.camhub.hub` | `local.phoresis.{redis,web,worker,beat,caddy,mdns,nightly}` |
-| HTTPS | 443 (`camhub.local`) | 8443 (`phoresis.local`), or 443 on a Mac without CamHub |
+| HTTPS | 443 (`camhub.local`) | 443 through CamHub's Caddy (`phoresis.local`); 8443 until that is set up |
 | Django | 127.0.0.1:8000 | 127.0.0.1:8710 |
 | Redis | Homebrew service, 6379 | its own, 6390 |
 | Database | `camhub` | `phoresis` |
 | Data | `var/` in its checkout | `~/Library/Application Support/Phoresis` |
 
-`install` picks free ports itself and writes them to `.env`. Both apps answering on port 443 would
-need one of the two Caddy servers to front the other: not done, and not needed.
+`install` picks free ports itself and writes them to `.env`.
+
+### One address without a port: the shared Caddy
+
+One program only can hold port 443. On a Mac where CamHub holds it, a fresh install of Phoresis
+answers on `https://phoresis.local:8443`. To drop the port, let CamHub's Caddy serve Phoresis too,
+under its own name:
+
+```bash
+~/phoresis/scripts/mac/phoresis.sh shared-caddy use ~/app_camera_home/var/caddy-sites
+```
+
+Phoresis stops its own Caddy and writes its site as a file in that folder. Then, in CamHub's
+folder, add the name to its certificate and restart it (its `docs/design/caddy-partage.md`):
+
+```
+PKI_EXTRA_HOSTNAMES=phoresis.local      in CamHub's .env
+make hub-restart
+```
+
+Phoresis is then `https://phoresis.local`. What changes:
+
+- **One authority for both apps.** The certificate is CamHub's: a device that already trusts
+  CamHub accepts Phoresis with nothing more to install, and `phoresis.sh trust` says so.
+- **CamHub stopped, Phoresis is not reachable.** Its services keep running; `status` shows it.
+- **The shared Caddy reads site files when it starts.** After `extra-host add`, or a change of the
+  media or static folders, restart CamHub; the extra name must also be in `PKI_EXTRA_HOSTNAMES`.
+- `shared-caddy off` goes back to Phoresis' own Caddy and a port; `shared-caddy status` tells which.
+
+Any app can play CamHub's part: the folder is one its Caddy imports `*.caddy` from, and it offers
+a snippet named `shared_tls` holding its certificate.
 
 ## Install
 
@@ -62,13 +91,14 @@ It asks for the admin and lab accounts once, then:
 6. migrates, collects static files, seeds groups, ladders and the two accounts;
 7. installs and starts the seven LaunchAgents.
 
-Then open the address it prints, `https://phoresis.local:8443` on a Mac that also runs CamHub.
+Then open the address it prints, `https://phoresis.local:8443` on a Mac that also runs CamHub
+(without the port once the shared Caddy is set up, see above).
 Re-running `install` is safe: it keeps `.env` and only completes it.
 
 ### Trust the certificate (once)
 
 Caddy signs the site's certificate with a local authority of its own. Browsers warn until that
-authority is trusted:
+authority is trusted (behind the shared Caddy, the authority to trust is CamHub's instead):
 
 ```bash
 ~/phoresis/scripts/mac/phoresis.sh trust
@@ -120,6 +150,7 @@ scripts/mac/phoresis.sh backup         now
 scripts/mac/phoresis.sh restore DIR    a dated folder from the backups
 scripts/mac/phoresis.sh storage status | archive | restore | verify
 scripts/mac/phoresis.sh extra-host add|remove NAME | list    one more name to answer on (VPN)
+scripts/mac/phoresis.sh shared-caddy use DIR | off | status   served by another app's Caddy
 scripts/mac/phoresis.sh manage ...     any manage.py command
 scripts/mac/phoresis.sh uninstall      removes the services; data, database and .env stay
 ```
