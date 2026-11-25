@@ -9,6 +9,21 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.4.0](https://github.com/gmathy2104/phoresis/compare/v1.3.0...v1.4.0) (2026-11-24)
+
+
+### Features
+
+* **accounts:** sign-in lockout, two-factor authentication and password rules ([57e6e29](https://github.com/gmathy2104/phoresis/commit/57e6e2909f201ec09703c941919fdca2b86ff415))
+* media behind the session, and extra host names on the Mac install ([0b1aa4f](https://github.com/gmathy2104/phoresis/commit/0b1aa4f9cf6c9dd79ba521c4750dba8c8d446f3d))
+* native macOS install and media storage on two disks ([7ff69e0](https://github.com/gmathy2104/phoresis/commit/7ff69e0efbec53b99cdaab6e9e9a56da21ac243c))
+
+
+### Documentation
+
+* correct the cause of the arm64 band-detection difference ([61ee522](https://github.com/gmathy2104/phoresis/commit/61ee522a3de67fcb1afb7cee3dbaa298cda5d9a2))
+* the frozen detector test now holds one value per architecture ([50a811e](https://github.com/gmathy2104/phoresis/commit/50a811e3fab5bc16d6770ce13f777db3cc006b70))
+
 ## [1.3.0](https://github.com/gmathy2104/phoresis/compare/v1.2.0...v1.3.0) (2026-11-21)
 
 
