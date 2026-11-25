@@ -9,6 +9,13 @@ For a human-readable explanation of each phase milestone, see `docs/specs/`.
 
 ---
 
+## [1.5.0](https://github.com/gmathy2104/phoresis/compare/v1.4.0...v1.5.0) (2026-11-25)
+
+
+### Features
+
+* **mac:** serve Phoresis from the Caddy of the app that holds port 443 ([678260b](https://github.com/gmathy2104/phoresis/commit/678260b90aacac6025852354355a0d8512a7501b))
+
 ## [1.4.0](https://github.com/gmathy2104/phoresis/compare/v1.3.0...v1.4.0) (2026-11-24)
 
 
